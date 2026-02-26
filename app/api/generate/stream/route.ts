@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
         // ── Stage 3: Humanize (streams to client) ────────────────────────
         send({ type: "stage", step: 3, total: 3, label: "Humanizing..." });
-        const humanizedStream = await humanizeContent(draft, voiceProfile, HUMANIZER);
+        const humanizedStream = await humanizeContent(draft, voiceProfile, HUMANIZER, interview.contentType);
 
         let finalContent = "";
         const reader = humanizedStream.getReader();

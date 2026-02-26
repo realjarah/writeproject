@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
 import ReadinessBar from "@/components/ReadinessBar";
+import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_LABELS } from "@/lib/claude";
 
 const CATEGORIES: { value: SampleCategory; label: string; color: string }[] = [
   { value: "blog",    label: "Blog / Article", color: "#60a5fa" },
@@ -38,6 +39,7 @@ interface VoiceProfile {
     thingsToAvoid: string[];
     rawSummary: string;
     categoryInsights?: Record<string, string>;
+    contentGuidelines?: Record<string, string[]>;
   };
   updatedAt: string;
 }
@@ -54,6 +56,7 @@ export default function VoicePage() {
   const [analyzeError, setAnalyzeError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [expandedProfile, setExpandedProfile] = useState(false);
+  const [guidelinesLoading, setGuidelinesLoading] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     const [samplesRes, profileRes] = await Promise.all([
@@ -122,6 +125,30 @@ export default function VoicePage() {
       await load();
     }
     setAnalyzing(false);
+  }
+
+  async function generateGuidelines(contentType: string) {
+    setGuidelinesLoading((prev) => new Set(prev).add(contentType));
+    await fetch("/api/voice/guidelines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contentType }),
+    });
+    await load();
+    setGuidelinesLoading((prev) => {
+      const next = new Set(prev);
+      next.delete(contentType);
+      return next;
+    });
+  }
+
+  async function deleteGuidelines(contentType: string) {
+    await fetch("/api/voice/guidelines", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contentType }),
+    });
+    await load();
   }
 
   const totalWords = samples.reduce((s, x) => s + x.wordCount, 0);
@@ -330,6 +357,72 @@ export default function VoicePage() {
                 )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Content guidelines */}
+      {profile && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Content Guidelines</h2>
+            <p className="text-xs text-[#555] mt-0.5">
+              Format-specific instructions derived from your voice profile. Generate them on demand — they&apos;re injected automatically during generation.
+            </p>
+          </div>
+          {CONTENT_TYPE_GROUPS.map((group) => (
+            <div key={group.label} className="space-y-2">
+              <div className="text-[10px] font-bold text-[#555] uppercase tracking-widest">
+                {group.label}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {group.types.map((type) => {
+                  const guidelines = profile.analysis.contentGuidelines?.[type];
+                  const isLoading = guidelinesLoading.has(type);
+                  const hasGuidelines = guidelines && guidelines.length > 0;
+                  return (
+                    <div
+                      key={type}
+                      className="bg-[#161616] border border-[#222] rounded-xl p-4 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-white">
+                          {CONTENT_TYPE_LABELS[type] ?? type}
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {hasGuidelines && (
+                            <button
+                              onClick={() => deleteGuidelines(type)}
+                              className="text-[10px] text-[#444] hover:text-red-400 transition-colors"
+                            >
+                              Clear
+                            </button>
+                          )}
+                          <button
+                            onClick={() => generateGuidelines(type)}
+                            disabled={isLoading}
+                            className="text-[10px] font-medium text-[#888] hover:text-white border border-[#333] hover:border-[#555] rounded px-2 py-0.5 transition-colors disabled:opacity-40"
+                          >
+                            {isLoading ? "Generating..." : hasGuidelines ? "Regenerate" : "Generate"}
+                          </button>
+                        </div>
+                      </div>
+                      {hasGuidelines ? (
+                        <ul className="space-y-1">
+                          {guidelines.map((g, i) => (
+                            <li key={i} className="text-[11px] text-[#777] leading-snug">
+                              · {g}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-[11px] text-[#444] italic">No guidelines yet.</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

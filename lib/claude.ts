@@ -15,6 +15,8 @@ export interface VoiceAnalysis {
   thingsToAvoid: string[];
   rawSummary: string;
   categoryInsights?: Record<string, string>;
+  // Per-format guidelines generated on demand
+  contentGuidelines?: Record<string, string[]>;
 }
 
 export interface LabeledSample {
@@ -68,13 +70,13 @@ Only include keys in categoryInsights that are actually represented in the sampl
 }
 
 export interface InterviewAnswers {
-  contentType: "blog" | "social" | "caption";
+  contentType: string;
   topic: string;
   angle: string;
   keyPoints: string;
-  sourcesOrData: string;
-  targetAudience: string;
-  toneNotes: string;
+  sourcesOrData?: string;
+  targetAudience?: string;
+  toneNotes?: string;
   wordCountTarget?: string;
 }
 
@@ -329,6 +331,99 @@ Write it now.`;
   });
 }
 
+// ── Content guidelines ───────────────────────────────────────────────────────
+
+/**
+ * Generate format-specific writing guidelines for one content type,
+ * grounded in this author's actual voice profile.
+ * These layer ON TOP of the universal voice analysis.
+ */
+export async function generateContentGuideline(
+  voiceProfile: VoiceAnalysis,
+  contentType: string
+): Promise<string[]> {
+  const formatLabel = CONTENT_TYPE_LABELS[contentType] ?? contentType;
+  const formatGuidance = WORD_GUIDANCE[contentType] ?? "";
+
+  const prompt = `You are helping a ghostwriter understand exactly how to write ${formatLabel} in a specific author's voice.
+
+Author voice profile:
+- Summary: ${voiceProfile.rawSummary}
+- Tone: ${voiceProfile.tone}
+- Sentence structure: ${voiceProfile.sentenceStructure}
+- Vocabulary: ${voiceProfile.vocabularyStyle}
+- Punctuation habits: ${voiceProfile.punctuationHabits}
+- Paragraph style: ${voiceProfile.paragraphStyle}
+- Rhetorical devices: ${voiceProfile.rhetoricalDevices}
+- Recurring patterns: ${voiceProfile.commonPatterns.join("; ")}
+- Things to avoid: ${voiceProfile.thingsToAvoid.join("; ")}
+
+Format: ${formatLabel}
+Format requirements: ${formatGuidance}
+
+Generate 6–8 specific, actionable guidelines that bridge THIS author's natural voice with ${formatLabel} format conventions. Each guideline must be:
+- Specific to this author's patterns — not generic writing advice
+- Actionable: a ghostwriter can immediately apply it
+- A concrete instruction, not a vague principle
+
+Focus on: how their natural patterns adapt (or should be suppressed) for this format, structural choices that fit their style, what makes their version of this format distinctive, what tendencies to dial up vs dial down.
+
+Return ONLY a JSON array of strings. No preamble, no explanation.`;
+
+  const res = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const text = res.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("")
+    .trim();
+
+  const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  return JSON.parse(clean) as string[];
+}
+
+// ── Stage budgets (scales with format complexity / output length) ─────────────
+
+interface StageBudget { maxTokens: number; thinkingBudget: number }
+interface StageBudgets { plan: StageBudget; draft: StageBudget; humanize: StageBudget }
+
+const STAGE_BUDGETS: Record<string, StageBudgets> = {
+  // Academic / very long-form — full benefit of large context window
+  research:      { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 60000, thinkingBudget: 20000 }, humanize: { maxTokens: 50000, thinkingBudget: 14000 } },
+  whitepaper:    { plan: { maxTokens: 10000, thinkingBudget: 7000  }, draft: { maxTokens: 50000, thinkingBudget: 16000 }, humanize: { maxTokens: 40000, thinkingBudget: 12000 } },
+  technical:     { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 40000, thinkingBudget: 12000 }, humanize: { maxTokens: 32000, thinkingBudget: 10000 } },
+  case_study:    { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 30000, thinkingBudget: 12000 }, humanize: { maxTokens: 24000, thinkingBudget: 8000  } },
+  // Standard long-form
+  report:        { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 24000, thinkingBudget: 10000 }, humanize: { maxTokens: 20000, thinkingBudget: 8000  } },
+  essay:         { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 24000, thinkingBudget: 10000 }, humanize: { maxTokens: 20000, thinkingBudget: 8000  } },
+  speech:        { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 20000, thinkingBudget: 10000 }, humanize: { maxTokens: 16000, thinkingBudget: 8000  } },
+  script:        { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 20000, thinkingBudget: 10000 }, humanize: { maxTokens: 16000, thinkingBudget: 8000  } },
+  proposal:      { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 20000, thinkingBudget: 10000 }, humanize: { maxTokens: 16000, thinkingBudget: 8000  } },
+  // Business medium
+  press_release: { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,  thinkingBudget: 5000  }, humanize: { maxTokens: 6000,  thinkingBudget: 4000  } },
+  resume:        { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,  thinkingBudget: 5000  }, humanize: { maxTokens: 6000,  thinkingBudget: 4000  } },
+  cover_letter:  { plan: { maxTokens: 5000,  thinkingBudget: 3000  }, draft: { maxTokens: 6000,  thinkingBudget: 4000  }, humanize: { maxTokens: 5000,  thinkingBudget: 3000  } },
+  email:         { plan: { maxTokens: 4000,  thinkingBudget: 2000  }, draft: { maxTokens: 4000,  thinkingBudget: 2000  }, humanize: { maxTokens: 4000,  thinkingBudget: 2000  } },
+  // Short-form
+  social:        { plan: { maxTokens: 3000,  thinkingBudget: 2000  }, draft: { maxTokens: 2000,  thinkingBudget: 1500  }, humanize: { maxTokens: 2000,  thinkingBudget: 1500  } },
+  caption:       { plan: { maxTokens: 2000,  thinkingBudget: 1500  }, draft: { maxTokens: 1500,  thinkingBudget: 1000  }, humanize: { maxTokens: 1500,  thinkingBudget: 1000  } },
+  text_message:  { plan: { maxTokens: 2000,  thinkingBudget: 1500  }, draft: { maxTokens: 1500,  thinkingBudget: 1000  }, humanize: { maxTokens: 1500,  thinkingBudget: 1000  } },
+};
+
+const DEFAULT_BUDGETS: StageBudgets = {
+  plan:     { maxTokens: 8000,  thinkingBudget: 5000  },
+  draft:    { maxTokens: 20000, thinkingBudget: 10000 },
+  humanize: { maxTokens: 16000, thinkingBudget: 8000  },
+};
+
+export function getStageBudgets(contentType: string): StageBudgets {
+  return STAGE_BUDGETS[contentType] ?? DEFAULT_BUDGETS;
+}
+
 // ── Multi-stage pipeline ─────────────────────────────────────────────────────
 
 function extractText(content: Anthropic.ContentBlock[]): string {
@@ -351,6 +446,11 @@ export async function planContent(
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
   const hasPDFs = binaryBlocks.some((b) => b.type === "document");
 
+  const guidelines = voiceProfile.contentGuidelines?.[interview.contentType];
+  const guidelinesBlock = guidelines?.length
+    ? `\n**Format-specific guidelines for ${CONTENT_TYPE_LABELS[interview.contentType]}:**\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
+    : "";
+
   const userPrompt = `You are about to ghost-write a ${CONTENT_TYPE_LABELS[interview.contentType]}.
 
 Before writing a single word, produce a detailed structural plan.
@@ -363,14 +463,14 @@ Before writing a single word, produce a detailed structural plan.
 - Tone notes: ${interview.toneNotes || "none"}${interview.wordCountTarget ? `\n- Target length: ${interview.wordCountTarget}` : ""}
 ${contextBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
-
+${guidelinesBlock}
 **Plan requirements:**
 - The exact opening move — what's the hook? Be specific.
 - How the argument builds and where the emotional beats land
 - Section-by-section breakdown with the purpose of each beat
 - How each piece of context gets woven in naturally (if any provided)
 - The closing move and what the reader leaves with
-- Structural choices that specifically play to this author's voice and patterns
+- Structural choices that specifically play to this author's voice and the format guidelines above
 
 Return ONLY the plan. Do not write the piece yet.`;
 
@@ -383,12 +483,14 @@ Return ONLY the plan. Do not write the piece yet.`;
     ? { headers: { "anthropic-beta": "pdfs-2024-09-25" } }
     : {};
 
+  const { plan: planBudget } = getStageBudgets(interview.contentType);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (anthropic.messages.create as any)(
     {
       model: "claude-opus-4-6",
-      max_tokens: 8000,
-      thinking: { type: "enabled", budget_tokens: 5000 },
+      max_tokens: planBudget.maxTokens,
+      thinking: { type: "enabled", budget_tokens: planBudget.thinkingBudget },
       messages: [{ role: "user", content: messageContent }],
     },
     reqOptions
@@ -411,7 +513,12 @@ export async function draftContent(
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
   const hasPDFs = binaryBlocks.some((b) => b.type === "document");
 
-  const systemPrompt = `You are a ghost-writer. Write ${CONTENT_TYPE_LABELS[interview.contentType]} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
+  const guidelines = voiceProfile.contentGuidelines?.[interview.contentType];
+  const guidelinesBlock = guidelines?.length
+    ? `\n## Format-Specific Guidelines (${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
+    : "";
+
+  const systemPrompt = `You are a ghost-writer. Write ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
 
 ## Author Voice Profile
 
@@ -425,10 +532,10 @@ export async function draftContent(
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid:**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-
+${guidelinesBlock}
 ## Output Rules
 - Write ONLY the piece. Nothing else.
-- ${WORD_GUIDANCE[interview.contentType]}`;
+- ${WORD_GUIDANCE[interview.contentType] ?? ""}`;
 
   const userPrompt = `Follow this structural plan:
 
@@ -450,12 +557,14 @@ Write the piece now.`;
     ? { headers: { "anthropic-beta": "pdfs-2024-09-25" } }
     : {};
 
+  const { draft: draftBudget } = getStageBudgets(interview.contentType);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (anthropic.messages.create as any)(
     {
       model: "claude-opus-4-6",
-      max_tokens: 20000,
-      thinking: { type: "enabled", budget_tokens: 10000 },
+      max_tokens: draftBudget.maxTokens,
+      thinking: { type: "enabled", budget_tokens: draftBudget.thinkingBudget },
       system: systemPrompt,
       messages: [{ role: "user", content: messageContent }],
     },
@@ -473,7 +582,8 @@ Write the piece now.`;
 export async function humanizeContent(
   draft: string,
   voiceProfile: VoiceAnalysis,
-  humanizerInstructions: string
+  humanizerInstructions: string,
+  contentType: string = "blog"
 ): Promise<ReadableStream<Uint8Array>> {
   const systemPrompt = `${humanizerInstructions}
 
@@ -487,11 +597,13 @@ Also maintain this specific author's voice throughout:
 
   const userPrompt = `Humanize the following piece:\n\n${draft}`;
 
+  const { humanize: humanizeBudget } = getStageBudgets(contentType);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stream = await (anthropic.messages.stream as any)({
     model: "claude-opus-4-6",
-    max_tokens: 16000,
-    thinking: { type: "enabled", budget_tokens: 8000 },
+    max_tokens: humanizeBudget.maxTokens,
+    thinking: { type: "enabled", budget_tokens: humanizeBudget.thinkingBudget },
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
