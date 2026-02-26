@@ -13,6 +13,7 @@ model VoiceSample {
   title     String
   content   String
   wordCount Int      @default(0)
+  category  String   @default("other")
   createdAt DateTime @default(now())
 }
 

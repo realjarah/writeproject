@@ -1,12 +1,28 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
+import ReadinessBar from "@/components/ReadinessBar";
+
+const CATEGORIES: { value: SampleCategory; label: string; color: string }[] = [
+  { value: "blog",    label: "Blog / Article", color: "#60a5fa" },
+  { value: "thread",  label: "Thread",         color: "#a78bfa" },
+  { value: "caption", label: "Caption",        color: "#f472b6" },
+  { value: "notes",   label: "Notes",          color: "#facc15" },
+  { value: "email",   label: "Email",          color: "#34d399" },
+  { value: "other",   label: "Other",          color: "#9ca3af" },
+];
+
+function categoryMeta(value: string) {
+  return CATEGORIES.find((c) => c.value === value) ?? CATEGORIES[CATEGORIES.length - 1];
+}
 
 interface Sample {
   id: number;
   title: string;
   content: string;
   wordCount: number;
+  category: string;
   createdAt: string;
 }
 
@@ -21,6 +37,7 @@ interface VoiceProfile {
     commonPatterns: string[];
     thingsToAvoid: string[];
     rawSummary: string;
+    categoryInsights?: Record<string, string>;
   };
   updatedAt: string;
 }
@@ -30,6 +47,8 @@ export default function VoicePage() {
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [category, setCategory] = useState<SampleCategory>("other");
+  const [autoDetected, setAutoDetected] = useState(true);
   const [adding, setAdding] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState("");
@@ -50,17 +69,35 @@ export default function VoicePage() {
     load();
   }, [load]);
 
+  // Auto-detect category when content changes
+  useEffect(() => {
+    if (autoDetected && content.trim().length > 20) {
+      setCategory(detectCategory(content));
+    }
+  }, [content, autoDetected]);
+
+  function handleCategoryChange(val: SampleCategory) {
+    setCategory(val);
+    setAutoDetected(false); // user override — stop auto-detecting
+  }
+
+  function resetForm() {
+    setTitle("");
+    setContent("");
+    setCategory("other");
+    setAutoDetected(true);
+    setShowForm(false);
+  }
+
   async function addSample() {
     if (!content.trim()) return;
     setAdding(true);
     await fetch("/api/voice", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, content }),
+      body: JSON.stringify({ title, content, category }),
     });
-    setTitle("");
-    setContent("");
-    setShowForm(false);
+    resetForm();
     setAdding(false);
     load();
   }
@@ -88,6 +125,7 @@ export default function VoicePage() {
   }
 
   const totalWords = samples.reduce((s, x) => s + x.wordCount, 0);
+  const categoryCount = new Set(samples.map((s) => s.category)).size;
 
   return (
     <div className="space-y-8">
@@ -95,8 +133,7 @@ export default function VoicePage() {
         <div>
           <h1 className="text-2xl font-bold text-white">My Voice</h1>
           <p className="text-[#666] text-sm mt-1">
-            Add samples of your real writing. The more you add, the better the
-            clone.
+            Add samples of your real writing. The more you add, the better the clone.
           </p>
         </div>
         <button
@@ -106,6 +143,15 @@ export default function VoicePage() {
           + Add sample
         </button>
       </div>
+
+      {/* Readiness bar — always visible once at least 1 sample */}
+      {samples.length > 0 && (
+        <ReadinessBar
+          totalWords={totalWords}
+          sampleCount={samples.length}
+          categoryCount={categoryCount}
+        />
+      )}
 
       {/* Add form */}
       {showForm && (
@@ -125,6 +171,37 @@ export default function VoicePage() {
             rows={10}
             className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#555] focus:outline-none focus:border-[#444] resize-y"
           />
+
+          {/* Category selector */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-[#555] uppercase tracking-widest">
+                Writing type
+              </span>
+              {content.trim().length > 20 && autoDetected && (
+                <span className="text-[10px] text-[#555] bg-[#111] border border-[#2a2a2a] rounded px-1.5 py-0.5">
+                  auto-detected
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {CATEGORIES.map(({ value, label, color }) => (
+                <button
+                  key={value}
+                  onClick={() => handleCategoryChange(value)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
+                  style={
+                    category === value
+                      ? { backgroundColor: color + "22", borderColor: color, color }
+                      : { backgroundColor: "transparent", borderColor: "#2a2a2a", color: "#555" }
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="flex items-center gap-3">
             <button
               onClick={addSample}
@@ -134,7 +211,7 @@ export default function VoicePage() {
               {adding ? "Saving..." : "Save sample"}
             </button>
             <button
-              onClick={() => setShowForm(false)}
+              onClick={resetForm}
               className="text-[#666] text-sm hover:text-[#999] transition-colors"
             >
               Cancel
@@ -181,9 +258,7 @@ export default function VoicePage() {
           >
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="font-medium text-white text-sm">
-                Voice profile active
-              </span>
+              <span className="font-medium text-white text-sm">Voice profile active</span>
             </div>
             <span className="text-[#555] text-xs">
               {expandedProfile ? "Hide" : "View details"}
@@ -218,13 +293,41 @@ export default function VoicePage() {
                   </div>
                   <ul className="space-y-0.5">
                     {profile.analysis.commonPatterns.map((p, i) => (
-                      <li key={i} className="text-xs text-[#888]">
-                        · {p}
-                      </li>
+                      <li key={i} className="text-xs text-[#888]">· {p}</li>
                     ))}
                   </ul>
                 </div>
               )}
+              {profile.analysis.categoryInsights &&
+                Object.keys(profile.analysis.categoryInsights).length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-[#555] uppercase tracking-widest">
+                      Style by format
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {Object.entries(profile.analysis.categoryInsights).map(
+                        ([cat, insight]) => {
+                          const meta = categoryMeta(cat);
+                          return (
+                            <div
+                              key={cat}
+                              className="rounded-lg px-3 py-2 space-y-0.5 border"
+                              style={{ borderColor: meta.color + "44", backgroundColor: meta.color + "0d" }}
+                            >
+                              <div
+                                className="text-[10px] font-bold uppercase tracking-widest"
+                                style={{ color: meta.color }}
+                              >
+                                {meta.label}
+                              </div>
+                              <div className="text-xs text-[#888]">{insight}</div>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  </div>
+                )}
             </div>
           )}
         </div>
@@ -237,29 +340,42 @@ export default function VoicePage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {samples.map((s) => (
-            <div
-              key={s.id}
-              className="bg-[#161616] border border-[#222] rounded-xl p-4 flex items-start justify-between gap-4"
-            >
-              <div className="space-y-1 min-w-0">
-                <div className="font-medium text-white text-sm">{s.title}</div>
-                <div className="text-xs text-[#555]">
-                  {s.wordCount} words ·{" "}
-                  {new Date(s.createdAt).toLocaleDateString()}
-                </div>
-                <p className="text-xs text-[#666] line-clamp-2 mt-1">
-                  {s.content}
-                </p>
-              </div>
-              <button
-                onClick={() => deleteSample(s.id)}
-                className="text-[#444] hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
+          {samples.map((s) => {
+            const meta = categoryMeta(s.category);
+            return (
+              <div
+                key={s.id}
+                className="bg-[#161616] border border-[#222] rounded-xl p-4 flex items-start justify-between gap-4"
               >
-                Remove
-              </button>
-            </div>
-          ))}
+                <div className="space-y-1.5 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-white text-sm">{s.title}</span>
+                    <span
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                      style={{
+                        color: meta.color,
+                        borderColor: meta.color + "55",
+                        backgroundColor: meta.color + "15",
+                      }}
+                    >
+                      {meta.label}
+                    </span>
+                  </div>
+                  <div className="text-xs text-[#555]">
+                    {s.wordCount} words ·{" "}
+                    {new Date(s.createdAt).toLocaleDateString()}
+                  </div>
+                  <p className="text-xs text-[#666] line-clamp-2">{s.content}</p>
+                </div>
+                <button
+                  onClick={() => deleteSample(s.id)}
+                  className="text-[#444] hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

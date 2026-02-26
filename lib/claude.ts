@@ -14,12 +14,24 @@ export interface VoiceAnalysis {
   commonPatterns: string[];
   thingsToAvoid: string[];
   rawSummary: string;
+  categoryInsights?: Record<string, string>;
 }
 
-export async function analyzeVoice(samples: string[]): Promise<VoiceAnalysis> {
+export interface LabeledSample {
+  content: string;
+  category: string;
+}
+
+export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnalysis> {
   const samplesText = samples
-    .map((s, i) => `--- Sample ${i + 1} ---\n${s}`)
+    .map((s, i) => `--- Sample ${i + 1} [${s.category.toUpperCase()}] ---\n${s.content}`)
     .join("\n\n");
+
+  const categories = Array.from(new Set(samples.map((s) => s.category)));
+  const categorySection =
+    categories.length > 1
+      ? `\nNote: samples span multiple formats (${categories.join(", ")}). Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats.\n`
+      : "";
 
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -28,7 +40,7 @@ export async function analyzeVoice(samples: string[]): Promise<VoiceAnalysis> {
       {
         role: "user",
         content: `You are a writing style analyst. Analyze the following writing samples from a single author and extract a detailed voice profile that could be used to ghost-write in their exact style.
-
+${categorySection}
 ${samplesText}
 
 Return ONLY valid JSON with this exact structure (no markdown, no extra text):
@@ -41,8 +53,11 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "rhetoricalDevices": "rhetorical moves they make - analogies, questions, callbacks, lists, etc.",
   "commonPatterns": ["specific recurring phrases or structural patterns", "another pattern"],
   "thingsToAvoid": ["writing patterns NOT present in their work that should be avoided", "another thing to avoid"],
-  "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference"
-}`,
+  "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference",
+  "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" }
+}
+
+Only include keys in categoryInsights that are actually represented in the samples. Omit the field entirely if only one format is present.`,
       },
     ],
   });
