@@ -16,7 +16,16 @@ export async function POST() {
     );
   }
 
-  const analysis = await analyzeVoice(samples.map((s) => s.content));
+  let analysis;
+  try {
+    analysis = await analyzeVoice(samples.map((s) => s.content));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      { error: `Analysis failed: ${message}` },
+      { status: 500 }
+    );
+  }
 
   await prisma.voiceProfile.upsert({
     where: { id: 1 },

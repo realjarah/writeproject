@@ -77,14 +77,26 @@ export default function VoicePage() {
   async function analyzeVoice() {
     setAnalyzing(true);
     setAnalyzeError("");
-    const res = await fetch("/api/voice/analyze", { method: "POST" });
-    if (!res.ok) {
-      const data = await res.json();
-      setAnalyzeError(data.error || "Analysis failed.");
-    } else {
-      await load();
+    try {
+      const res = await fetch("/api/voice/analyze", { method: "POST" });
+      if (!res.ok) {
+        let errorMsg = "Analysis failed.";
+        try {
+          const data = await res.json();
+          errorMsg = data.error || errorMsg;
+        } catch {
+          // response wasn't JSON (e.g. Next.js 500 HTML page)
+        }
+        setAnalyzeError(errorMsg);
+      } else {
+        await load();
+        setExpandedProfile(true);
+      }
+    } catch {
+      setAnalyzeError("Network error — please try again.");
+    } finally {
+      setAnalyzing(false);
     }
-    setAnalyzing(false);
   }
 
   const totalWords = samples.reduce((s, x) => s + x.wordCount, 0);
@@ -161,8 +173,30 @@ export default function VoicePage() {
             <button
               onClick={analyzeVoice}
               disabled={analyzing || samples.length === 0}
-              className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-40"
+              className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-40 flex items-center gap-2"
             >
+              {analyzing && (
+                <svg
+                  className="animate-spin h-3.5 w-3.5 text-black"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+              )}
               {analyzing ? "Analyzing..." : profile ? "Re-analyze voice" : "Analyze voice"}
             </button>
             {analyzeError && (
