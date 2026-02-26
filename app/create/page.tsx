@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
-import { type ContextItem, type ContextItemTag } from "@/lib/claude";
+import { type ContextItem, type ContextItemTag, CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "@/lib/claude";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,6 +109,7 @@ export default function CreatePage() {
   const [description, setDescription] = useState("");
   const [intake, setIntake] = useState<IntakeResult | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [overrideType, setOverrideType] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
   // Draft
@@ -199,6 +200,7 @@ export default function CreatePage() {
     setDraftData("");
     setDraftFileName("");
     setDraftMediaType("");
+    setOverrideType(null);
     setContextOpen(false);
     setDraftOpen(false);
   }
@@ -341,7 +343,7 @@ export default function CreatePage() {
     if (!intake) return;
 
     const interview = {
-      contentType: intake.contentType ?? "blog",
+      contentType: overrideType ?? intake.contentType ?? "blog",
       topic:       intake.topic      ?? answers.topic      ?? "",
       angle:       intake.angle      ?? answers.angle      ?? "",
       keyPoints:   intake.keyPoints  ?? answers.keyPoints  ?? "",
@@ -484,12 +486,32 @@ export default function CreatePage() {
       {/* ── Phase: followup ── */}
       {phase === "followup" && intake && !output && !generating && (
         <div className="space-y-6">
-          {/* Summary + back */}
+          {/* Summary + type selector + back */}
           <div className="flex items-start justify-between gap-4">
-            <div className="space-y-0.5">
-              <p className="text-sm text-[#888]">
-                <span className="text-white">✓</span> {intake.summary}
-              </p>
+            <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+              <span className="text-sm text-white">✓</span>
+              <span className="text-sm text-[#555]">Writing</span>
+              {/* Inline type selector */}
+              <select
+                value={overrideType ?? intake.contentType ?? "blog"}
+                onChange={(e) => setOverrideType(e.target.value)}
+                className="bg-[#1a1a1a] border border-[#2a2a2a] rounded text-xs text-white px-2 py-0.5 focus:outline-none focus:border-[#555] cursor-pointer"
+              >
+                {CONTENT_TYPE_GROUPS.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.types.map((type) => (
+                      <option key={type} value={type}>
+                        {CONTENT_TYPE_LABELS[type]}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              {intake.topic && (
+                <span className="text-sm text-[#555]">
+                  about <span className="text-[#888]">{intake.topic}</span>
+                </span>
+              )}
             </div>
             <button
               type="button"

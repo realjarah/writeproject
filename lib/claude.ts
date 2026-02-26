@@ -101,15 +101,61 @@ export interface GenerationContext {
 // ── Shared constants ────────────────────────────────────────────────────────
 
 export const CONTENT_TYPE_LABELS: Record<string, string> = {
-  blog:    "blog post / article",
-  social:  "social media post (Twitter/X or LinkedIn)",
-  caption: "caption (Instagram or TikTok)",
+  // Writing
+  blog:          "blog post / article",
+  essay:         "essay",
+  newsletter:    "newsletter",
+  whitepaper:    "whitepaper",
+  // Business
+  email:         "email",
+  report:        "report",
+  press_release: "press release",
+  proposal:      "proposal",
+  case_study:    "case study",
+  // Career
+  resume:        "resume / CV",
+  cover_letter:  "cover letter",
+  // Academic & Technical
+  research:      "research paper",
+  technical:     "technical documentation",
+  // Short-form
+  social:        "social media post (Twitter/X or LinkedIn)",
+  caption:       "caption (Instagram or TikTok)",
+  text_message:  "text message",
+  // Spoken word
+  speech:        "speech",
+  script:        "script (podcast / video)",
 };
 
+// Groups used by the type selector UI
+export const CONTENT_TYPE_GROUPS: { label: string; types: string[] }[] = [
+  { label: "Writing",              types: ["blog", "essay", "newsletter", "whitepaper"] },
+  { label: "Business",             types: ["email", "report", "press_release", "proposal", "case_study"] },
+  { label: "Career",               types: ["resume", "cover_letter"] },
+  { label: "Academic & Technical", types: ["research", "technical"] },
+  { label: "Short-form",           types: ["social", "caption", "text_message"] },
+  { label: "Spoken word",          types: ["speech", "script"] },
+];
+
 const WORD_GUIDANCE: Record<string, string> = {
-  blog:    "Aim for 600–1200 words unless the brief specifies otherwise.",
-  social:  "Keep it tight — 50–280 characters for Twitter/X, or 150–300 words for LinkedIn.",
-  caption: "Short and punchy — 1 to 4 sentences max.",
+  blog:          "600–1200 words unless specified. Short paragraphs, natural web formatting.",
+  essay:         "500–1500 words. Clear thesis, structured argument, strong opening and close.",
+  newsletter:    "Conversational, scannable. Clear sections with headers. 200–600 words per section.",
+  whitepaper:    "1500–3000 words. Abstract → executive summary → body sections → conclusion. Data-backed throughout.",
+  email:         "Subject line first, then body. Short paragraphs, one clear ask or CTA. 50–400 words.",
+  report:        "Structured with headers. Executive summary first. Data-driven, precise language. Length varies by scope.",
+  press_release: "Inverted pyramid: headline + dateline + lead (who/what/when/where/why) + body + boilerplate. 400–600 words.",
+  proposal:      "Executive summary → problem → solution → timeline → budget (if provided) → next steps. Persuasive but factual.",
+  case_study:    "Challenge → approach → results → lessons learned. 800–1500 words. Specific, quantified outcomes.",
+  resume:        "Reverse chronological unless specified. Achievement-focused bullets. Quantify impact. No filler. ATS-friendly.",
+  cover_letter:  "3–4 paragraphs: hook → specific connection to role → evidence → closing ask. 250–400 words.",
+  research:      "Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references.",
+  technical:     "Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level.",
+  social:        "Twitter/X: under 280 characters. LinkedIn: 150–300 words with line breaks. No markdown symbols.",
+  caption:       "1–4 sentences. Conversational, relevant to the image or moment.",
+  text_message:  "1–3 sentences max. Casual, direct. Match the sender's register.",
+  speech:        "Write for the ear, not the eye. Short sentences, natural pauses, direct address. Memorable opening and close.",
+  script:        "Label speakers or segments clearly. Write for spoken delivery. Conversational but structured. Include stage directions if helpful.",
 };
 
 // ── Context helpers ──────────────────────────────────────────────────────────
