@@ -60,7 +60,17 @@ function tagMeta(tag: ContextItemTag) {
   return TAGS.find((t) => t.value === tag) ?? TAGS[3];
 }
 
-const FILE_SIZE_LIMIT = 50 * 1024;
+const SIZE_LIMITS: Record<string, number> = {
+  image: 5 * 1024 * 1024,  // 5MB
+  pdf:   10 * 1024 * 1024, // 10MB
+  text:  50 * 1024,        // 50KB
+};
+
+function fileKind(name: string): "image" | "pdf" | "text" {
+  if (/\.(png|jpe?g|gif|webp)$/i.test(name)) return "image";
+  if (/\.pdf$/i.test(name)) return "pdf";
+  return "text";
+}
 
 type SourceType = "url" | "file" | "text";
 
@@ -83,7 +93,9 @@ export default function CreatePage() {
   const [newUrl, setNewUrl] = useState("");
   const [newText, setNewText] = useState("");
   const [newFileName, setNewFileName] = useState("");
-  const [newFileContent, setNewFileContent] = useState("");
+  const [newFileContent, setNewFileContent] = useState(""); // text files
+  const [newData, setNewData] = useState("");               // binary (base64)
+  const [newMediaType, setNewMediaType] = useState("");     // MIME type for binary
   const [newIsCSV, setNewIsCSV] = useState(false);
   const [newIncludePlaceholders, setNewIncludePlaceholders] = useState(false);
   const [newInstructions, setNewInstructions] = useState("");
@@ -116,20 +128,37 @@ export default function CreatePage() {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > FILE_SIZE_LIMIT) {
-      alert(`File too large — max 50KB.`);
+    const kind = fileKind(file.name);
+    const limit = SIZE_LIMITS[kind];
+    if (file.size > limit) {
+      alert(`${file.name} is too large. Limit: ${kind === "image" ? "5MB" : kind === "pdf" ? "10MB" : "50KB"}.`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
-    const isCSV = file.name.toLowerCase().endsWith(".csv");
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      setNewFileName(file.name);
-      setNewFileContent(ev.target?.result as string);
-      setNewIsCSV(isCSV);
-      // Auto-set tag to "data" for CSV files
-      if (isCSV) setNewTag("data");
-    };
-    reader.readAsText(file);
+    if (kind === "image" || kind === "pdf") {
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const [header, base64] = dataUrl.split(",");
+        const mime = header.match(/data:([^;]+)/)?.[1] ?? (kind === "pdf" ? "application/pdf" : "image/jpeg");
+        setNewFileName(file.name);
+        setNewData(base64);
+        setNewMediaType(mime);
+        // Auto-tag images as "example", PDFs as "research"
+        if (kind === "image" && newTag === "reference") setNewTag("example");
+        if (kind === "pdf"   && newTag === "reference") setNewTag("research");
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const isCSV = file.name.toLowerCase().endsWith(".csv");
+      reader.onload = (ev) => {
+        setNewFileName(file.name);
+        setNewFileContent(ev.target?.result as string);
+        setNewIsCSV(isCSV);
+        if (isCSV) setNewTag("data");
+      };
+      reader.readAsText(file);
+    }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -140,6 +169,8 @@ export default function CreatePage() {
     setNewText("");
     setNewFileName("");
     setNewFileContent("");
+    setNewData("");
+    setNewMediaType("");
     setNewIsCSV(false);
     setNewIncludePlaceholders(false);
     setNewInstructions("");
@@ -156,11 +187,18 @@ export default function CreatePage() {
       if (!newUrl.trim()) return;
       item.url = newUrl.trim();
     } else if (sourceType === "file") {
-      if (!newFileContent) return;
-      item.text = newFileContent;
+      if (!newFileName) return;
       item.fileName = newFileName;
-      item.isCSV = newIsCSV;
-      item.includePlaceholders = newIsCSV ? newIncludePlaceholders : undefined;
+      if (newData && newMediaType) {
+        // Binary file (image or PDF)
+        item.data = newData;
+        item.mediaType = newMediaType;
+      } else {
+        // Text-based file (txt, md, csv)
+        item.text = newFileContent;
+        item.isCSV = newIsCSV;
+        item.includePlaceholders = newIsCSV ? newIncludePlaceholders : undefined;
+      }
     } else {
       if (!newText.trim()) return;
       item.text = newText.trim();
@@ -230,8 +268,8 @@ export default function CreatePage() {
 
   // ── add-item form validation ──
   const canCommit =
-    sourceType === "url" ? !!newUrl.trim() :
-    sourceType === "file" ? !!newFileContent :
+    sourceType === "url"  ? !!newUrl.trim() :
+    sourceType === "file" ? !!(newFileContent || newData) :
     !!newText.trim();
 
   return (
@@ -308,6 +346,8 @@ export default function CreatePage() {
               {/* Existing items */}
               {contextItems.map((item, i) => {
                 const meta = tagMeta(item.tag);
+                const isImage = item.mediaType?.startsWith("image/");
+                const isPDF = item.mediaType === "application/pdf";
                 const sourceLabel = item.url
                   ? item.url
                   : item.fileName
@@ -316,14 +356,27 @@ export default function CreatePage() {
                 return (
                   <div key={i} className="bg-[#161616] border border-[#222] rounded-lg p-3 space-y-2">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <span
-                          className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border mt-0.5"
-                          style={{ color: meta.color, borderColor: meta.color + "55", backgroundColor: meta.color + "15" }}
-                        >
-                          {meta.label.toUpperCase()}
-                        </span>
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        {/* Image thumbnail */}
+                        {isImage && item.data && (
+                          <img
+                            src={`data:${item.mediaType};base64,${item.data}`}
+                            alt={item.fileName}
+                            className="w-12 h-12 object-cover rounded shrink-0"
+                          />
+                        )}
                         <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border"
+                              style={{ color: meta.color, borderColor: meta.color + "55", backgroundColor: meta.color + "15" }}
+                            >
+                              {meta.label.toUpperCase()}
+                            </span>
+                            {isPDF  && <span className="text-[10px] font-bold text-red-400 border border-red-400/30 bg-red-400/10 px-1.5 py-0.5 rounded">PDF</span>}
+                            {isImage && <span className="text-[10px] font-bold text-sky-400 border border-sky-400/30 bg-sky-400/10 px-1.5 py-0.5 rounded">IMG</span>}
+                            {item.isCSV && <span className="text-[10px] font-bold text-amber-400 border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 rounded">CSV</span>}
+                          </div>
                           <p className="text-xs text-[#888] break-all leading-relaxed">{sourceLabel}</p>
                           {item.isCSV && item.includePlaceholders && (
                             <span className="text-[10px] text-amber-400">chart/table placeholders on</span>
@@ -350,7 +403,7 @@ export default function CreatePage() {
                     {(["url", "file", "text"] as SourceType[]).map((t) => (
                       <button
                         key={t}
-                        onClick={() => { setSourceType(t); setNewFileName(""); setNewFileContent(""); }}
+                        onClick={() => { setSourceType(t); setNewFileName(""); setNewFileContent(""); setNewData(""); setNewMediaType(""); setNewIsCSV(false); }}
                         className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                           sourceType === t
                             ? "border-[#555] bg-[#1e1e1e] text-white"
@@ -375,22 +428,44 @@ export default function CreatePage() {
 
                   {sourceType === "file" && (
                     <div className="space-y-2">
-                      <input ref={fileInputRef} type="file" accept=".txt,.md,.csv" onChange={handleFileChange} className="hidden" />
+                      <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.pdf,.png,.jpg,.jpeg,.gif,.webp" onChange={handleFileChange} className="hidden" />
                       {newFileName ? (
-                        <div className="flex items-center gap-2 bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2">
-                          <span className="text-xs text-white font-medium flex-1">{newFileName}</span>
-                          {newIsCSV && (
-                            <span className="text-[10px] font-semibold text-amber-400 border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 rounded">CSV</span>
-                          )}
-                          <span className="text-[10px] text-[#555]">{(newFileContent.length / 1024).toFixed(1)}KB</span>
-                          <button onClick={() => { setNewFileName(""); setNewFileContent(""); setNewIsCSV(false); }} className="text-[#444] hover:text-red-400 text-xs">✕</button>
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-3 bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2.5">
+                            {/* Image thumbnail */}
+                            {newMediaType?.startsWith("image/") && newData && (
+                              <img
+                                src={`data:${newMediaType};base64,${newData}`}
+                                alt={newFileName}
+                                className="w-14 h-14 object-cover rounded shrink-0"
+                              />
+                            )}
+                            <div className="flex-1 min-w-0 space-y-0.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs text-white font-medium truncate">{newFileName}</span>
+                                {newMediaType === "application/pdf" && (
+                                  <span className="text-[10px] font-bold text-red-400 border border-red-400/30 bg-red-400/10 px-1.5 py-0.5 rounded shrink-0">PDF</span>
+                                )}
+                                {newIsCSV && (
+                                  <span className="text-[10px] font-bold text-amber-400 border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 rounded shrink-0">CSV</span>
+                                )}
+                                {newMediaType?.startsWith("image/") && (
+                                  <span className="text-[10px] font-bold text-sky-400 border border-sky-400/30 bg-sky-400/10 px-1.5 py-0.5 rounded shrink-0">IMG</span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-[#555]">
+                                {((newData ? newData.length * 0.75 : newFileContent.length) / 1024).toFixed(1)} KB
+                              </span>
+                            </div>
+                            <button onClick={() => { setNewFileName(""); setNewFileContent(""); setNewData(""); setNewMediaType(""); setNewIsCSV(false); }} className="text-[#444] hover:text-red-400 text-xs shrink-0">✕</button>
+                          </div>
                         </div>
                       ) : (
                         <button
                           onClick={() => fileInputRef.current?.click()}
                           className="text-sm text-[#666] border border-[#2a2a2a] rounded-lg px-4 py-2 hover:text-[#aaa] hover:border-[#444] transition-colors"
                         >
-                          Choose file (.txt, .md, .csv — max 50KB)
+                          Choose file (.txt .md .csv .pdf .png .jpg — PDF 10MB, images 5MB, text 50KB)
                         </button>
                       )}
                       {newIsCSV && newFileName && (
