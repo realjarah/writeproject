@@ -47,8 +47,10 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
     ],
   });
 
-  const text =
+  const raw =
     message.content[0].type === "text" ? message.content[0].text : "";
+  // Strip markdown code fences that Claude sometimes adds despite instructions
+  const text = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
   return JSON.parse(text) as VoiceAnalysis;
 }
 
