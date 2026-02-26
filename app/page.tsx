@@ -1,19 +1,31 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import ReadinessBar from "@/components/ReadinessBar";
 
 export const dynamic = "force-dynamic";
 
 async function getStats() {
-  const [sampleCount, generationCount, profile] = await Promise.all([
-    prisma.voiceSample.count(),
+  const [samples, generationCount, profile] = await Promise.all([
+    prisma.voiceSample.findMany({ select: { wordCount: true, category: true } }),
     prisma.generatedContent.count(),
     prisma.voiceProfile.findUnique({ where: { id: 1 } }),
   ]);
-  return { sampleCount, generationCount, hasProfile: !!profile };
+
+  const totalWords = samples.reduce((s, x) => s + x.wordCount, 0);
+  const categoryCount = new Set(samples.map((s) => s.category)).size;
+
+  return {
+    sampleCount: samples.length,
+    totalWords,
+    categoryCount,
+    generationCount,
+    hasProfile: !!profile,
+  };
 }
 
 export default async function HomePage() {
-  const { sampleCount, generationCount, hasProfile } = await getStats();
+  const { sampleCount, totalWords, categoryCount, generationCount, hasProfile } =
+    await getStats();
 
   return (
     <div className="space-y-12">
@@ -50,6 +62,15 @@ export default async function HomePage() {
           <div className="text-sm text-[#666] mt-1">Pieces generated</div>
         </div>
       </div>
+
+      {/* Readiness bar */}
+      {sampleCount > 0 && (
+        <ReadinessBar
+          totalWords={totalWords}
+          sampleCount={sampleCount}
+          categoryCount={categoryCount}
+        />
+      )}
 
       {/* CTA Flow */}
       <div className="space-y-3">

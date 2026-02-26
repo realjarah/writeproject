@@ -14,12 +14,24 @@ export interface VoiceAnalysis {
   commonPatterns: string[];
   thingsToAvoid: string[];
   rawSummary: string;
+  categoryInsights?: Record<string, string>;
 }
 
-export async function analyzeVoice(samples: string[]): Promise<VoiceAnalysis> {
+export interface LabeledSample {
+  content: string;
+  category: string;
+}
+
+export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnalysis> {
   const samplesText = samples
-    .map((s, i) => `--- Sample ${i + 1} ---\n${s}`)
+    .map((s, i) => `--- Sample ${i + 1} [${s.category.toUpperCase()}] ---\n${s.content}`)
     .join("\n\n");
+
+  const categories = Array.from(new Set(samples.map((s) => s.category)));
+  const categorySection =
+    categories.length > 1
+      ? `\nNote: samples span multiple formats (${categories.join(", ")}). Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats.\n`
+      : "";
 
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -28,7 +40,7 @@ export async function analyzeVoice(samples: string[]): Promise<VoiceAnalysis> {
       {
         role: "user",
         content: `You are a writing style analyst. Analyze the following writing samples from a single author and extract a detailed voice profile that could be used to ghost-write in their exact style.
-
+${categorySection}
 ${samplesText}
 
 Return ONLY valid JSON with this exact structure (no markdown, no extra text):
@@ -41,8 +53,11 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "rhetoricalDevices": "rhetorical moves they make - analogies, questions, callbacks, lists, etc.",
   "commonPatterns": ["specific recurring phrases or structural patterns", "another pattern"],
   "thingsToAvoid": ["writing patterns NOT present in their work that should be avoided", "another thing to avoid"],
-  "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference"
-}`,
+  "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference",
+  "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" }
+}
+
+Only include keys in categoryInsights that are actually represented in the samples. Omit the field entirely if only one format is present.`,
       },
     ],
   });
@@ -63,9 +78,95 @@ export interface InterviewAnswers {
   wordCountTarget?: string;
 }
 
+export type ContextItemTag = "data" | "example" | "research" | "reference" | "note";
+
+export interface ContextItem {
+  tag: ContextItemTag;
+  // Source — exactly one of these is set per item:
+  url?: string;       // a referenced URL
+  text?: string;      // text file content or a manual text/note
+  fileName?: string;  // original filename for any uploaded file
+  isCSV?: boolean;
+  includePlaceholders?: boolean; // for CSV: emit [CHART:] / [TABLE:] markers
+  // Binary files (images, PDFs) — base64-encoded, no data: prefix
+  data?: string;
+  mediaType?: string; // "image/jpeg" | "image/png" | ... | "application/pdf"
+  instructions?: string; // how the author wants this context used
+}
+
+export interface GenerationContext {
+  items: ContextItem[];
+}
+
+// Builds the text portion of the context block.
+// Binary items (images/PDFs) are referenced by name only;
+// their actual content goes in separate message content blocks.
+function buildContextBlock(context: GenerationContext): string {
+  if (context.items.length === 0) return "";
+
+  const parts = context.items.map((item, i) => {
+    const tag = item.tag.toUpperCase();
+    const lines: string[] = [];
+
+    if (item.url) {
+      lines.push(`--- Context ${i + 1}: [${tag}] ${item.url} ---`);
+    } else if (item.data && item.mediaType) {
+      // Binary file — content delivered as a separate message block
+      const kind = item.mediaType === "application/pdf"
+        ? "PDF document"
+        : item.mediaType.startsWith("image/") ? "Image" : "File";
+      lines.push(`--- Context ${i + 1}: [${tag}] ${kind}${item.fileName ? ` — ${item.fileName}` : ""} (attached below) ---`);
+    } else if (item.fileName && item.text !== undefined) {
+      // Text-based file
+      lines.push(`--- Context ${i + 1}: [${tag}] ${item.fileName}${item.isCSV ? " (CSV data)" : ""} ---`);
+      lines.push(`\`\`\`\n${item.text.slice(0, 4000)}\n\`\`\``);
+      if (item.isCSV && item.includePlaceholders) {
+        lines.push(
+          `_Where this data would benefit from visualization, insert [CHART: description] or [TABLE: description] placeholder markers._`
+        );
+      }
+    } else if (item.text) {
+      lines.push(`--- Context ${i + 1}: [${tag}] Note ---`);
+      lines.push(item.text.trim());
+    }
+
+    if (item.instructions?.trim()) {
+      lines.push(`→ How to use this: ${item.instructions.trim()}`);
+    }
+
+    return lines.join("\n");
+  });
+
+  return `\n**Supporting Context:**\n${parts.join("\n\n")}\n`;
+}
+
+// Returns Anthropic content blocks for binary context items (images + PDFs).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildBinaryBlocks(context: GenerationContext): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = [];
+  for (const item of context.items) {
+    if (!item.data || !item.mediaType) continue;
+    if (item.mediaType.startsWith("image/")) {
+      blocks.push({
+        type: "image",
+        source: { type: "base64", media_type: item.mediaType, data: item.data },
+      });
+    } else if (item.mediaType === "application/pdf") {
+      blocks.push({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: item.data },
+        ...(item.fileName ? { title: item.fileName } : {}),
+      });
+    }
+  }
+  return blocks;
+}
+
 export async function generateContent(
   voiceProfile: VoiceAnalysis,
-  interview: InterviewAnswers
+  interview: InterviewAnswers,
+  context?: GenerationContext
 ): Promise<ReadableStream<Uint8Array>> {
   const contentTypeLabels: Record<string, string> = {
     blog: "a blog post / article",
@@ -112,6 +213,10 @@ ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 - ${wordGuidance[interview.contentType]}
 - Sound like a real human wrote this — their human.`;
 
+  const contextBlock = context ? buildContextBlock(context) : "";
+  const binaryBlocks = context ? buildBinaryBlocks(context) : [];
+  const hasPDFs = binaryBlocks.some((b) => b.type === "document");
+
   const userPrompt = `Write ${contentTypeLabels[interview.contentType]} using the following brief:
 
 **Topic:** ${interview.topic}
@@ -122,15 +227,30 @@ ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
   }
 **Target Audience:** ${interview.targetAudience || "The author's usual audience."}
 **Extra Tone Notes:** ${interview.toneNotes || "None."}
-
+${contextBlock}
 Write it now.`;
 
-  const stream = await anthropic.messages.stream({
-    model: "claude-opus-4-6",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  // Use multipart content when binary attachments (images/PDFs) are present.
+  // PDFs require the anthropic-beta header.
+  const messageContent =
+    binaryBlocks.length > 0
+      ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
+      : userPrompt;
+
+  const streamOptions = hasPDFs
+    ? { headers: { "anthropic-beta": "pdfs-2024-09-25" } }
+    : {};
+
+  const stream = await anthropic.messages.stream(
+    {
+      model: "claude-opus-4-6",
+      max_tokens: 4096,
+      system: systemPrompt,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      messages: [{ role: "user", content: messageContent as any }],
+    },
+    streamOptions
+  );
 
   return new ReadableStream({
     async start(controller) {

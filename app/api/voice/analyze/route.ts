@@ -16,7 +16,9 @@ export async function POST() {
     );
   }
 
-  const analysis = await analyzeVoice(samples.map((s) => s.content));
+  const analysis = await analyzeVoice(
+    samples.map((s) => ({ content: s.content, category: s.category }))
+  );
 
   await prisma.voiceProfile.upsert({
     where: { id: 1 },
