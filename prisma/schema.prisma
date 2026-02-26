@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model VoiceSample {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  wordCount Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model VoiceProfile {
+  id        Int      @id @default(autoincrement())
+  analysis  String   // JSON: style traits, patterns, vocab notes
+  updatedAt DateTime @updatedAt
+}
+
+model GeneratedContent {
+  id          Int      @id @default(autoincrement())
+  contentType String   // "blog" | "social" | "caption"
+  topic       String
+  interview   String   // JSON: interview Q&A
+  content     String
+  createdAt   DateTime @default(now())
+}
