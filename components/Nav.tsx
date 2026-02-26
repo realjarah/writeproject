@@ -8,6 +8,7 @@ const links = [
   { href: "/voice", label: "My Voice" },
   { href: "/create", label: "Create" },
   { href: "/history", label: "History" },
+  { href: "/signatures", label: "Signatures" },
 ];
 
 export default function Nav() {

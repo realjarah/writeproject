@@ -31,3 +31,11 @@ model GeneratedContent {
   content     String
   createdAt   DateTime @default(now())
 }
+
+model Signature {
+  id        Int      @id @default(autoincrement())
+  name      String
+  content   String   // the footer text, supports markdown-ish formatting
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+}

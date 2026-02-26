@@ -2,10 +2,14 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { generateContent, InterviewAnswers, VoiceAnalysis } from "@/lib/claude";
+import { generateContent, InterviewAnswers, VoiceAnalysis, GenerationContext } from "@/lib/claude";
 
 export async function POST(req: NextRequest) {
-  const interview: InterviewAnswers = await req.json();
+  const body = await req.json();
+  const { signatureContent, context, ...interview } = body as InterviewAnswers & {
+    signatureContent?: string;
+    context?: GenerationContext;
+  };
 
   const profileRow = await prisma.voiceProfile.findUnique({ where: { id: 1 } });
   if (!profileRow) {
@@ -17,11 +21,10 @@ export async function POST(req: NextRequest) {
 
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);
 
-  // We'll stream to the client AND buffer to save
-  const contentStream = await generateContent(voiceProfile, interview);
+  const contentStream = await generateContent(voiceProfile, interview, context);
   const [streamForClient, streamForBuffer] = contentStream.tee();
 
-  // Save in background after stream completes
+  // Save in background — append signature to stored content if provided
   (async () => {
     const reader = streamForBuffer.getReader();
     const chunks: Uint8Array[] = [];
@@ -30,9 +33,13 @@ export async function POST(req: NextRequest) {
       if (done) break;
       chunks.push(value);
     }
-    const fullContent = new TextDecoder().decode(
+    const generated = new TextDecoder().decode(
       Buffer.concat(chunks.map((c) => Buffer.from(c)))
     );
+    const fullContent = signatureContent
+      ? `${generated}\n\n${signatureContent}`
+      : generated;
+
     await prisma.generatedContent.create({
       data: {
         contentType: interview.contentType,

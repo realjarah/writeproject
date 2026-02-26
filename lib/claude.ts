@@ -78,9 +78,55 @@ export interface InterviewAnswers {
   wordCountTarget?: string;
 }
 
+export type LinkTag = "data" | "example" | "research" | "reference";
+
+export interface ContextLink {
+  url: string;
+  tag: LinkTag;
+}
+
+export interface ContextFile {
+  name: string;
+  type: "text" | "csv";
+  content: string;
+  includePlaceholders?: boolean;
+}
+
+export interface GenerationContext {
+  links: ContextLink[];
+  files: ContextFile[];
+}
+
+function buildContextBlock(context: GenerationContext): string {
+  const parts: string[] = [];
+
+  if (context.links.length > 0) {
+    const linkLines = context.links
+      .map((l) => `- [${l.tag}] ${l.url}`)
+      .join("\n");
+    parts.push(`**Referenced Links:**\n${linkLines}`);
+  }
+
+  for (const file of context.files) {
+    const header = `**Uploaded file — ${file.name}${file.type === "csv" ? " (CSV data)" : ""}:**`;
+    const body = `\`\`\`\n${file.content.slice(0, 4000)}\n\`\`\``;
+    parts.push(`${header}\n${body}`);
+    if (file.type === "csv" && file.includePlaceholders) {
+      parts.push(
+        `_For the CSV data above: where a chart or table would strengthen the piece, insert a placeholder marker like [CHART: description] or [TABLE: description] that can be replaced with actual visuals._`
+      );
+    }
+  }
+
+  return parts.length > 0
+    ? `\n**Supporting Context:**\n${parts.join("\n\n")}\n`
+    : "";
+}
+
 export async function generateContent(
   voiceProfile: VoiceAnalysis,
-  interview: InterviewAnswers
+  interview: InterviewAnswers,
+  context?: GenerationContext
 ): Promise<ReadableStream<Uint8Array>> {
   const contentTypeLabels: Record<string, string> = {
     blog: "a blog post / article",
@@ -127,6 +173,8 @@ ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 - ${wordGuidance[interview.contentType]}
 - Sound like a real human wrote this — their human.`;
 
+  const contextBlock = context ? buildContextBlock(context) : "";
+
   const userPrompt = `Write ${contentTypeLabels[interview.contentType]} using the following brief:
 
 **Topic:** ${interview.topic}
@@ -137,7 +185,7 @@ ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
   }
 **Target Audience:** ${interview.targetAudience || "The author's usual audience."}
 **Extra Tone Notes:** ${interview.toneNotes || "None."}
-
+${contextBlock}
 Write it now.`;
 
   const stream = await anthropic.messages.stream({
