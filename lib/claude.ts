@@ -98,6 +98,22 @@ export interface GenerationContext {
   items: ContextItem[];
 }
 
+// ── Shared constants ────────────────────────────────────────────────────────
+
+export const CONTENT_TYPE_LABELS: Record<string, string> = {
+  blog:    "blog post / article",
+  social:  "social media post (Twitter/X or LinkedIn)",
+  caption: "caption (Instagram or TikTok)",
+};
+
+const WORD_GUIDANCE: Record<string, string> = {
+  blog:    "Aim for 600–1200 words unless the brief specifies otherwise.",
+  social:  "Keep it tight — 50–280 characters for Twitter/X, or 150–300 words for LinkedIn.",
+  caption: "Short and punchy — 1 to 4 sentences max.",
+};
+
+// ── Context helpers ──────────────────────────────────────────────────────────
+
 // Builds the text portion of the context block.
 // Binary items (images/PDFs) are referenced by name only;
 // their actual content goes in separate message content blocks.
@@ -119,7 +135,7 @@ function buildContextBlock(context: GenerationContext): string {
     } else if (item.fileName && item.text !== undefined) {
       // Text-based file
       lines.push(`--- Context ${i + 1}: [${tag}] ${item.fileName}${item.isCSV ? " (CSV data)" : ""} ---`);
-      lines.push(`\`\`\`\n${item.text.slice(0, 4000)}\n\`\`\``);
+      lines.push(`\`\`\`\n${item.text}\n\`\`\``);
       if (item.isCSV && item.includePlaceholders) {
         lines.push(
           `_Where this data would benefit from visualization, insert [CHART: description] or [TABLE: description] placeholder markers._`
@@ -251,6 +267,188 @@ Write it now.`;
     },
     streamOptions
   );
+
+  return new ReadableStream({
+    async start(controller) {
+      for await (const chunk of stream) {
+        if (
+          chunk.type === "content_block_delta" &&
+          chunk.delta.type === "text_delta"
+        ) {
+          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
+        }
+      }
+      controller.close();
+    },
+  });
+}
+
+// ── Multi-stage pipeline ─────────────────────────────────────────────────────
+
+function extractText(content: Anthropic.ContentBlock[]): string {
+  return content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+}
+
+/**
+ * Stage 1 — Plan
+ * Thinks deeply about structure, arc, and voice before a word is written.
+ */
+export async function planContent(
+  voiceProfile: VoiceAnalysis,
+  interview: InterviewAnswers,
+  context?: GenerationContext
+): Promise<string> {
+  const contextBlock = context ? buildContextBlock(context) : "";
+  const binaryBlocks = context ? buildBinaryBlocks(context) : [];
+  const hasPDFs = binaryBlocks.some((b) => b.type === "document");
+
+  const userPrompt = `You are about to ghost-write a ${CONTENT_TYPE_LABELS[interview.contentType]}.
+
+Before writing a single word, produce a detailed structural plan.
+
+**Brief:**
+- Topic: ${interview.topic}
+- Angle / argument: ${interview.angle}
+- Key points to cover: ${interview.keyPoints}
+- Audience: ${interview.targetAudience || "the author's usual audience"}
+- Tone notes: ${interview.toneNotes || "none"}${interview.wordCountTarget ? `\n- Target length: ${interview.wordCountTarget}` : ""}
+${contextBlock}
+**Author voice summary:** ${voiceProfile.rawSummary}
+
+**Plan requirements:**
+- The exact opening move — what's the hook? Be specific.
+- How the argument builds and where the emotional beats land
+- Section-by-section breakdown with the purpose of each beat
+- How each piece of context gets woven in naturally (if any provided)
+- The closing move and what the reader leaves with
+- Structural choices that specifically play to this author's voice and patterns
+
+Return ONLY the plan. Do not write the piece yet.`;
+
+  const messageContent =
+    binaryBlocks.length > 0
+      ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
+      : userPrompt;
+
+  const reqOptions = hasPDFs
+    ? { headers: { "anthropic-beta": "pdfs-2024-09-25" } }
+    : {};
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await (anthropic.messages.create as any)(
+    {
+      model: "claude-opus-4-6",
+      max_tokens: 8000,
+      thinking: { type: "enabled", budget_tokens: 5000 },
+      messages: [{ role: "user", content: messageContent }],
+    },
+    reqOptions
+  );
+
+  return extractText(res.content);
+}
+
+/**
+ * Stage 2 — Draft
+ * Writes the raw first draft against the plan with full voice fidelity.
+ */
+export async function draftContent(
+  voiceProfile: VoiceAnalysis,
+  interview: InterviewAnswers,
+  plan: string,
+  context?: GenerationContext
+): Promise<string> {
+  const contextBlock = context ? buildContextBlock(context) : "";
+  const binaryBlocks = context ? buildBinaryBlocks(context) : [];
+  const hasPDFs = binaryBlocks.some((b) => b.type === "document");
+
+  const systemPrompt = `You are a ghost-writer. Write ${CONTENT_TYPE_LABELS[interview.contentType]} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
+
+## Author Voice Profile
+
+**Tone:** ${voiceProfile.tone}
+**Sentence Structure:** ${voiceProfile.sentenceStructure}
+**Vocabulary Style:** ${voiceProfile.vocabularyStyle}
+**Punctuation Habits:** ${voiceProfile.punctuationHabits}
+**Paragraph Style:** ${voiceProfile.paragraphStyle}
+**Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
+**Recurring Patterns:**
+${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
+**Things to Avoid:**
+${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
+
+## Output Rules
+- Write ONLY the piece. Nothing else.
+- ${WORD_GUIDANCE[interview.contentType]}`;
+
+  const userPrompt = `Follow this structural plan:
+
+${plan}
+
+**Brief recap:**
+- Topic: ${interview.topic}
+- Angle: ${interview.angle}
+- Key points: ${interview.keyPoints}
+${contextBlock}
+Write the piece now.`;
+
+  const messageContent =
+    binaryBlocks.length > 0
+      ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
+      : userPrompt;
+
+  const reqOptions = hasPDFs
+    ? { headers: { "anthropic-beta": "pdfs-2024-09-25" } }
+    : {};
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await (anthropic.messages.create as any)(
+    {
+      model: "claude-opus-4-6",
+      max_tokens: 20000,
+      thinking: { type: "enabled", budget_tokens: 10000 },
+      system: systemPrompt,
+      messages: [{ role: "user", content: messageContent }],
+    },
+    reqOptions
+  );
+
+  return extractText(res.content);
+}
+
+/**
+ * Stage 3 — Humanize
+ * Strips AI patterns, audits itself, and produces the final polished piece.
+ * Streams the output.
+ */
+export async function humanizeContent(
+  draft: string,
+  voiceProfile: VoiceAnalysis,
+  humanizerInstructions: string
+): Promise<ReadableStream<Uint8Array>> {
+  const systemPrompt = `${humanizerInstructions}
+
+---
+
+IMPORTANT OVERRIDE FOR THIS SESSION: You are preparing text for final publication. Work through the complete humanization process in your extended thinking — identify AI patterns, draft a rewrite, self-audit ("what still makes this obviously AI generated?"), revise. Then output ONLY the final humanized piece. No section headers, no audit bullets, no process notes, no summary of changes. Just the finished text.
+
+Also maintain this specific author's voice throughout:
+- Their style: ${voiceProfile.rawSummary}
+- Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}`;
+
+  const userPrompt = `Humanize the following piece:\n\n${draft}`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stream = await (anthropic.messages.stream as any)({
+    model: "claude-opus-4-6",
+    max_tokens: 16000,
+    thinking: { type: "enabled", budget_tokens: 8000 },
+    system: systemPrompt,
+    messages: [{ role: "user", content: userPrompt }],
+  });
 
   return new ReadableStream({
     async start(controller) {

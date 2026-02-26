@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { type ContextItem, type ContextItemTag } from "@/lib/claude";
 
@@ -158,6 +158,7 @@ export default function CreatePage() {
 
   // Generation
   const [generating, setGenerating] = useState(false);
+  const [currentStage, setCurrentStage] = useState<{ step: number; total: number; label: string } | null>(null);
   const [output, setOutput] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -389,13 +390,13 @@ export default function CreatePage() {
     setError("");
     setGenerating(true);
     setOutput("");
+    setCurrentStage(null);
 
     const allItems: ContextItem[] = [...contextItems];
     if (draftText.trim() || draftData) {
       const draftInstructions =
         "The user has provided existing material for this piece. Assess what it is — a full or partial draft, an outline/structure, or rough notes/fragments — and handle it accordingly: if it's a draft, rewrite and refine it in the author's voice; if it's an outline, write a full piece following that structure; if it's rough notes, use them as source material and write the piece from scratch. Always write in the author's voice.";
       if (draftData && draftMediaType) {
-        // PDF draft — sent as a document attachment
         allItems.push({
           tag: "note",
           fileName: draftFileName || "draft.pdf",
@@ -430,17 +431,38 @@ export default function CreatePage() {
       return;
     }
 
+    // Parse SSE stream
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
+    let buffer = "";
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      setOutput((prev) => prev + decoder.decode(value, { stream: true }));
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === "stage") {
+            setCurrentStage({ step: data.step, total: data.total, label: data.label });
+          } else if (data.type === "chunk") {
+            setOutput((prev) => prev + data.text);
+          } else if (data.type === "error") {
+            setError(data.message);
+          }
+        } catch {
+          // ignore malformed lines
+        }
+      }
     }
+
     if (selectedSig) {
       setOutput((prev) => `${prev}\n\n${selectedSig.content}`);
     }
     setGenerating(false);
+    setCurrentStage(null);
   }
 
   async function copyOutput() {
@@ -955,7 +977,7 @@ export default function CreatePage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-medium text-white text-sm">Output</h2>
-            {output && (
+            {output && !generating && (
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -974,20 +996,60 @@ export default function CreatePage() {
               </div>
             )}
           </div>
-          <div className="bg-[#111] border border-[#1e1e1e] rounded-xl p-5">
-            {generating && !output && (
-              <div className="flex items-center gap-2 text-[#555] text-sm">
-                <span className="inline-block w-1.5 h-1.5 bg-[#555] rounded-full animate-pulse" />
-                Writing...
-              </div>
-            )}
-            <pre className="text-sm text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
-              {output}
-              {generating && output && (
-                <span className="inline-block w-0.5 h-4 bg-[#555] ml-0.5 animate-pulse align-middle" />
+
+          {/* Stage progress indicator */}
+          {generating && (
+            <div className="flex items-center gap-1.5 px-0.5">
+              {currentStage ? (
+                <>
+                  {[1, 2, 3].map((step) => (
+                    <Fragment key={step}>
+                      <div
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300 ${
+                          step < currentStage.step
+                            ? "bg-white"
+                            : step === currentStage.step
+                            ? "bg-white animate-pulse"
+                            : "bg-[#333]"
+                        }`}
+                      />
+                      {step < 3 && (
+                        <div
+                          className={`w-6 h-px transition-colors duration-300 ${
+                            step < currentStage.step ? "bg-[#555]" : "bg-[#2a2a2a]"
+                          }`}
+                        />
+                      )}
+                    </Fragment>
+                  ))}
+                  <span className="text-xs text-[#555] ml-2">{currentStage.label}</span>
+                </>
+              ) : (
+                <span className="text-xs text-[#555]">Starting...</span>
               )}
-            </pre>
-          </div>
+            </div>
+          )}
+
+          {/* Text output — only shown once stage 3 begins */}
+          {(output || (generating && currentStage && currentStage.step >= 3)) && (
+            <div className="bg-[#111] border border-[#1e1e1e] rounded-xl p-5">
+              {generating && !output && (
+                <div className="flex items-center gap-2 text-[#555] text-sm">
+                  <span className="inline-block w-1.5 h-1.5 bg-[#555] rounded-full animate-pulse" />
+                  Writing...
+                </div>
+              )}
+              {output && (
+                <pre className="text-sm text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
+                  {output}
+                  {generating && (
+                    <span className="inline-block w-0.5 h-4 bg-[#555] ml-0.5 animate-pulse align-middle" />
+                  )}
+                </pre>
+              )}
+            </div>
+          )}
+
           {output && !generating && (
             <button
               type="button"
