@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { type ContextLink, type ContextFile, type LinkTag } from "@/lib/claude";
+import { type ContextItem, type ContextItemTag } from "@/lib/claude";
 
 type ContentType = "blog" | "social" | "caption";
 
@@ -25,9 +25,9 @@ interface Signature {
 }
 
 const contentTypeOptions: { value: ContentType; label: string; desc: string }[] = [
-  { value: "blog", label: "Blog post / Article", desc: "Long-form written piece" },
-  { value: "social", label: "Social media post", desc: "Twitter/X, LinkedIn, etc." },
-  { value: "caption", label: "Caption", desc: "Short-form — Instagram, TikTok" },
+  { value: "blog",    label: "Blog post / Article", desc: "Long-form written piece" },
+  { value: "social",  label: "Social media post",   desc: "Twitter/X, LinkedIn, etc." },
+  { value: "caption", label: "Caption",             desc: "Short-form — Instagram, TikTok" },
 ];
 
 const questions: {
@@ -39,88 +39,54 @@ const questions: {
   multiline?: boolean;
   hint?: string;
 }[] = [
-  {
-    key: "topic",
-    label: "What is this piece about?",
-    placeholder: "e.g. Why most productivity advice is wrong for creators",
-    required: true,
-  },
-  {
-    key: "angle",
-    label: "What's your angle or main argument?",
-    placeholder: "e.g. Productivity advice assumes consistent work, but creative work is inherently unpredictable",
-    required: true,
-    multiline: true,
-  },
-  {
-    key: "keyPoints",
-    label: "Key points, ideas, or structure to cover",
-    placeholder: "e.g.\n- The myth of the 'deep work' schedule\n- How I actually write: in bursts\n- What actually works: environment design not time blocks",
-    required: true,
-    multiline: true,
-  },
-  {
-    key: "sourcesOrData",
-    label: "Any sources, data, or references to include?",
-    placeholder: "e.g. Cal Newport's Deep Work framework, my own experience writing 200+ posts",
-    required: false,
-    multiline: true,
-    hint: "Optional — leave blank if none",
-  },
-  {
-    key: "targetAudience",
-    label: "Who is the audience?",
-    placeholder: "e.g. Indie creators, solopreneurs, people who feel guilty about not working enough",
-    required: false,
-    hint: "Optional — defaults to your usual audience",
-  },
-  {
-    key: "toneNotes",
-    label: "Any specific tone notes for this piece?",
-    placeholder: "e.g. A bit more vulnerable than usual, less polished, more raw",
-    required: false,
-    hint: "Optional — leave blank to match your normal voice",
-  },
-  {
-    key: "wordCountTarget",
-    label: "Target length?",
-    placeholder: "e.g. 800 words, or leave blank for default",
-    required: false,
-    showFor: ["blog"],
-    hint: "Optional",
-  },
+  { key: "topic",          label: "What is this piece about?",              placeholder: "e.g. Why most productivity advice is wrong for creators",                                                  required: true },
+  { key: "angle",          label: "What's your angle or main argument?",    placeholder: "e.g. Productivity advice assumes consistent work, but creative work is inherently unpredictable",          required: true,  multiline: true },
+  { key: "keyPoints",      label: "Key points, ideas, or structure to cover", placeholder: "e.g.\n- The myth of the 'deep work' schedule\n- How I actually write: in bursts\n- What actually works: environment design not time blocks", required: true, multiline: true },
+  { key: "sourcesOrData",  label: "Any sources, data, or references to include?", placeholder: "e.g. Cal Newport's Deep Work framework, my own experience writing 200+ posts", required: false, multiline: true, hint: "Optional — leave blank if none" },
+  { key: "targetAudience", label: "Who is the audience?",                   placeholder: "e.g. Indie creators, solopreneurs, people who feel guilty about not working enough",                     required: false, hint: "Optional — defaults to your usual audience" },
+  { key: "toneNotes",      label: "Any specific tone notes for this piece?", placeholder: "e.g. A bit more vulnerable than usual, less polished, more raw",                                        required: false, hint: "Optional — leave blank to match your normal voice" },
+  { key: "wordCountTarget", label: "Target length?",                        placeholder: "e.g. 800 words, or leave blank for default",                                                             required: false, showFor: ["blog"], hint: "Optional" },
 ];
 
-const LINK_TAGS: { value: LinkTag; label: string; color: string }[] = [
+const TAGS: { value: ContextItemTag; label: string; color: string }[] = [
   { value: "data",      label: "Data",      color: "#facc15" },
-  { value: "example",   label: "Example",   color: "#60a5fa" },
   { value: "research",  label: "Research",  color: "#a78bfa" },
+  { value: "example",   label: "Example",   color: "#60a5fa" },
   { value: "reference", label: "Reference", color: "#9ca3af" },
+  { value: "note",      label: "Note",      color: "#fb923c" },
 ];
 
-const FILE_SIZE_LIMIT = 50 * 1024; // 50KB
+function tagMeta(tag: ContextItemTag) {
+  return TAGS.find((t) => t.value === tag) ?? TAGS[3];
+}
+
+const FILE_SIZE_LIMIT = 50 * 1024;
+
+type SourceType = "url" | "file" | "text";
 
 export default function CreatePage() {
   const router = useRouter();
 
-  // Form
   const [form, setForm] = useState<FormState>({
-    contentType: "blog",
-    topic: "",
-    angle: "",
-    keyPoints: "",
-    sourcesOrData: "",
-    targetAudience: "",
-    toneNotes: "",
-    wordCountTarget: "",
+    contentType: "blog", topic: "", angle: "", keyPoints: "",
+    sourcesOrData: "", targetAudience: "", toneNotes: "", wordCountTarget: "",
   });
 
-  // Context panel
+  // Unified context items
+  const [contextItems, setContextItems] = useState<ContextItem[]>([]);
   const [showContext, setShowContext] = useState(false);
-  const [links, setLinks] = useState<ContextLink[]>([]);
-  const [newLinkUrl, setNewLinkUrl] = useState("");
-  const [newLinkTag, setNewLinkTag] = useState<LinkTag>("reference");
-  const [files, setFiles] = useState<ContextFile[]>([]);
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  // Add-item form state
+  const [sourceType, setSourceType] = useState<SourceType>("url");
+  const [newTag, setNewTag] = useState<ContextItemTag>("reference");
+  const [newUrl, setNewUrl] = useState("");
+  const [newText, setNewText] = useState("");
+  const [newFileName, setNewFileName] = useState("");
+  const [newFileContent, setNewFileContent] = useState("");
+  const [newIsCSV, setNewIsCSV] = useState(false);
+  const [newIncludePlaceholders, setNewIncludePlaceholders] = useState(false);
+  const [newInstructions, setNewInstructions] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Signatures
@@ -147,55 +113,68 @@ export default function CreatePage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function addLink() {
-    if (!newLinkUrl.trim()) return;
-    setLinks((l) => [...l, { url: newLinkUrl.trim(), tag: newLinkTag }]);
-    setNewLinkUrl("");
-    setNewLinkTag("reference");
-  }
-
-  function removeLink(i: number) {
-    setLinks((l) => l.filter((_, idx) => idx !== i));
-  }
-
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const picked = Array.from(e.target.files ?? []);
-    picked.forEach((file) => {
-      if (file.size > FILE_SIZE_LIMIT) {
-        alert(`${file.name} is too large (max 50KB).`);
-        return;
-      }
-      const isCSV = file.name.toLowerCase().endsWith(".csv");
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const content = ev.target?.result as string;
-        setFiles((prev) => [
-          ...prev,
-          { name: file.name, type: isCSV ? "csv" : "text", content, includePlaceholders: false },
-        ]);
-      };
-      reader.readAsText(file);
-    });
-    // reset input so the same file can be re-picked
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > FILE_SIZE_LIMIT) {
+      alert(`File too large — max 50KB.`);
+      return;
+    }
+    const isCSV = file.name.toLowerCase().endsWith(".csv");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setNewFileName(file.name);
+      setNewFileContent(ev.target?.result as string);
+      setNewIsCSV(isCSV);
+      // Auto-set tag to "data" for CSV files
+      if (isCSV) setNewTag("data");
+    };
+    reader.readAsText(file);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  function removeFile(i: number) {
-    setFiles((f) => f.filter((_, idx) => idx !== i));
+  function resetAddForm() {
+    setSourceType("url");
+    setNewTag("reference");
+    setNewUrl("");
+    setNewText("");
+    setNewFileName("");
+    setNewFileContent("");
+    setNewIsCSV(false);
+    setNewIncludePlaceholders(false);
+    setNewInstructions("");
+    setShowAddForm(false);
   }
 
-  function togglePlaceholders(i: number) {
-    setFiles((prev) =>
-      prev.map((f, idx) =>
-        idx === i ? { ...f, includePlaceholders: !f.includePlaceholders } : f
-      )
-    );
+  function commitItem() {
+    const item: ContextItem = {
+      tag: newTag,
+      instructions: newInstructions.trim() || undefined,
+    };
+
+    if (sourceType === "url") {
+      if (!newUrl.trim()) return;
+      item.url = newUrl.trim();
+    } else if (sourceType === "file") {
+      if (!newFileContent) return;
+      item.text = newFileContent;
+      item.fileName = newFileName;
+      item.isCSV = newIsCSV;
+      item.includePlaceholders = newIsCSV ? newIncludePlaceholders : undefined;
+    } else {
+      if (!newText.trim()) return;
+      item.text = newText.trim();
+    }
+
+    setContextItems((prev) => [...prev, item]);
+    resetAddForm();
+  }
+
+  function removeItem(i: number) {
+    setContextItems((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   const selectedSig = signatures.find((s) => s.id === selectedSigId) ?? null;
-
-  const hasContext =
-    links.length > 0 || files.length > 0;
 
   async function generate() {
     if (!form.topic.trim() || !form.angle.trim() || !form.keyPoints.trim()) {
@@ -206,10 +185,7 @@ export default function CreatePage() {
     setGenerating(true);
     setOutput("");
 
-    const context =
-      links.length > 0 || files.length > 0
-        ? { links, files }
-        : undefined;
+    const context = contextItems.length > 0 ? { items: contextItems } : undefined;
 
     const res = await fetch("/api/generate/stream", {
       method: "POST",
@@ -236,11 +212,9 @@ export default function CreatePage() {
       setOutput((prev) => prev + decoder.decode(value, { stream: true }));
     }
 
-    // Append signature client-side after stream completes
     if (selectedSig) {
       setOutput((prev) => `${prev}\n\n${selectedSig.content}`);
     }
-
     setGenerating(false);
   }
 
@@ -253,6 +227,12 @@ export default function CreatePage() {
   const visibleQuestions = questions.filter(
     (q) => !q.showFor || q.showFor.includes(form.contentType)
   );
+
+  // ── add-item form validation ──
+  const canCommit =
+    sourceType === "url" ? !!newUrl.trim() :
+    sourceType === "file" ? !!newFileContent :
+    !!newText.trim();
 
   return (
     <div className="space-y-8">
@@ -267,9 +247,7 @@ export default function CreatePage() {
           <label className="text-sm font-medium text-[#aaa]">Content type</label>
           <div className="grid grid-cols-3 gap-2">
             {contentTypeOptions.map(({ value, label, desc }) => (
-              <button
-                key={value}
-                onClick={() => set("contentType", value)}
+              <button key={value} onClick={() => set("contentType", value)}
                 className={`border rounded-xl p-3 text-left transition-all ${
                   form.contentType === value
                     ? "border-white bg-[#1e1e1e]"
@@ -292,18 +270,12 @@ export default function CreatePage() {
             </label>
             {q.hint && <p className="text-xs text-[#555]">{q.hint}</p>}
             {q.multiline ? (
-              <textarea
-                value={form[q.key]}
-                onChange={(e) => set(q.key, e.target.value)}
-                placeholder={q.placeholder}
-                rows={4}
+              <textarea value={form[q.key]} onChange={(e) => set(q.key, e.target.value)}
+                placeholder={q.placeholder} rows={4}
                 className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-y"
               />
             ) : (
-              <input
-                type="text"
-                value={form[q.key]}
-                onChange={(e) => set(q.key, e.target.value)}
+              <input type="text" value={form[q.key]} onChange={(e) => set(q.key, e.target.value)}
                 placeholder={q.placeholder}
                 className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444]"
               />
@@ -318,165 +290,187 @@ export default function CreatePage() {
             className="w-full flex items-center justify-between px-4 py-3 bg-[#161616] hover:bg-[#1a1a1a] transition-colors"
           >
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-[#aaa]">Add context</span>
-              {hasContext && (
+              <span className="text-sm font-medium text-[#aaa]">Context</span>
+              {contextItems.length > 0 && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/10 text-white">
-                  {links.length + files.length} item{links.length + files.length !== 1 ? "s" : ""}
+                  {contextItems.length} item{contextItems.length !== 1 ? "s" : ""}
                 </span>
               )}
             </div>
             <span className="text-xs text-[#555]">
-              {showContext ? "Hide" : "Links, files, data"}
+              {showContext ? "Hide" : "Links, files, notes + usage instructions"}
             </span>
           </button>
 
           {showContext && (
-            <div className="px-4 pb-4 pt-3 space-y-5 bg-[#111] border-t border-[#222]">
-              {/* Links */}
-              <div className="space-y-3">
-                <div className="text-xs font-semibold text-[#555] uppercase tracking-widest">
-                  Referenced links
-                </div>
+            <div className="bg-[#111] border-t border-[#222] p-4 space-y-3">
 
-                {links.length > 0 && (
-                  <div className="space-y-2">
-                    {links.map((l, i) => {
-                      const meta = LINK_TAGS.find((t) => t.value === l.tag)!;
-                      return (
-                        <div
-                          key={i}
-                          className="flex items-center gap-2 bg-[#161616] border border-[#222] rounded-lg px-3 py-2"
+              {/* Existing items */}
+              {contextItems.map((item, i) => {
+                const meta = tagMeta(item.tag);
+                const sourceLabel = item.url
+                  ? item.url
+                  : item.fileName
+                  ? item.fileName
+                  : (item.text ?? "").slice(0, 80) + ((item.text ?? "").length > 80 ? "…" : "");
+                return (
+                  <div key={i} className="bg-[#161616] border border-[#222] rounded-lg p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <span
+                          className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border mt-0.5"
+                          style={{ color: meta.color, borderColor: meta.color + "55", backgroundColor: meta.color + "15" }}
                         >
-                          <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0"
-                            style={{ color: meta.color, borderColor: meta.color + "55", backgroundColor: meta.color + "15" }}
-                          >
-                            {meta.label}
-                          </span>
-                          <span className="text-xs text-[#888] truncate flex-1">{l.url}</span>
-                          <button
-                            onClick={() => removeLink(i)}
-                            className="text-[#444] hover:text-red-400 text-xs transition-colors shrink-0"
-                          >
-                            ✕
-                          </button>
+                          {meta.label.toUpperCase()}
+                        </span>
+                        <div className="min-w-0 space-y-1">
+                          <p className="text-xs text-[#888] break-all leading-relaxed">{sourceLabel}</p>
+                          {item.isCSV && item.includePlaceholders && (
+                            <span className="text-[10px] text-amber-400">chart/table placeholders on</span>
+                          )}
+                          {item.instructions && (
+                            <p className="text-xs text-[#555] italic">↳ {item.instructions}</p>
+                          )}
                         </div>
-                      );
-                    })}
+                      </div>
+                      <button onClick={() => removeItem(i)} className="text-[#444] hover:text-red-400 text-xs transition-colors shrink-0">
+                        ✕
+                      </button>
+                    </div>
                   </div>
-                )}
+                );
+              })}
 
-                <div className="flex gap-2">
-                  <div className="flex gap-1">
-                    {LINK_TAGS.map(({ value, label, color }) => (
+              {/* Add-item form */}
+              {showAddForm ? (
+                <div className="bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg p-4 space-y-4">
+
+                  {/* Source type toggle */}
+                  <div className="flex gap-1.5">
+                    {(["url", "file", "text"] as SourceType[]).map((t) => (
                       <button
-                        key={value}
-                        onClick={() => setNewLinkTag(value)}
-                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border transition-all"
-                        style={
-                          newLinkTag === value
-                            ? { color, borderColor: color, backgroundColor: color + "18" }
-                            : { color: "#555", borderColor: "#2a2a2a", backgroundColor: "transparent" }
-                        }
+                        key={t}
+                        onClick={() => { setSourceType(t); setNewFileName(""); setNewFileContent(""); }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                          sourceType === t
+                            ? "border-[#555] bg-[#1e1e1e] text-white"
+                            : "border-[#222] text-[#555] hover:border-[#333]"
+                        }`}
                       >
-                        {label}
+                        {t === "url" ? "URL" : t === "file" ? "File upload" : "Text / note"}
                       </button>
                     ))}
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={newLinkUrl}
-                    onChange={(e) => setNewLinkUrl(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addLink()}
-                    placeholder="https://..."
-                    className="flex-1 bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444]"
-                  />
-                  <button
-                    onClick={addLink}
-                    disabled={!newLinkUrl.trim()}
-                    className="bg-[#222] text-[#ccc] text-sm px-3 py-2 rounded-lg hover:bg-[#2a2a2a] transition-colors disabled:opacity-40"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
 
-              {/* Files */}
-              <div className="space-y-3">
-                <div className="text-xs font-semibold text-[#555] uppercase tracking-widest">
-                  Uploaded files
-                </div>
-                <p className="text-xs text-[#555]">
-                  .txt, .md, .csv — max 50KB each. Content is included as context for Claude.
-                </p>
+                  {/* Source content input */}
+                  {sourceType === "url" && (
+                    <input
+                      type="url"
+                      value={newUrl}
+                      onChange={(e) => setNewUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444]"
+                    />
+                  )}
 
-                {files.length > 0 && (
-                  <div className="space-y-2">
-                    {files.map((f, i) => (
-                      <div
-                        key={i}
-                        className="bg-[#161616] border border-[#222] rounded-lg px-3 py-2.5 space-y-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-white font-medium">{f.name}</span>
-                            <span className="text-[10px] text-[#555]">
-                              {(f.content.length / 1024).toFixed(1)}KB
-                            </span>
-                            {f.type === "csv" && (
-                              <span className="text-[10px] font-semibold text-amber-400 border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 rounded">
-                                CSV
-                              </span>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => removeFile(i)}
-                            className="text-[#444] hover:text-red-400 text-xs transition-colors"
-                          >
-                            ✕
-                          </button>
+                  {sourceType === "file" && (
+                    <div className="space-y-2">
+                      <input ref={fileInputRef} type="file" accept=".txt,.md,.csv" onChange={handleFileChange} className="hidden" />
+                      {newFileName ? (
+                        <div className="flex items-center gap-2 bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2">
+                          <span className="text-xs text-white font-medium flex-1">{newFileName}</span>
+                          {newIsCSV && (
+                            <span className="text-[10px] font-semibold text-amber-400 border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 rounded">CSV</span>
+                          )}
+                          <span className="text-[10px] text-[#555]">{(newFileContent.length / 1024).toFixed(1)}KB</span>
+                          <button onClick={() => { setNewFileName(""); setNewFileContent(""); setNewIsCSV(false); }} className="text-[#444] hover:text-red-400 text-xs">✕</button>
                         </div>
-                        {f.type === "csv" && (
-                          <label className="flex items-center gap-2 cursor-pointer select-none">
-                            <div
-                              onClick={() => togglePlaceholders(i)}
-                              className={`w-7 h-3.5 rounded-full transition-colors relative ${
-                                f.includePlaceholders ? "bg-white" : "bg-[#333]"
-                              }`}
-                            >
-                              <div
-                                className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-black transition-transform ${
-                                  f.includePlaceholders ? "translate-x-3.5" : "translate-x-0.5"
-                                }`}
-                              />
-                            </div>
-                            <span className="text-xs text-[#666]">
-                              Include chart / table placeholders
-                            </span>
-                          </label>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ) : (
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-sm text-[#666] border border-[#2a2a2a] rounded-lg px-4 py-2 hover:text-[#aaa] hover:border-[#444] transition-colors"
+                        >
+                          Choose file (.txt, .md, .csv — max 50KB)
+                        </button>
+                      )}
+                      {newIsCSV && newFileName && (
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <div
+                            onClick={() => setNewIncludePlaceholders(!newIncludePlaceholders)}
+                            className={`w-7 h-3.5 rounded-full transition-colors relative ${newIncludePlaceholders ? "bg-white" : "bg-[#333]"}`}
+                          >
+                            <div className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-black transition-transform ${newIncludePlaceholders ? "translate-x-3.5" : "translate-x-0.5"}`} />
+                          </div>
+                          <span className="text-xs text-[#666]">Include chart / table placeholders</span>
+                        </label>
+                      )}
+                    </div>
+                  )}
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".txt,.md,.csv"
-                  multiple
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
+                  {sourceType === "text" && (
+                    <textarea
+                      value={newText}
+                      onChange={(e) => setNewText(e.target.value)}
+                      placeholder="Paste raw text, data, or notes here..."
+                      rows={4}
+                      className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-y"
+                    />
+                  )}
+
+                  {/* Tag selector */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-[#555]">Tag</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {TAGS.map(({ value, label, color }) => (
+                        <button
+                          key={value}
+                          onClick={() => setNewTag(value)}
+                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all"
+                          style={
+                            newTag === value
+                              ? { color, borderColor: color, backgroundColor: color + "18" }
+                              : { color: "#555", borderColor: "#2a2a2a", backgroundColor: "transparent" }
+                          }
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Usage instructions */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-[#555]">How should this be used? <span className="text-[#444]">(optional but powerful)</span></label>
+                    <textarea
+                      value={newInstructions}
+                      onChange={(e) => setNewInstructions(e.target.value)}
+                      placeholder="e.g. Reference the ferritin levels from January vs April to show improvement over the protocol. Also flag the B12 trend as a secondary point."
+                      rows={3}
+                      className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-y"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={commitItem}
+                      disabled={!canCommit}
+                      className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-40"
+                    >
+                      Add item
+                    </button>
+                    <button onClick={resetAddForm} className="text-[#666] text-sm hover:text-[#999] transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
                 <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-sm text-[#666] border border-[#2a2a2a] rounded-lg px-4 py-2 hover:text-[#aaa] hover:border-[#444] transition-colors"
+                  onClick={() => setShowAddForm(true)}
+                  className="text-sm text-[#666] border border-[#2a2a2a] rounded-lg px-4 py-2 hover:text-[#aaa] hover:border-[#444] transition-colors w-full"
                 >
-                  + Upload file
+                  + Add context item
                 </button>
-              </div>
+              )}
             </div>
           )}
         </div>
@@ -497,9 +491,7 @@ export default function CreatePage() {
                 None
               </button>
               {signatures.map((sig) => (
-                <button
-                  key={sig.id}
-                  onClick={() => setSelectedSigId(sig.id)}
+                <button key={sig.id} onClick={() => setSelectedSigId(sig.id)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                     selectedSigId === sig.id
                       ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-400"
@@ -538,14 +530,12 @@ export default function CreatePage() {
             <h2 className="font-medium text-white text-sm">Output</h2>
             {output && (
               <div className="flex gap-2">
-                <button
-                  onClick={copyOutput}
+                <button onClick={copyOutput}
                   className="text-xs text-[#666] hover:text-white transition-colors border border-[#333] rounded-md px-3 py-1.5"
                 >
                   {copied ? "Copied!" : "Copy"}
                 </button>
-                <button
-                  onClick={() => router.push("/history")}
+                <button onClick={() => router.push("/history")}
                   className="text-xs text-[#666] hover:text-white transition-colors"
                 >
                   View history
@@ -568,10 +558,7 @@ export default function CreatePage() {
             </pre>
           </div>
           {output && !generating && (
-            <button
-              onClick={generate}
-              className="text-xs text-[#555] hover:text-[#888] transition-colors"
-            >
+            <button onClick={generate} className="text-xs text-[#555] hover:text-[#888] transition-colors">
               Regenerate
             </button>
           )}

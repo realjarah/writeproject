@@ -78,49 +78,53 @@ export interface InterviewAnswers {
   wordCountTarget?: string;
 }
 
-export type LinkTag = "data" | "example" | "research" | "reference";
+export type ContextItemTag = "data" | "example" | "research" | "reference" | "note";
 
-export interface ContextLink {
-  url: string;
-  tag: LinkTag;
-}
-
-export interface ContextFile {
-  name: string;
-  type: "text" | "csv";
-  content: string;
-  includePlaceholders?: boolean;
+export interface ContextItem {
+  tag: ContextItemTag;
+  // Source — exactly one of these is set:
+  url?: string;       // a referenced URL
+  text?: string;      // uploaded file content or a manual text/note
+  fileName?: string;  // original filename (when text came from a file upload)
+  isCSV?: boolean;
+  includePlaceholders?: boolean; // for CSV: emit [CHART:] / [TABLE:] markers
+  instructions?: string; // how the author wants this context used
 }
 
 export interface GenerationContext {
-  links: ContextLink[];
-  files: ContextFile[];
+  items: ContextItem[];
 }
 
 function buildContextBlock(context: GenerationContext): string {
-  const parts: string[] = [];
+  if (context.items.length === 0) return "";
 
-  if (context.links.length > 0) {
-    const linkLines = context.links
-      .map((l) => `- [${l.tag}] ${l.url}`)
-      .join("\n");
-    parts.push(`**Referenced Links:**\n${linkLines}`);
-  }
+  const parts = context.items.map((item, i) => {
+    const tag = item.tag.toUpperCase();
+    const lines: string[] = [];
 
-  for (const file of context.files) {
-    const header = `**Uploaded file — ${file.name}${file.type === "csv" ? " (CSV data)" : ""}:**`;
-    const body = `\`\`\`\n${file.content.slice(0, 4000)}\n\`\`\``;
-    parts.push(`${header}\n${body}`);
-    if (file.type === "csv" && file.includePlaceholders) {
-      parts.push(
-        `_For the CSV data above: where a chart or table would strengthen the piece, insert a placeholder marker like [CHART: description] or [TABLE: description] that can be replaced with actual visuals._`
-      );
+    if (item.url) {
+      lines.push(`--- Context ${i + 1}: [${tag}] ${item.url} ---`);
+    } else if (item.fileName) {
+      lines.push(`--- Context ${i + 1}: [${tag}] ${item.fileName}${item.isCSV ? " (CSV data)" : ""} ---`);
+      lines.push(`\`\`\`\n${(item.text ?? "").slice(0, 4000)}\n\`\`\``);
+      if (item.isCSV && item.includePlaceholders) {
+        lines.push(
+          `_Where this data would benefit from visualization, insert [CHART: description] or [TABLE: description] placeholder markers._`
+        );
+      }
+    } else if (item.text) {
+      lines.push(`--- Context ${i + 1}: [${tag}] Note ---`);
+      lines.push(item.text.trim());
     }
-  }
 
-  return parts.length > 0
-    ? `\n**Supporting Context:**\n${parts.join("\n\n")}\n`
-    : "";
+    if (item.instructions?.trim()) {
+      lines.push(`→ How to use this: ${item.instructions.trim()}`);
+    }
+
+    return lines.join("\n");
+  });
+
+  return `\n**Supporting Context:**\n${parts.join("\n\n")}\n`;
 }
 
 export async function generateContent(
