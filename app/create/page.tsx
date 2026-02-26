@@ -128,7 +128,6 @@ export default function CreatePage() {
   );
 
   // Draft
-  const [draftType, setDraftType] = useState<"draft" | "outline" | "notes">("draft");
   const [draftText, setDraftText] = useState("");
   const [draftFileName, setDraftFileName] = useState("");
   const [draftData, setDraftData] = useState("");       // base64 for PDF
@@ -246,8 +245,7 @@ export default function CreatePage() {
       }
       case "draft": {
         if (draftText.trim() || draftData) {
-          const typeLabel = draftType === "outline" ? "Outline" : draftType === "notes" ? "Notes" : "Draft";
-          return draftFileName ? `${typeLabel}: ${draftFileName}` : `${typeLabel} pasted`;
+          return draftFileName ? `From file: ${draftFileName}` : "Content pasted";
         }
         return "Paste or upload a draft, outline, or notes";
       }
@@ -395,11 +393,7 @@ export default function CreatePage() {
     const allItems: ContextItem[] = [...contextItems];
     if (draftText.trim() || draftData) {
       const draftInstructions =
-        draftType === "outline"
-          ? "This is an outline or structure the user wants to write from. Use it as your blueprint and write a full piece following this structure, in the author's voice."
-          : draftType === "notes"
-          ? "These are rough notes or unfinished fragments. Transform them into a polished, complete piece in the author's voice — use these as source material but write the final piece from scratch."
-          : "This is an existing draft (complete or partial). Rewrite and refine it in the author's voice — preserve their ideas and intent, but elevate and complete the writing to fully match their style.";
+        "The user has provided existing material for this piece. Assess what it is — a full or partial draft, an outline/structure, or rough notes/fragments — and handle it accordingly: if it's a draft, rewrite and refine it in the author's voice; if it's an outline, write a full piece following that structure; if it's rough notes, use them as source material and write the piece from scratch. Always write in the author's voice.";
       if (draftData && draftMediaType) {
         // PDF draft — sent as a document attachment
         allItems.push({
@@ -617,32 +611,10 @@ export default function CreatePage() {
 
             {/* ── Starting Draft ── */}
             {id === "draft" && (
-              <div className="space-y-4">
-                {/* Draft type selector */}
-                <div className="space-y-1.5">
-                  <label className="text-xs text-[#555]">What are you providing?</label>
-                  <div className="flex gap-1.5">
-                    {([
-                      { value: "draft",   label: "Draft",   desc: "Rewrite in your voice" },
-                      { value: "outline", label: "Outline", desc: "Write from structure" },
-                      { value: "notes",   label: "Notes",   desc: "Transform into a piece" },
-                    ] as const).map(({ value, label: tLabel, desc }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setDraftType(value)}
-                        className={`flex-1 px-2 py-2 rounded-lg text-left border transition-all ${
-                          draftType === value
-                            ? "border-[#555] bg-[#1e1e1e]"
-                            : "border-[#222] bg-[#161616] hover:border-[#333]"
-                        }`}
-                      >
-                        <div className="text-xs font-medium text-white">{tLabel}</div>
-                        <div className="text-[10px] text-[#555] mt-0.5">{desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div className="space-y-3">
+                <p className="text-xs text-[#555]">
+                  Paste a draft, outline, or rough notes — Claude will figure out what it is and work with it.
+                </p>
 
                 {/* PDF loaded state */}
                 {draftData ? (
@@ -664,13 +636,7 @@ export default function CreatePage() {
                       setDraftText(e.target.value);
                       if (!e.target.value) setDraftFileName("");
                     }}
-                    placeholder={
-                      draftType === "outline"
-                        ? "Paste your outline here...\n\ne.g.\n- Intro: hook with a surprising stat\n- Section 1: The problem\n- Section 2: Why existing solutions fail\n- Section 3: My approach\n- CTA"
-                        : draftType === "notes"
-                        ? "Paste your notes or fragments here...\n\nThese don't need to be polished — rough ideas, bullet points, half-sentences are all fine."
-                        : "Paste your draft here...\n\nCan be complete, partial, or just a few paragraphs. Or use the upload button below to load a .txt, .md, or PDF file."
-                    }
+                    placeholder="Paste your draft, outline, or notes here..."
                     rows={6}
                     className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-y font-mono"
                   />
