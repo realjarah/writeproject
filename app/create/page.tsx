@@ -128,8 +128,11 @@ export default function CreatePage() {
   );
 
   // Draft
+  const [draftType, setDraftType] = useState<"draft" | "outline" | "notes">("draft");
   const [draftText, setDraftText] = useState("");
   const [draftFileName, setDraftFileName] = useState("");
+  const [draftData, setDraftData] = useState("");       // base64 for PDF
+  const [draftMediaType, setDraftMediaType] = useState(""); // MIME for PDF
   const draftFileRef = useRef<HTMLInputElement>(null);
 
   // Context items
@@ -195,7 +198,7 @@ export default function CreatePage() {
       form.toneNotes.trim() ||
       (form.contentType === "blog" && form.wordCountTarget.trim())
     ),
-    draft: !!(draftText.trim() || draftFileName),
+    draft: !!(draftText.trim() || draftData),
     context: contextItems.length > 0,
     signature: true,
   };
@@ -241,9 +244,13 @@ export default function CreatePage() {
         ].filter((s) => s.trim()).length;
         return count ? `${count} field${count !== 1 ? "s" : ""} filled` : "Add optional context";
       }
-      case "draft":
-        if (draftText.trim()) return draftFileName ? `From file: ${draftFileName}` : "Draft pasted";
-        return "Paste or upload an existing draft";
+      case "draft": {
+        if (draftText.trim() || draftData) {
+          const typeLabel = draftType === "outline" ? "Outline" : draftType === "notes" ? "Notes" : "Draft";
+          return draftFileName ? `${typeLabel}: ${draftFileName}` : `${typeLabel} pasted`;
+        }
+        return "Paste or upload a draft, outline, or notes";
+      }
       case "context":
         return contextItems.length
           ? `${contextItems.length} item${contextItems.length !== 1 ? "s" : ""} added`
@@ -292,22 +299,39 @@ export default function CreatePage() {
   function handleDraftFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (fileKind(file.name) !== "text") {
-      alert("Draft files must be plain text (.txt or .md).");
+    const kind = fileKind(file.name);
+    if (kind === "image") {
+      alert("Draft files must be text (.txt, .md) or PDF.");
       if (draftFileRef.current) draftFileRef.current.value = "";
       return;
     }
-    if (file.size > SIZE_LIMITS.text) {
-      alert("File too large. Max 50KB.");
+    const limit = kind === "pdf" ? SIZE_LIMITS.pdf : SIZE_LIMITS.text;
+    if (file.size > limit) {
+      alert(`File too large. Max ${kind === "pdf" ? "10MB" : "50KB"}.`);
       if (draftFileRef.current) draftFileRef.current.value = "";
       return;
     }
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      setDraftText(ev.target?.result as string);
-      setDraftFileName(file.name);
-    };
-    reader.readAsText(file);
+    if (kind === "pdf") {
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const [header, base64] = dataUrl.split(",");
+        const mime = header.match(/data:([^;]+)/)?.[1] ?? "application/pdf";
+        setDraftFileName(file.name);
+        setDraftData(base64);
+        setDraftMediaType(mime);
+        setDraftText("");
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = (ev) => {
+        setDraftText(ev.target?.result as string);
+        setDraftFileName(file.name);
+        setDraftData("");
+        setDraftMediaType("");
+      };
+      reader.readAsText(file);
+    }
     if (draftFileRef.current) draftFileRef.current.value = "";
   }
 
@@ -369,13 +393,29 @@ export default function CreatePage() {
     setOutput("");
 
     const allItems: ContextItem[] = [...contextItems];
-    if (draftText.trim()) {
-      allItems.push({
-        tag: "note",
-        text: draftText.trim(),
-        instructions:
-          "This is an existing draft the user has already started writing. Rewrite and refine it in the author's voice — preserve their ideas and intent, but elevate the writing to fully match their style.",
-      });
+    if (draftText.trim() || draftData) {
+      const draftInstructions =
+        draftType === "outline"
+          ? "This is an outline or structure the user wants to write from. Use it as your blueprint and write a full piece following this structure, in the author's voice."
+          : draftType === "notes"
+          ? "These are rough notes or unfinished fragments. Transform them into a polished, complete piece in the author's voice — use these as source material but write the final piece from scratch."
+          : "This is an existing draft (complete or partial). Rewrite and refine it in the author's voice — preserve their ideas and intent, but elevate and complete the writing to fully match their style.";
+      if (draftData && draftMediaType) {
+        // PDF draft — sent as a document attachment
+        allItems.push({
+          tag: "note",
+          fileName: draftFileName || "draft.pdf",
+          data: draftData,
+          mediaType: draftMediaType,
+          instructions: draftInstructions,
+        });
+      } else {
+        allItems.push({
+          tag: "note",
+          text: draftText.trim(),
+          instructions: draftInstructions,
+        });
+      }
     }
     const context = allItems.length > 0 ? { items: allItems } : undefined;
 
@@ -577,25 +617,70 @@ export default function CreatePage() {
 
             {/* ── Starting Draft ── */}
             {id === "draft" && (
-              <div className="space-y-3">
-                <p className="text-xs text-[#555]">
-                  Already started writing? Paste your draft here and the ghostwriter will rewrite it in your voice.
-                </p>
-                <textarea
-                  value={draftText}
-                  onChange={(e) => {
-                    setDraftText(e.target.value);
-                    if (!e.target.value) setDraftFileName("");
-                  }}
-                  placeholder={"Paste your draft here...\n\nOr use the upload button below to load a .txt or .md file."}
-                  rows={6}
-                  className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-y font-mono"
-                />
+              <div className="space-y-4">
+                {/* Draft type selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-[#555]">What are you providing?</label>
+                  <div className="flex gap-1.5">
+                    {([
+                      { value: "draft",   label: "Draft",   desc: "Rewrite in your voice" },
+                      { value: "outline", label: "Outline", desc: "Write from structure" },
+                      { value: "notes",   label: "Notes",   desc: "Transform into a piece" },
+                    ] as const).map(({ value, label: tLabel, desc }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setDraftType(value)}
+                        className={`flex-1 px-2 py-2 rounded-lg text-left border transition-all ${
+                          draftType === value
+                            ? "border-[#555] bg-[#1e1e1e]"
+                            : "border-[#222] bg-[#161616] hover:border-[#333]"
+                        }`}
+                      >
+                        <div className="text-xs font-medium text-white">{tLabel}</div>
+                        <div className="text-[10px] text-[#555] mt-0.5">{desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* PDF loaded state */}
+                {draftData ? (
+                  <div className="flex items-center gap-3 bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-3 py-2.5">
+                    <span className="text-[10px] font-bold text-red-400 border border-red-400/30 bg-red-400/10 px-1.5 py-0.5 rounded shrink-0">PDF</span>
+                    <span className="text-xs text-white font-medium truncate flex-1">{draftFileName}</span>
+                    <button
+                      type="button"
+                      onClick={() => { setDraftData(""); setDraftMediaType(""); setDraftFileName(""); }}
+                      className="text-[#444] hover:text-red-400 text-xs shrink-0 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <textarea
+                    value={draftText}
+                    onChange={(e) => {
+                      setDraftText(e.target.value);
+                      if (!e.target.value) setDraftFileName("");
+                    }}
+                    placeholder={
+                      draftType === "outline"
+                        ? "Paste your outline here...\n\ne.g.\n- Intro: hook with a surprising stat\n- Section 1: The problem\n- Section 2: Why existing solutions fail\n- Section 3: My approach\n- CTA"
+                        : draftType === "notes"
+                        ? "Paste your notes or fragments here...\n\nThese don't need to be polished — rough ideas, bullet points, half-sentences are all fine."
+                        : "Paste your draft here...\n\nCan be complete, partial, or just a few paragraphs. Or use the upload button below to load a .txt, .md, or PDF file."
+                    }
+                    rows={6}
+                    className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-y font-mono"
+                  />
+                )}
+
                 <div className="flex items-center gap-3 flex-wrap">
                   <input
                     ref={draftFileRef}
                     type="file"
-                    accept=".txt,.md"
+                    accept=".txt,.md,.pdf"
                     onChange={handleDraftFileChange}
                     className="hidden"
                   />
@@ -604,18 +689,18 @@ export default function CreatePage() {
                     onClick={() => draftFileRef.current?.click()}
                     className="text-xs text-[#555] border border-[#2a2a2a] rounded-lg px-3 py-1.5 hover:text-[#888] hover:border-[#444] transition-colors"
                   >
-                    Upload file (.txt .md)
+                    Upload file (.txt .md .pdf)
                   </button>
-                  {draftFileName && (
+                  {!draftData && draftFileName && (
                     <span className="text-xs text-[#555]">Loaded: {draftFileName}</span>
                   )}
-                  {draftText.trim() && (
+                  {(draftText.trim() || draftData) && (
                     <button
                       type="button"
-                      onClick={() => { setDraftText(""); setDraftFileName(""); }}
+                      onClick={() => { setDraftText(""); setDraftFileName(""); setDraftData(""); setDraftMediaType(""); }}
                       className="text-xs text-[#444] hover:text-red-400 transition-colors ml-auto"
                     >
-                      Clear draft
+                      Clear
                     </button>
                   )}
                 </div>
