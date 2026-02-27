@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
+import DraftEditor from "@/components/DraftEditor";
 
 interface Job {
   id: number;
@@ -49,39 +50,28 @@ function sortJobs(jobs: Job[]) {
     if (j.status === "done")           return 0;
     if (ACTIVE_STATUSES.has(j.status)) return 1;
     if (j.status === "queued")         return 2;
-    return 3; // error
+    return 3;
   };
   return [...jobs].sort(
     (a, b) => rank(a) - rank(b) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 }
 
-/** Parse a thread draft (tweets separated by '---') into individual tweet strings */
-function parseTweets(draft: string): string[] {
-  return draft
-    .split(/\n---\n|\n---$|^---\n/m)
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
-/** Minimal markdown → HTML for draft rendering */
-function renderMarkdown(md: string): string {
-  let html = md
+function printAsPdf(topic: string, draft: string) {
+  // Minimal markdown → HTML for the print window
+  const html = draft
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    .replace(/^## (.+)$/gm,  "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm,   "<h1>$1</h1>")
     .replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>")
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/^---+$/gm, "<hr>")
     .replace(/^[-*] (.+)$/gm, "<li>$1</li>")
-    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
-
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`);
-
-  html = html
+    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`)
     .split(/\n{2,}/)
     .map((block) => {
       const t = block.trim();
@@ -91,38 +81,19 @@ function renderMarkdown(md: string): string {
     })
     .join("\n");
 
-  return html;
-}
-
-function downloadTxt(topic: string, draft: string) {
-  const blob = new Blob([draft], { type: "text/plain" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = `${topic.slice(0, 60).replace(/[^a-z0-9]+/gi, "-")}.txt`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function printAsPdf(topic: string, draft: string) {
   const win = window.open("", "_blank", "width=800,height=900");
   if (!win) return;
   win.document.write(`<!DOCTYPE html><html><head>
-<meta charset="utf-8">
-<title>${topic.replace(/</g, "&lt;")}</title>
+<meta charset="utf-8"><title>${topic.replace(/</g, "&lt;")}</title>
 <style>
   body{font-family:Georgia,serif;font-size:15px;line-height:1.75;max-width:680px;margin:48px auto;color:#111}
   h1{font-size:2em;margin-bottom:.4em}h2{font-size:1.4em}h3{font-size:1.2em}
   p{margin:0 0 1em}ul{margin:0 0 1em;padding-left:1.4em}li{margin-bottom:.3em}
   code{font-family:monospace;background:#f2f2f2;padding:0 .3em}
   hr{border:none;border-top:1px solid #ccc;margin:1.5em 0}
-  strong{font-weight:700}em{font-style:italic}
   @media print{body{margin:0}}
-</style>
-</head><body>${renderMarkdown(draft)}</body></html>`);
-  win.document.close();
-  win.focus();
-  win.print();
+</style></head><body>${html}</body></html>`);
+  win.document.close(); win.focus(); win.print();
 }
 
 export default function GhostwriterPage() {
@@ -132,12 +103,7 @@ export default function GhostwriterPage() {
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [liveStep,    setLiveStep]    = useState<string>("");
   const [expandedId,  setExpandedId]  = useState<number | null>(null);
-  const [markdownId,  setMarkdownId]  = useState<number | null>(null);
   const [copiedId,    setCopiedId]    = useState<number | null>(null);
-
-  const [feedbackMap,  setFeedbackMap]  = useState<Record<number, string>>({});
-  const [revisingId,   setRevisingId]   = useState<number | null>(null);
-  const [liveRevision, setLiveRevision] = useState<string>("");
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -211,53 +177,6 @@ export default function GhostwriterPage() {
     }
   }
 
-  async function applyFeedback(job: Job) {
-    const feedback = feedbackMap[job.id]?.trim();
-    if (!feedback || revisingId !== null) return;
-
-    setRevisingId(job.id);
-    setLiveRevision("");
-
-    try {
-      const res = await fetch(`/api/ghostwriter/${job.id}/revise`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ feedback }),
-      });
-      if (!res.ok) { setRevisingId(null); return; }
-
-      const reader = res.body!.getReader();
-      const dec    = new TextDecoder();
-      let buf = "";
-      let accumulated = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const msg = JSON.parse(line.slice(6));
-            if (msg.type === "chunk") {
-              accumulated += msg.text;
-              setLiveRevision(accumulated);
-            } else if (msg.type === "done") {
-              setJobs((prev) => prev.map((j) => j.id === job.id ? { ...j, finalDraft: msg.finalDraft } : j));
-              setFeedbackMap((prev) => { const n = { ...prev }; delete n[job.id]; return n; });
-            }
-          } catch { /* malformed */ }
-        }
-      }
-    } finally {
-      setRevisingId(null);
-      setLiveRevision("");
-    }
-  }
-
   async function archiveJob(id: number) {
     await fetch(`/api/ghostwriter/${id}`, {
       method: "PATCH",
@@ -275,11 +194,12 @@ export default function GhostwriterPage() {
   }
 
   async function copyDraft(job: Job) {
-    const text = revisingId === job.id ? liveRevision : job.finalDraft;
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(job.finalDraft);
     setCopiedId(job.id);
     setTimeout(() => setCopiedId(null), 2000);
   }
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -298,7 +218,7 @@ export default function GhostwriterPage() {
         <div>
           <h1 className="text-2xl font-bold text-black/90 dark:text-white">Ghostwriter</h1>
           <p className="text-black/[0.40] dark:text-white/[0.40] text-sm mt-1">
-            Completed drafts surface to the top — review, refine with feedback, then save to your archive.
+            Completed drafts surface to the top — open the editor to refine inline or ask AI to rewrite sections.
           </p>
         </div>
         <Link
@@ -328,20 +248,16 @@ export default function GhostwriterPage() {
               const isError      = job.status === "error";
               const isQueued     = job.status === "queued";
               const isProcessing = ACTIVE_STATUSES.has(job.status);
-              const isRevising   = revisingId === job.id;
               const pos          = queuePos[job.id];
               const currentStepIdx = stepIndex(isActive ? liveStep : job.status);
               const isExpanded   = expandedId === job.id;
-              const isMarkdown   = markdownId === job.id;
-              const feedback     = feedbackMap[job.id] ?? "";
-              const displayDraft = isRevising ? liveRevision : job.finalDraft;
 
               return (
                 <div
                   key={job.id}
                   className={`bg-black/[0.04] dark:bg-[#161616] border rounded-xl overflow-hidden ${isDone ? "border-black/[0.10] dark:border-[#2a2a2a]" : "border-black/[0.09] dark:border-white/[0.07]"}`}
                 >
-                  {/* Header */}
+                  {/* ── Job header ─────────────────────────────────────────── */}
                   <div className="px-5 py-4 flex items-start justify-between gap-4">
                     <div className="min-w-0 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -351,7 +267,7 @@ export default function GhostwriterPage() {
                         {isDone && (
                           <span className="flex items-center gap-1 text-[11px] text-emerald-400">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                            Ready for review
+                            Ready
                           </span>
                         )}
                         {isError && (
@@ -373,12 +289,6 @@ export default function GhostwriterPage() {
                             {isActive ? (STEPS[currentStepIdx]?.label ?? "Processing…") : job.stepLabel}
                           </span>
                         )}
-                        {isRevising && (
-                          <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse inline-block" />
-                            Applying edits…
-                          </span>
-                        )}
                       </div>
                       <p className="text-sm font-medium text-black/90 dark:text-white truncate">{job.title || job.topic}</p>
                       {job.summaryText && (
@@ -391,23 +301,16 @@ export default function GhostwriterPage() {
                       {isDone && (
                         <>
                           <button
-                            onClick={() => { setExpandedId(isExpanded ? null : job.id); if (!isExpanded) setMarkdownId(null); }}
+                            onClick={() => setExpandedId(isExpanded ? null : job.id)}
                             className="text-xs text-black/90 dark:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors"
                           >
-                            {isExpanded ? "Hide" : "View draft"}
+                            {isExpanded ? "Close editor" : "Open editor"}
                           </button>
                           <button
                             onClick={() => copyDraft(job)}
                             className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
                           >
                             {copiedId === job.id ? "Copied!" : "Copy"}
-                          </button>
-                          <button
-                            onClick={() => downloadTxt(job.title || job.topic, job.finalDraft)}
-                            className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
-                            title="Download as TXT"
-                          >
-                            TXT
                           </button>
                           <button
                             onClick={() => printAsPdf(job.title || job.topic, job.finalDraft)}
@@ -441,7 +344,7 @@ export default function GhostwriterPage() {
                     </div>
                   </div>
 
-                  {/* Progress steps */}
+                  {/* ── Progress steps ─────────────────────────────────────── */}
                   {(isActive || (isProcessing && !isDone)) && (
                     <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-4 space-y-2.5">
                       {STEPS.map((s, i) => {
@@ -471,117 +374,28 @@ export default function GhostwriterPage() {
                     </div>
                   )}
 
-                  {/* Error */}
+                  {/* ── Error ──────────────────────────────────────────────── */}
                   {isError && job.errorMsg && (
                     <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-3">
                       <p className="text-xs text-red-400">{job.errorMsg}</p>
                     </div>
                   )}
 
-                  {/* Expanded: draft + feedback */}
-                  {isDone && isExpanded && (() => {
-                    const isThread = job.contentType === "twitter_thread";
-                    // threadView: null = plain, "thread" = thread cards, "rendered" = markdown
-                    const viewMode = isThread
-                      ? (isMarkdown ? "thread" : "plain")
-                      : (isMarkdown ? "rendered" : "plain");
-                    return (
-                    <div className="border-t border-black/[0.06] dark:border-white/[0.05]">
-                      {/* View toggle */}
-                      <div className="px-5 pt-4 pb-2">
-                        <div className="inline-flex items-center gap-0.5 bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-lg p-0.5">
-                          <button
-                            onClick={() => setMarkdownId(null)}
-                            className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${!isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
-                          >
-                            Plain
-                          </button>
-                          {isThread ? (
-                            <button
-                              onClick={() => setMarkdownId(job.id)}
-                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
-                            >
-                              Thread view
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => setMarkdownId(job.id)}
-                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
-                            >
-                              Rendered
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Draft */}
-                      <div className="px-5 pb-5">
-                        {viewMode === "thread" ? (
-                          // Thread card view — each tweet as a card with char count
-                          <div className="space-y-2">
-                            {parseTweets(displayDraft).map((tweet, idx, arr) => {
-                              const len = tweet.length;
-                              const over = len > 280;
-                              return (
-                                <div key={idx} className={`bg-black/[0.04] dark:bg-[#111] border rounded-lg p-4 space-y-2 ${over ? "border-red-500/40" : "border-black/[0.09] dark:border-white/[0.07]"}`}>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[10px] text-black/[0.28] dark:text-white/[0.28]">{idx + 1} / {arr.length}</span>
-                                    <span className={`text-[10px] tabular-nums font-medium ${over ? "text-red-400" : len > 240 ? "text-amber-400" : "text-black/[0.35] dark:text-white/[0.35]"}`}>
-                                      {len} / 280
-                                    </span>
-                                  </div>
-                                  <p className="text-sm text-black/[0.75] dark:text-[#ccc] leading-relaxed whitespace-pre-wrap">{tweet}</p>
-                                  {over && (
-                                    <p className="text-[10px] text-red-400">⚠ {len - 280} characters over limit</p>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : viewMode === "rendered" ? (
-                          <div
-                            className="text-sm text-black/75 dark:text-[#ccc] leading-relaxed [&_h1]:text-black/90 dark:[&_h1]:text-white [&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-5 [&_h2]:text-black/90 dark:[&_h2]:text-white [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h3]:text-black/85 dark:[&_h3]:text-[#ddd] [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-3 [&_p]:mb-3 [&_ul]:mb-3 [&_ul]:pl-5 [&_li]:mb-1 [&_li]:list-disc [&_strong]:text-black/90 dark:[&_strong]:text-white [&_em]:italic [&_code]:font-mono [&_code]:text-[#9cdcfe] [&_code]:bg-black/[0.06] dark:[&_code]:bg-[#1e1e1e] [&_code]:px-1 [&_code]:rounded [&_hr]:border-black/[0.12] dark:[&_hr]:border-white/[0.12] [&_hr]:my-4"
-                            dangerouslySetInnerHTML={{ __html: renderMarkdown(displayDraft) }}
-                          />
-                        ) : (
-                          <pre className="text-sm text-black/[0.75] dark:text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
-                            {displayDraft || (isRevising ? "Writing…" : "")}
-                          </pre>
-                        )}
-                      </div>
-
-                      {/* Feedback */}
-                      <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-4 space-y-3">
-                        <p className="text-[11px] text-black/[0.35] dark:text-white/[0.35] font-medium uppercase tracking-widest">Refine this draft</p>
-                        <textarea
-                          value={feedback}
-                          onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [job.id]: e.target.value }))}
-                          placeholder='Describe what to change — e.g. "Make the intro punchier" or "Remove the third bullet and add a closing question"'
-                          rows={3}
-                          disabled={isRevising}
-                          className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] focus:border-black/[0.22] dark:focus:border-white/[0.22] rounded-lg px-3 py-2.5 text-sm text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] resize-none focus:outline-none transition-colors disabled:opacity-50"
-                        />
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => applyFeedback(job)}
-                            disabled={!feedback.trim() || isRevising}
-                            className="bg-white text-black text-xs font-medium px-4 py-2 rounded-lg hover:bg-black/[0.08] dark:hover:bg-white/90 transition-colors disabled:opacity-40"
-                          >
-                            {isRevising ? "Applying…" : "Apply edits"}
-                          </button>
-                          {feedback.trim() && !isRevising && (
-                            <button
-                              onClick={() => setFeedbackMap((prev) => { const n = { ...prev }; delete n[job.id]; return n; })}
-                              className="text-black/[0.35] dark:text-white/[0.35] text-xs hover:text-black/55 dark:hover:text-white/55 transition-colors"
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    );
-                  })()}
+                  {/* ── Live editor ────────────────────────────────────────── */}
+                  {isDone && isExpanded && (
+                    <DraftEditor
+                      key={job.id}
+                      jobId={job.id}
+                      initialDraft={job.finalDraft}
+                      contentType={job.contentType}
+                      jobTitle={job.title || job.topic}
+                      onDraftChange={(newDraft) =>
+                        setJobs((prev) =>
+                          prev.map((j) => j.id === job.id ? { ...j, finalDraft: newDraft } : j)
+                        )
+                      }
+                    />
+                  )}
                 </div>
               );
             })}
