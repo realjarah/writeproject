@@ -246,14 +246,14 @@ export default function VoicePage() {
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">My Voice</h1>
-          <p className="text-[#666] text-sm mt-1">
+          <h1 className="text-2xl font-bold text-black/90 dark:text-white">My Voice</h1>
+          <p className="text-black/[0.40] dark:text-white/[0.40] text-sm mt-1">
             Add samples of your real writing — the ghost learns your style per format.
           </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors"
+          className="bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors"
         >
           + Add sample
         </button>
@@ -270,11 +270,11 @@ export default function VoicePage() {
 
       {/* ── Add sample form ──────────────────────────────────────────── */}
       {showForm && (
-        <div className="bg-[#161616] border border-[#2a2a2a] rounded-xl p-5 space-y-4">
-          <h2 className="font-medium text-white">New Writing Sample</h2>
+        <div className="bg-black/[0.04] dark:bg-[#161616] border border-black/[0.10] dark:border-[#2a2a2a] rounded-xl p-5 space-y-4">
+          <h2 className="font-medium text-black/90 dark:text-white">New Writing Sample</h2>
 
           {/* Input mode tabs */}
-          <div className="flex gap-1 border-b border-[#2a2a2a] pb-1">
+          <div className="flex gap-1 border-b border-black/[0.10] dark:border-[#2a2a2a] pb-1">
             {(["paste", "url", "file"] as const).map((mode) => (
               <button
                 key={mode}
@@ -302,21 +302,21 @@ export default function VoicePage() {
                   onChange={(e) => setUrlInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") handleUrl(); }}
                   autoFocus
-                  className="flex-1 bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#555] focus:outline-none focus:border-[#444]"
+                  className="flex-1 bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-black/90 dark:text-white placeholder-black/[0.30] dark:placeholder-white/[0.30] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
                 />
                 <button
                   onClick={handleUrl}
                   disabled={fetching || !urlInput.trim()}
-                  className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-40 whitespace-nowrap"
+                  className="bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-40 whitespace-nowrap"
                 >
                   {fetching ? "Importing…" : "Import"}
                 </button>
               </div>
               {fetchError && <p className="text-[11px] text-red-400">{fetchError}</p>}
-              <p className="text-[11px] text-[#444]">
+              <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28]">
                 Any published writing — blog posts, articles, newsletters, LinkedIn posts, etc.
               </p>
-              <button onClick={resetForm} className="text-[#666] text-sm hover:text-[#999] transition-colors">
+              <button onClick={resetForm} className="text-black/[0.40] dark:text-white/[0.40] text-sm hover:text-black/60 dark:hover:text-black/[0.60] dark:text-[#999] transition-colors">
                 Cancel
               </button>
             </div>
@@ -326,13 +326,13 @@ export default function VoicePage() {
           {inputMode === "file" && (
             <div className="space-y-2">
               <label
-                className="flex flex-col items-center justify-center gap-2 border border-dashed border-[#2a2a2a] rounded-lg p-8 cursor-pointer hover:border-[#444] transition-colors"
+                className="flex flex-col items-center justify-center gap-2 border border-dashed border-black/[0.10] dark:border-[#2a2a2a] rounded-lg p-8 cursor-pointer hover:border-black/[0.17] dark:hover:border-white/[0.17] transition-colors"
                 style={fetching ? { opacity: 0.5, pointerEvents: "none" } : {}}
               >
-                <span className="text-[#555] text-sm">
+                <span className="text-black/[0.35] dark:text-white/[0.35] text-sm">
                   {fetching ? "Saving…" : "Click to upload or drag a file here"}
                 </span>
-                <span className="text-[11px] text-[#444]">.txt · .md · .pdf</span>
+                <span className="text-[11px] text-black/[0.28] dark:text-white/[0.28]">.txt · .md · .pdf</span>
                 <input
                   type="file"
                   accept=".txt,.md,.markdown,.text,.pdf"
@@ -342,7 +342,7 @@ export default function VoicePage() {
                 />
               </label>
               {fileError && <p className="text-[11px] text-red-400">{fileError}</p>}
-              <button onClick={resetForm} className="text-[#666] text-sm hover:text-[#999] transition-colors">
+              <button onClick={resetForm} className="text-black/[0.40] dark:text-white/[0.40] text-sm hover:text-black/60 dark:hover:text-black/[0.60] dark:text-[#999] transition-colors">
                 Cancel
               </button>
             </div>
@@ -355,24 +355,24 @@ export default function VoicePage() {
             placeholder="Title (optional)"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#555] focus:outline-none focus:border-[#444]"
+            className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-black/90 dark:text-white placeholder-black/[0.30] dark:placeholder-white/[0.30] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
           />
           <textarea
             placeholder="Paste your writing here — blog posts, emails, essays, tweets, anything you've actually written…"
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={10}
-            className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#555] focus:outline-none focus:border-[#444] resize-y"
+            className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-black/90 dark:text-white placeholder-black/[0.30] dark:placeholder-white/[0.30] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22] resize-y"
           />
 
           {/* Category picker — grouped, aligned with content types */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-[#555] uppercase tracking-widest">
+              <span className="text-xs font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
                 Writing type
               </span>
               {content.trim().length > 20 && autoDetected && (
-                <span className="text-[10px] text-[#555] bg-[#111] border border-[#2a2a2a] rounded px-1.5 py-0.5">
+                <span className="text-[10px] text-black/[0.35] dark:text-white/[0.35] bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded px-1.5 py-0.5">
                   auto-detected
                 </span>
               )}
@@ -380,7 +380,7 @@ export default function VoicePage() {
             <div className="space-y-2">
               {CONTENT_TYPE_GROUPS.map((group) => (
                 <div key={group.label}>
-                  <div className="text-[10px] text-[#444] uppercase tracking-wider mb-1.5">
+                  <div className="text-[10px] text-black/[0.28] dark:text-white/[0.28] uppercase tracking-wider mb-1.5">
                     {group.label}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -408,11 +408,11 @@ export default function VoicePage() {
             <button
               onClick={addSample}
               disabled={adding || !content.trim()}
-              className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-40"
+              className="bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-40"
             >
               {adding ? "Saving…" : "Save sample"}
             </button>
-            <button onClick={resetForm} className="text-[#666] text-sm hover:text-[#999] transition-colors">
+            <button onClick={resetForm} className="text-black/[0.40] dark:text-white/[0.40] text-sm hover:text-black/60 dark:hover:text-black/[0.60] dark:text-[#999] transition-colors">
               Cancel
             </button>
           </div>
@@ -422,12 +422,12 @@ export default function VoicePage() {
 
       {/* ── Analyze bar ──────────────────────────────────────────────── */}
       {samples.length > 0 && (
-        <div className="bg-[#161616] border border-[#222] rounded-xl p-5 flex items-center justify-between">
+        <div className="bg-black/[0.04] dark:bg-[#161616] border border-black/[0.09] dark:border-white/[0.07] rounded-xl p-5 flex items-center justify-between">
           <div className="space-y-0.5">
-            <div className="text-sm text-white font-medium">
+            <div className="text-sm text-black/90 dark:text-white font-medium">
               {samples.length} sample{samples.length !== 1 ? "s" : ""} · {totalWords.toLocaleString()} words
             </div>
-            <div className="text-xs text-[#555]">
+            <div className="text-xs text-black/[0.35] dark:text-white/[0.35]">
               {samples.length < 3
                 ? `Add ${3 - samples.length} more to improve the analysis`
                 : profile
@@ -439,7 +439,7 @@ export default function VoicePage() {
             <button
               onClick={analyzeVoice}
               disabled={analyzing}
-              className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-40"
+              className="bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-40"
             >
               {analyzing ? "Analyzing…" : profile ? "Re-analyze" : "Analyze voice"}
             </button>
@@ -452,8 +452,8 @@ export default function VoicePage() {
       {samples.length > 0 && (
         <div className="space-y-5">
           <div>
-            <h2 className="text-sm font-semibold text-white">Ghost training by format</h2>
-            <p className="text-xs text-[#555] mt-0.5">
+            <h2 className="text-sm font-semibold text-black/90 dark:text-white">Ghost training by format</h2>
+            <p className="text-xs text-black/[0.35] dark:text-white/[0.35] mt-0.5">
               How much of your writing the ghost has seen per format. Add samples to level up each type.
             </p>
           </div>
@@ -473,10 +473,10 @@ export default function VoicePage() {
                   return (
                     <div
                       key={type}
-                      className="bg-[#161616] border border-[#1e1e1e] rounded-xl p-3 space-y-2"
+                      className="bg-black/[0.04] dark:bg-[#161616] border border-black/[0.06] dark:border-white/[0.05] rounded-xl p-3 space-y-2"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-medium text-white truncate">
+                        <span className="text-[11px] font-medium text-black/90 dark:text-white truncate">
                           {CONTENT_TYPE_LABELS[type]}
                         </span>
                         <span
@@ -486,13 +486,13 @@ export default function VoicePage() {
                           {pct > 0 ? `${pct}%` : "—"}
                         </span>
                       </div>
-                      <div className="h-1 w-full bg-[#2a2a2a] rounded-full overflow-hidden">
+                      <div className="h-1 w-full bg-black/[0.08] dark:bg-[#2a2a2a] rounded-full overflow-hidden">
                         <div
                           className="h-full rounded-full transition-all duration-500"
                           style={{ width: `${pct}%`, backgroundColor: color }}
                         />
                       </div>
-                      <div className="text-[10px] text-[#444]">
+                      <div className="text-[10px] text-black/[0.28] dark:text-white/[0.28]">
                         {stat.count > 0
                           ? `${stat.count} sample${stat.count !== 1 ? "s" : ""} · ${stat.words.toLocaleString()} words`
                           : "No samples yet"}
@@ -508,25 +508,25 @@ export default function VoicePage() {
 
       {/* ── Voice profile summary (collapsed by default) ──────────────── */}
       {profile && (
-        <div className="bg-[#111] border border-[#1e1e1e] rounded-xl overflow-hidden">
+        <div className="bg-black/[0.04] dark:bg-[#111] border border-black/[0.06] dark:border-white/[0.05] rounded-xl overflow-hidden">
           <button
             onClick={() => setExpandedProfile(!expandedProfile)}
-            className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#161616] transition-colors"
+            className="w-full flex items-center justify-between px-5 py-4 hover:bg-black/[0.04] hover:dark:bg-[#161616] transition-colors"
           >
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="font-medium text-white text-sm">Voice analyzed</span>
-              <span className="text-[#444] text-xs">
+              <span className="font-medium text-black/90 dark:text-white text-sm">Voice analyzed</span>
+              <span className="text-black/[0.28] dark:text-white/[0.28] text-xs">
                 {new Date(profile.updatedAt).toLocaleDateString()}
               </span>
             </div>
-            <span className="text-[#555] text-xs">
+            <span className="text-black/[0.35] dark:text-white/[0.35] text-xs">
               {expandedProfile ? "Hide" : "View details"}
             </span>
           </button>
           {expandedProfile && (
-            <div className="px-5 pb-5 space-y-4 border-t border-[#1e1e1e] pt-4">
-              <p className="text-sm text-[#aaa] italic">
+            <div className="px-5 pb-5 space-y-4 border-t border-black/[0.06] dark:border-white/[0.05] pt-4">
+              <p className="text-sm text-black/[0.68] dark:text-white/[0.68] italic">
                 &ldquo;{profile.analysis.rawSummary}&rdquo;
               </p>
               <div className="grid grid-cols-2 gap-3">
@@ -537,23 +537,23 @@ export default function VoicePage() {
                   ["Punctuation", profile.analysis.punctuationHabits],
                 ].map(([label, val]) => (
                   <div key={label} className="space-y-0.5">
-                    <div className="text-[10px] font-semibold text-[#555] uppercase tracking-widest">
+                    <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
                       {label}
                     </div>
-                    <div className="text-xs text-[#888]">{val}</div>
+                    <div className="text-xs text-black/[0.55] dark:text-white/[0.55]">{val}</div>
                   </div>
                 ))}
               </div>
               {profile.analysis.thingsToAvoid?.length > 0 && (
                 <div className="space-y-1.5">
-                  <div className="text-[10px] font-semibold text-[#555] uppercase tracking-widest">
+                  <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
                     Never do
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {profile.analysis.thingsToAvoid.map((t, i) => (
                       <span
                         key={i}
-                        className="text-[10px] bg-[#1a1a1a] border border-[#2a2a2a] rounded px-2 py-0.5 text-[#666]"
+                        className="text-[10px] bg-black/[0.06] dark:bg-[#1a1a1a] border border-black/[0.10] dark:border-[#2a2a2a] rounded px-2 py-0.5 text-black/[0.40] dark:text-white/[0.40]"
                       >
                         {t}
                       </span>
@@ -568,7 +568,7 @@ export default function VoicePage() {
 
       {/* ── Sample list ──────────────────────────────────────────────── */}
       {samples.length === 0 ? (
-        <div className="text-center py-16 text-[#444] text-sm">
+        <div className="text-center py-16 text-black/[0.28] dark:text-white/[0.28] text-sm">
           No samples yet. Add some of your writing to get started.
         </div>
       ) : (
@@ -579,11 +579,11 @@ export default function VoicePage() {
             return (
               <div
                 key={s.id}
-                className="bg-[#161616] border border-[#222] rounded-xl p-4 flex items-start justify-between gap-4"
+                className="bg-black/[0.04] dark:bg-[#161616] border border-black/[0.09] dark:border-white/[0.07] rounded-xl p-4 flex items-start justify-between gap-4"
               >
                 <div className="space-y-1.5 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-white text-sm">{s.title}</span>
+                    <span className="font-medium text-black/90 dark:text-white text-sm">{s.title}</span>
                     <span
                       className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
                       style={{ color, borderColor: color + "55", backgroundColor: color + "15" }}
@@ -591,14 +591,14 @@ export default function VoicePage() {
                       {label}
                     </span>
                   </div>
-                  <div className="text-xs text-[#555]">
+                  <div className="text-xs text-black/[0.35] dark:text-white/[0.35]">
                     {s.wordCount} words · {new Date(s.createdAt).toLocaleDateString()}
                   </div>
-                  <p className="text-xs text-[#666] line-clamp-2">{s.content}</p>
+                  <p className="text-xs text-black/[0.40] dark:text-white/[0.40] line-clamp-2">{s.content}</p>
                 </div>
                 <button
                   onClick={() => deleteSample(s.id)}
-                  className="text-[#444] hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
+                  className="text-black/[0.28] dark:text-white/[0.28] hover:text-red-500 dark:hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
                 >
                   Remove
                 </button>

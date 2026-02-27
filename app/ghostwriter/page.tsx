@@ -281,8 +281,8 @@ export default function GhostwriterPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-3 py-20 text-[#555] text-sm">
-        <span className="w-1.5 h-1.5 bg-[#555] rounded-full animate-pulse" />
+      <div className="flex items-center gap-3 py-20 text-black/[0.35] dark:text-white/[0.35] text-sm">
+        <span className="w-1.5 h-1.5 bg-black/[0.35] dark:bg-white/[0.35] rounded-full animate-pulse" />
         Loading…
       </div>
     );
@@ -294,23 +294,23 @@ export default function GhostwriterPage() {
     <div className="space-y-8">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Ghostwriter</h1>
-          <p className="text-[#666] text-sm mt-1">
+          <h1 className="text-2xl font-bold text-black/90 dark:text-white">Ghostwriter</h1>
+          <p className="text-black/[0.40] dark:text-white/[0.40] text-sm mt-1">
             Completed drafts surface to the top — review, refine with feedback, then save to your archive.
           </p>
         </div>
         <Link
           href="/create"
-          className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors shrink-0"
+          className="bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors shrink-0"
         >
           + New piece
         </Link>
       </div>
 
       {sorted.length === 0 ? (
-        <div className="bg-[#111] border border-[#1e1e1e] rounded-xl p-12 text-center space-y-3">
-          <p className="text-[#555] text-sm">No pieces queued yet.</p>
-          <Link href="/create" className="inline-block text-white text-sm underline underline-offset-4">
+        <div className="bg-black/[0.04] dark:bg-[#111] border border-black/[0.06] dark:border-white/[0.05] rounded-xl p-12 text-center space-y-3">
+          <p className="text-black/[0.35] dark:text-white/[0.35] text-sm">No pieces queued yet.</p>
+          <Link href="/create" className="inline-block text-black/90 dark:text-white text-sm underline underline-offset-4">
             Go to Brainstorm →
           </Link>
         </div>
@@ -337,13 +337,13 @@ export default function GhostwriterPage() {
               return (
                 <div
                   key={job.id}
-                  className={`bg-[#161616] border rounded-xl overflow-hidden ${isDone ? "border-[#2a2a2a]" : "border-[#222]"}`}
+                  className={`bg-black/[0.04] dark:bg-[#161616] border rounded-xl overflow-hidden ${isDone ? "border-black/[0.10] dark:border-[#2a2a2a]" : "border-black/[0.09] dark:border-white/[0.07]"}`}
                 >
                   {/* Header */}
                   <div className="px-5 py-4 flex items-start justify-between gap-4">
                     <div className="min-w-0 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] font-medium text-[#555] bg-[#1e1e1e] rounded px-1.5 py-0.5">
+                        <span className="text-[11px] font-medium text-black/[0.35] dark:text-white/[0.35] bg-black/[0.07] dark:bg-[#1e1e1e] rounded px-1.5 py-0.5">
                           {CONTENT_TYPE_LABELS[job.contentType] ?? job.contentType}
                         </span>
                         {isDone && (
@@ -359,14 +359,14 @@ export default function GhostwriterPage() {
                           </span>
                         )}
                         {isQueued && (
-                          <span className="text-[11px] text-[#444]">
+                          <span className="text-[11px] text-black/[0.28] dark:text-white/[0.28]">
                             {activeJobId !== null
                               ? pos === 1 ? "Up next" : `#${pos} in queue`
                               : "Queued"}
                           </span>
                         )}
                         {(isActive || isProcessing) && !isDone && !isError && (
-                          <span className="flex items-center gap-1.5 text-[11px] text-[#888]">
+                          <span className="flex items-center gap-1.5 text-[11px] text-black/[0.55] dark:text-white/[0.55]">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" />
                             {isActive ? (STEPS[currentStepIdx]?.label ?? "Processing…") : job.stepLabel}
                           </span>
@@ -378,8 +378,8 @@ export default function GhostwriterPage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm font-medium text-white truncate">{job.topic}</p>
-                      <p className="text-[11px] text-[#444]">{timeAgo(job.createdAt)}</p>
+                      <p className="text-sm font-medium text-black/90 dark:text-white truncate">{job.topic}</p>
+                      <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28]">{timeAgo(job.createdAt)}</p>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
@@ -387,33 +387,33 @@ export default function GhostwriterPage() {
                         <>
                           <button
                             onClick={() => { setExpandedId(isExpanded ? null : job.id); if (!isExpanded) setMarkdownId(null); }}
-                            className="text-xs text-white border border-[#333] rounded-md px-3 py-1.5 hover:border-[#555] transition-colors"
+                            className="text-xs text-black/90 dark:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors"
                           >
                             {isExpanded ? "Hide" : "View draft"}
                           </button>
                           <button
                             onClick={() => copyDraft(job)}
-                            className="text-xs text-[#666] hover:text-white border border-[#333] rounded-md px-3 py-1.5 transition-colors"
+                            className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
                           >
                             {copiedId === job.id ? "Copied!" : "Copy"}
                           </button>
                           <button
                             onClick={() => downloadTxt(job.topic, job.finalDraft)}
-                            className="text-xs text-[#666] hover:text-white border border-[#333] rounded-md px-3 py-1.5 transition-colors"
+                            className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
                             title="Download as TXT"
                           >
                             TXT
                           </button>
                           <button
                             onClick={() => printAsPdf(job.topic, job.finalDraft)}
-                            className="text-xs text-[#666] hover:text-white border border-[#333] rounded-md px-3 py-1.5 transition-colors"
+                            className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
                             title="Print / Save as PDF"
                           >
                             PDF
                           </button>
                           <button
                             onClick={() => archiveJob(job.id)}
-                            className="text-xs text-[#555] hover:text-white border border-[#2a2a2a] hover:border-[#555] rounded-md px-3 py-1.5 transition-colors"
+                            className="text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/90 dark:hover:text-white border border-black/[0.10] dark:border-[#2a2a2a] hover:border-black/[0.21] dark:hover:border-white/[0.22] rounded-md px-3 py-1.5 transition-colors"
                           >
                             Archive
                           </button>
@@ -422,14 +422,14 @@ export default function GhostwriterPage() {
                       {isQueued && activeJobId === null && (
                         <button
                           onClick={() => startJob(job.id)}
-                          className="text-xs bg-white text-black font-medium rounded-md px-3 py-1.5 hover:bg-[#e8e8e8] transition-colors"
+                          className="text-xs bg-white text-black font-medium rounded-md px-3 py-1.5 hover:bg-black/[0.08] dark:hover:bg-white/90 transition-colors"
                         >
                           Start
                         </button>
                       )}
                       <button
                         onClick={() => deleteJob(job.id)}
-                        className="text-[#444] hover:text-red-400 transition-colors text-xs"
+                        className="text-black/[0.28] dark:text-white/[0.28] hover:text-red-500 dark:hover:text-red-400 transition-colors text-xs"
                       >
                         Delete
                       </button>
@@ -438,7 +438,7 @@ export default function GhostwriterPage() {
 
                   {/* Progress steps */}
                   {(isActive || (isProcessing && !isDone)) && (
-                    <div className="border-t border-[#1e1e1e] px-5 py-4 space-y-2.5">
+                    <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-4 space-y-2.5">
                       {STEPS.map((s, i) => {
                         const idx    = isActive ? stepIndex(liveStep) : currentStepIdx;
                         const done   = i < idx;
@@ -450,14 +450,14 @@ export default function GhostwriterPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                               </svg>
                             ) : active ? (
-                              <svg className="w-3.5 h-3.5 text-white animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                              <svg className="w-3.5 h-3.5 text-black/90 dark:text-white animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                               </svg>
                             ) : (
-                              <span className="w-3.5 h-3.5 rounded-full border border-[#333] shrink-0" />
+                              <span className="w-3.5 h-3.5 rounded-full border border-black/[0.12] dark:border-white/[0.12] shrink-0" />
                             )}
-                            <span className={`text-xs ${done ? "text-[#555]" : active ? "text-white" : "text-[#333]"}`}>
+                            <span className={`text-xs ${done ? "text-black/[0.35] dark:text-white/[0.35]" : active ? "text-black/90 dark:text-white" : "text-black/[0.22] dark:text-white/[0.22]"}`}>
                               {s.label}
                             </span>
                           </div>
@@ -468,7 +468,7 @@ export default function GhostwriterPage() {
 
                   {/* Error */}
                   {isError && job.errorMsg && (
-                    <div className="border-t border-[#1e1e1e] px-5 py-3">
+                    <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-3">
                       <p className="text-xs text-red-400">{job.errorMsg}</p>
                     </div>
                   )}
@@ -481,27 +481,27 @@ export default function GhostwriterPage() {
                       ? (isMarkdown ? "thread" : "plain")
                       : (isMarkdown ? "rendered" : "plain");
                     return (
-                    <div className="border-t border-[#1e1e1e]">
+                    <div className="border-t border-black/[0.06] dark:border-white/[0.05]">
                       {/* View toggle */}
                       <div className="px-5 pt-4 pb-2">
-                        <div className="inline-flex items-center gap-0.5 bg-[#111] border border-[#222] rounded-lg p-0.5">
+                        <div className="inline-flex items-center gap-0.5 bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-lg p-0.5">
                           <button
                             onClick={() => setMarkdownId(null)}
-                            className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${!isMarkdown ? "bg-[#222] text-white" : "text-[#555] hover:text-[#888]"}`}
+                            className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${!isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
                           >
                             Plain
                           </button>
                           {isThread ? (
                             <button
                               onClick={() => setMarkdownId(job.id)}
-                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-[#222] text-white" : "text-[#555] hover:text-[#888]"}`}
+                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
                             >
                               Thread view
                             </button>
                           ) : (
                             <button
                               onClick={() => setMarkdownId(job.id)}
-                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-[#222] text-white" : "text-[#555] hover:text-[#888]"}`}
+                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
                             >
                               Rendered
                             </button>
@@ -518,14 +518,14 @@ export default function GhostwriterPage() {
                               const len = tweet.length;
                               const over = len > 280;
                               return (
-                                <div key={idx} className={`bg-[#111] border rounded-lg p-4 space-y-2 ${over ? "border-red-500/40" : "border-[#222]"}`}>
+                                <div key={idx} className={`bg-black/[0.04] dark:bg-[#111] border rounded-lg p-4 space-y-2 ${over ? "border-red-500/40" : "border-black/[0.09] dark:border-white/[0.07]"}`}>
                                   <div className="flex items-center justify-between">
-                                    <span className="text-[10px] text-[#444]">{idx + 1} / {arr.length}</span>
-                                    <span className={`text-[10px] tabular-nums font-medium ${over ? "text-red-400" : len > 240 ? "text-amber-400" : "text-[#555]"}`}>
+                                    <span className="text-[10px] text-black/[0.28] dark:text-white/[0.28]">{idx + 1} / {arr.length}</span>
+                                    <span className={`text-[10px] tabular-nums font-medium ${over ? "text-red-400" : len > 240 ? "text-amber-400" : "text-black/[0.35] dark:text-white/[0.35]"}`}>
                                       {len} / 280
                                     </span>
                                   </div>
-                                  <p className="text-sm text-[#ccc] leading-relaxed whitespace-pre-wrap">{tweet}</p>
+                                  <p className="text-sm text-black/[0.75] dark:text-[#ccc] leading-relaxed whitespace-pre-wrap">{tweet}</p>
                                   {over && (
                                     <p className="text-[10px] text-red-400">⚠ {len - 280} characters over limit</p>
                                   )}
@@ -535,39 +535,39 @@ export default function GhostwriterPage() {
                           </div>
                         ) : viewMode === "rendered" ? (
                           <div
-                            className="text-sm text-[#ccc] leading-relaxed [&_h1]:text-white [&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-5 [&_h2]:text-white [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h3]:text-[#ddd] [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-3 [&_p]:mb-3 [&_ul]:mb-3 [&_ul]:pl-5 [&_li]:mb-1 [&_li]:list-disc [&_strong]:text-white [&_em]:italic [&_code]:font-mono [&_code]:text-[#9cdcfe] [&_code]:bg-[#1e1e1e] [&_code]:px-1 [&_code]:rounded [&_hr]:border-[#333] [&_hr]:my-4"
+                            className="text-sm text-black/75 dark:text-[#ccc] leading-relaxed [&_h1]:text-black/90 dark:[&_h1]:text-white [&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-5 [&_h2]:text-black/90 dark:[&_h2]:text-white [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h3]:text-black/85 dark:[&_h3]:text-[#ddd] [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-3 [&_p]:mb-3 [&_ul]:mb-3 [&_ul]:pl-5 [&_li]:mb-1 [&_li]:list-disc [&_strong]:text-black/90 dark:[&_strong]:text-white [&_em]:italic [&_code]:font-mono [&_code]:text-[#9cdcfe] [&_code]:bg-black/[0.06] dark:[&_code]:bg-[#1e1e1e] [&_code]:px-1 [&_code]:rounded [&_hr]:border-black/[0.12] dark:[&_hr]:border-white/[0.12] [&_hr]:my-4"
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(displayDraft) }}
                           />
                         ) : (
-                          <pre className="text-sm text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
+                          <pre className="text-sm text-black/[0.75] dark:text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
                             {displayDraft || (isRevising ? "Writing…" : "")}
                           </pre>
                         )}
                       </div>
 
                       {/* Feedback */}
-                      <div className="border-t border-[#1e1e1e] px-5 py-4 space-y-3">
-                        <p className="text-[11px] text-[#555] font-medium uppercase tracking-widest">Refine this draft</p>
+                      <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-4 space-y-3">
+                        <p className="text-[11px] text-black/[0.35] dark:text-white/[0.35] font-medium uppercase tracking-widest">Refine this draft</p>
                         <textarea
                           value={feedback}
                           onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [job.id]: e.target.value }))}
                           placeholder='Describe what to change — e.g. "Make the intro punchier" or "Remove the third bullet and add a closing question"'
                           rows={3}
                           disabled={isRevising}
-                          className="w-full bg-[#111] border border-[#2a2a2a] focus:border-[#444] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#3a3a3a] resize-none focus:outline-none transition-colors disabled:opacity-50"
+                          className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] focus:border-black/[0.22] dark:focus:border-white/[0.22] rounded-lg px-3 py-2.5 text-sm text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] resize-none focus:outline-none transition-colors disabled:opacity-50"
                         />
                         <div className="flex items-center gap-3">
                           <button
                             onClick={() => applyFeedback(job)}
                             disabled={!feedback.trim() || isRevising}
-                            className="bg-white text-black text-xs font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-40"
+                            className="bg-white text-black text-xs font-medium px-4 py-2 rounded-lg hover:bg-black/[0.08] dark:hover:bg-white/90 transition-colors disabled:opacity-40"
                           >
                             {isRevising ? "Applying…" : "Apply edits"}
                           </button>
                           {feedback.trim() && !isRevising && (
                             <button
                               onClick={() => setFeedbackMap((prev) => { const n = { ...prev }; delete n[job.id]; return n; })}
-                              className="text-[#555] text-xs hover:text-[#888] transition-colors"
+                              className="text-black/[0.35] dark:text-white/[0.35] text-xs hover:text-black/55 dark:hover:text-white/55 transition-colors"
                             >
                               Clear
                             </button>

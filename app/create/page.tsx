@@ -89,25 +89,25 @@ function Collapsible({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border border-[#222] rounded-xl overflow-hidden">
+    <div className="border border-black/[0.09] dark:border-white/[0.07] rounded-xl overflow-hidden">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-4 py-3 bg-[#161616] hover:bg-[#1a1a1a] transition-colors text-left"
+        className="w-full flex items-center justify-between px-4 py-3 bg-black/[0.04] dark:bg-[#161616] hover:bg-black/[0.06] dark:hover:bg-[#1a1a1a] transition-colors text-left"
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-white">{label}</span>
-          {badge && <span className="text-xs text-[#555]">{badge}</span>}
+          <span className="text-sm font-medium text-black/90 dark:text-white">{label}</span>
+          {badge && <span className="text-xs text-black/[0.35] dark:text-white/[0.35]">{badge}</span>}
         </div>
         <svg
-          className={`w-4 h-4 text-[#444] transition-transform ${open ? "rotate-180" : ""}`}
+          className={`w-4 h-4 text-black/[0.28] dark:text-white/[0.28] transition-transform ${open ? "rotate-180" : ""}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
       {open && (
-        <div className="bg-[#111] border-t border-[#1e1e1e] p-4">
+        <div className="bg-black/[0.04] dark:bg-[#111] border-t border-black/[0.06] dark:border-white/[0.05] p-4">
           {children}
         </div>
       )}
@@ -503,8 +503,8 @@ export default function CreatePage() {
       {phase === "describe" && (
         <div className="space-y-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">Brainstorm</h1>
-            <p className="text-[#555] text-sm mt-1">
+            <h1 className="text-2xl font-bold text-black/90 dark:text-white">Brainstorm</h1>
+            <p className="text-black/[0.35] dark:text-white/[0.35] text-sm mt-1">
               Describe your idea — rough or detailed. The more context, the fewer follow-up questions.
             </p>
           </div>
@@ -521,18 +521,18 @@ export default function CreatePage() {
             placeholder={
               "A LinkedIn post about why most \"AI productivity\" articles miss the point — they measure output, not thinking. My angle: the real gain is in deciding faster, not writing faster. Key points: the cognitive offload argument, a specific example from our team, why this matters for knowledge workers."
             }
-            className="w-full bg-[#111] border border-[#222] rounded-xl px-4 py-3.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-[#444] resize-none"
+            className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-xl px-4 py-3.5 text-sm text-black/90 dark:text-white placeholder-black/[0.25] dark:placeholder-white/[0.22] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22] resize-none"
             rows={9}
             autoFocus
           />
 
           <div className="flex items-center justify-between">
-            <span className="text-xs text-[#3a3a3a]">⌘↵ to continue</span>
+            <span className="text-xs text-black/[0.23] dark:text-white/[0.23]">⌘↵ to continue</span>
             <button
               type="button"
               onClick={analyze}
               disabled={description.trim().length < 5}
-              className="px-5 py-2.5 bg-white text-black text-sm font-medium rounded-xl hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="px-5 py-2.5 bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Continue →
             </button>
@@ -541,28 +541,28 @@ export default function CreatePage() {
           {/* Saved briefs */}
           {queuedJobs.length > 0 && (
             <div className="space-y-2 pt-2">
-              <p className="text-[11px] text-[#444] uppercase tracking-widest font-semibold">Saved briefs</p>
+              <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28] uppercase tracking-widest font-semibold">Saved briefs</p>
               {queuedJobs.map((job) => (
-                <div key={job.id} className="flex items-center justify-between gap-3 bg-[#111] border border-[#1e1e1e] rounded-xl px-4 py-3">
+                <div key={job.id} className="flex items-center justify-between gap-3 bg-black/[0.04] dark:bg-[#111] border border-black/[0.06] dark:border-white/[0.05] rounded-xl px-4 py-3">
                   <div className="min-w-0 flex items-center gap-2">
-                    <span className="text-[10px] font-medium text-[#444] bg-[#1a1a1a] border border-[#222] rounded px-1.5 py-0.5 shrink-0">
+                    <span className="text-[10px] font-medium text-black/[0.28] dark:text-white/[0.28] bg-black/[0.06] dark:bg-[#1a1a1a] border border-black/[0.09] dark:border-white/[0.07] rounded px-1.5 py-0.5 shrink-0">
                       {CONTENT_TYPE_LABELS[job.contentType] ?? job.contentType}
                     </span>
-                    <span className="text-xs text-[#666] truncate">{job.topic}</span>
-                    <span className="text-[11px] text-[#333] shrink-0">{timeAgoCreate(job.createdAt)}</span>
+                    <span className="text-xs text-black/[0.40] dark:text-white/[0.40] truncate">{job.topic}</span>
+                    <span className="text-[11px] text-black/[0.22] dark:text-white/[0.22] shrink-0">{timeAgoCreate(job.createdAt)}</span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <button
                       type="button"
                       onClick={() => { window.location.href = "/ghostwriter"; }}
-                      className="text-[11px] text-white border border-[#333] rounded-md px-2.5 py-1 hover:border-[#555] transition-colors"
+                      className="text-[11px] text-black/90 dark:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-2.5 py-1 hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors"
                     >
                       Open in Ghostwriter
                     </button>
                     <button
                       type="button"
                       onClick={() => deleteQueuedJob(job.id)}
-                      className="text-[#444] hover:text-red-400 transition-colors text-[11px]"
+                      className="text-black/[0.28] dark:text-white/[0.28] hover:text-red-500 dark:hover:text-red-400 transition-colors text-[11px]"
                     >
                       Delete
                     </button>
@@ -577,8 +577,8 @@ export default function CreatePage() {
       {/* ── Phase: analyzing ── */}
       {phase === "analyzing" && (
         <div className="flex items-center gap-3 py-12">
-          <span className="inline-block w-1.5 h-1.5 bg-[#555] rounded-full animate-pulse" />
-          <span className="text-sm text-[#555]">Analyzing your brief...</span>
+          <span className="inline-block w-1.5 h-1.5 bg-black/[0.35] dark:bg-white/[0.35] rounded-full animate-pulse" />
+          <span className="text-sm text-black/[0.35] dark:text-white/[0.35]">Analyzing your brief...</span>
         </div>
       )}
 
@@ -588,13 +588,13 @@ export default function CreatePage() {
           {/* Summary + type selector + back */}
           <div className="flex items-start justify-between gap-4">
             <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-              <span className="text-sm text-white">✓</span>
-              <span className="text-sm text-[#555]">Writing</span>
+              <span className="text-sm text-black/90 dark:text-white">✓</span>
+              <span className="text-sm text-black/[0.35] dark:text-white/[0.35]">Writing</span>
               {/* Inline type selector */}
               <select
                 value={overrideType ?? intake.contentType ?? "blog"}
                 onChange={(e) => setOverrideType(e.target.value)}
-                className="bg-[#1a1a1a] border border-[#2a2a2a] rounded text-xs text-white px-2 py-0.5 focus:outline-none focus:border-[#555] cursor-pointer"
+                className="bg-black/[0.06] dark:bg-[#1a1a1a] border border-black/[0.10] dark:border-[#2a2a2a] rounded text-xs text-black/90 dark:text-white px-2 py-0.5 focus:outline-none focus:border-black/[0.25] dark:focus:border-white/[0.25] cursor-pointer"
               >
                 {CONTENT_TYPE_GROUPS.map((group) => (
                   <optgroup key={group.label} label={group.label}>
@@ -607,15 +607,15 @@ export default function CreatePage() {
                 ))}
               </select>
               {intake.topic && (
-                <span className="text-sm text-[#555]">
-                  about <span className="text-[#888]">{intake.topic}</span>
+                <span className="text-sm text-black/[0.35] dark:text-white/[0.35]">
+                  about <span className="text-black/[0.55] dark:text-white/[0.55]">{intake.topic}</span>
                 </span>
               )}
             </div>
             <button
               type="button"
               onClick={() => setPhase("describe")}
-              className="text-xs text-[#444] hover:text-[#888] transition-colors shrink-0 mt-0.5"
+              className="text-xs text-black/[0.28] dark:text-white/[0.28] hover:text-black/55 dark:hover:text-white/55 transition-colors shrink-0 mt-0.5"
             >
               ← Edit brief
             </button>
@@ -626,14 +626,14 @@ export default function CreatePage() {
             <div className="space-y-4">
               {intake.questions.map((q) => (
                 <div key={q.id} className="space-y-1.5">
-                  <label className="text-sm text-[#aaa]">{q.label}</label>
+                  <label className="text-sm text-black/[0.68] dark:text-white/[0.68]">{q.label}</label>
                   {q.id === "angle" || q.id === "keyPoints" ? (
                     <textarea
                       value={answers[q.id] ?? ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
                       placeholder={q.placeholder}
                       rows={3}
-                      className="w-full bg-[#111] border border-[#222] rounded-xl px-4 py-3 text-sm text-white placeholder-[#333] focus:outline-none focus:border-[#444] resize-none"
+                      className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-xl px-4 py-3 text-sm text-black/90 dark:text-white placeholder-black/[0.25] dark:placeholder-white/[0.22] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22] resize-none"
                     />
                   ) : (
                     <input
@@ -641,7 +641,7 @@ export default function CreatePage() {
                       value={answers[q.id] ?? ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
                       placeholder={q.placeholder}
-                      className="w-full bg-[#111] border border-[#222] rounded-xl px-4 py-3 text-sm text-white placeholder-[#333] focus:outline-none focus:border-[#444]"
+                      className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-xl px-4 py-3 text-sm text-black/90 dark:text-white placeholder-black/[0.25] dark:placeholder-white/[0.22] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
                     />
                   )}
                 </div>
@@ -666,14 +666,14 @@ export default function CreatePage() {
                     ? item.instructions.slice(0, 60) + (item.instructions.length > 60 ? "…" : "")
                     : item.text ? item.text.slice(0, 50) + (item.text.length > 50 ? "…" : "") : "item");
                 return (
-                  <div key={i} className="flex items-center justify-between gap-3 py-2 border-b border-[#1e1e1e]">
+                  <div key={i} className="flex items-center justify-between gap-3 py-2 border-b border-black/[0.06] dark:border-white/[0.05]">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: meta.color, backgroundColor: meta.color + "22" }}>
                         {meta.label}
                       </span>
-                      <span className="text-xs text-[#666] truncate">{label}</span>
+                      <span className="text-xs text-black/[0.40] dark:text-white/[0.40] truncate">{label}</span>
                     </div>
-                    <button type="button" onClick={() => removeItem(i)} className="text-[#444] hover:text-[#888] text-xs shrink-0">✕</button>
+                    <button type="button" onClick={() => removeItem(i)} className="text-black/[0.28] dark:text-white/[0.28] hover:text-black/55 dark:hover:text-white/55 text-xs shrink-0">✕</button>
                   </div>
                 );
               })}
@@ -691,7 +691,7 @@ export default function CreatePage() {
                           setSourceType(t);
                           if (t === "research") setNewTag("research");
                         }}
-                        className={`px-3 py-1 text-xs rounded-md transition-colors ${sourceType === t ? "bg-[#2a2a2a] text-white" : "text-[#555] hover:text-[#888]"}`}
+                        className={`px-3 py-1 text-xs rounded-md transition-colors ${sourceType === t ? "bg-black/[0.08] dark:bg-[#2a2a2a] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
                       >
                         {t === "url" ? "URL" : t === "file" ? "File" : t === "text" ? "Text" : "AI Research"}
                       </button>
@@ -719,7 +719,7 @@ export default function CreatePage() {
                       value={newUrl}
                       onChange={(e) => setNewUrl(e.target.value)}
                       placeholder="https://..."
-                      className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444]"
+                      className="w-full bg-black/[0.05] dark:bg-[#0a0a0a] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-black/90 dark:text-white placeholder-black/[0.28] dark:placeholder-white/[0.28] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
                     />
                   )}
 
@@ -729,12 +729,12 @@ export default function CreatePage() {
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-full border border-dashed border-[#2a2a2a] rounded-lg py-4 text-xs text-[#555] hover:border-[#444] hover:text-[#888] transition-colors"
+                        className="w-full border border-dashed border-black/[0.10] dark:border-[#2a2a2a] rounded-lg py-4 text-xs text-black/[0.35] dark:text-white/[0.35] hover:border-black/[0.17] dark:hover:border-white/[0.17] hover:text-black/55 dark:hover:text-white/55 transition-colors"
                       >
                         {newFileName ? newFileName : "Click to choose file"}
                       </button>
                       {(newIsCSV || newTag === "data") && (
-                        <label className="flex items-center gap-2 mt-2 text-xs text-[#666] cursor-pointer">
+                        <label className="flex items-center gap-2 mt-2 text-xs text-black/[0.40] dark:text-white/[0.40] cursor-pointer">
                           <input type="checkbox" checked={newIncludePlaceholders} onChange={(e) => setNewIncludePlaceholders(e.target.checked)} className="accent-white" />
                           Include chart / table / figure placeholders
                         </label>
@@ -749,10 +749,10 @@ export default function CreatePage() {
                         onChange={(e) => setNewText(e.target.value)}
                         placeholder="Paste text, notes, or data..."
                         rows={4}
-                        className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-none"
+                        className="w-full bg-black/[0.05] dark:bg-[#0a0a0a] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-black/90 dark:text-white placeholder-black/[0.28] dark:placeholder-white/[0.28] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22] resize-none"
                       />
                       {newTag === "data" && (
-                        <label className="flex items-center gap-2 mt-2 text-xs text-[#666] cursor-pointer">
+                        <label className="flex items-center gap-2 mt-2 text-xs text-black/[0.40] dark:text-white/[0.40] cursor-pointer">
                           <input type="checkbox" checked={newIncludePlaceholders} onChange={(e) => setNewIncludePlaceholders(e.target.checked)} className="accent-white" />
                           Include chart / table / figure placeholders
                         </label>
@@ -767,7 +767,7 @@ export default function CreatePage() {
                         onChange={(e) => setResearchPrompt(e.target.value)}
                         placeholder="Describe what to research — e.g. &quot;Find recent statistics on remote work productivity and key arguments for and against&quot;"
                         rows={3}
-                        className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-none"
+                        className="w-full bg-black/[0.05] dark:bg-[#0a0a0a] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-black/90 dark:text-white placeholder-black/[0.28] dark:placeholder-white/[0.28] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22] resize-none"
                         autoFocus
                       />
                       {researchError && (
@@ -782,7 +782,7 @@ export default function CreatePage() {
                       value={newInstructions}
                       onChange={(e) => setNewInstructions(e.target.value)}
                       placeholder="Usage instructions (optional)"
-                      className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444]"
+                      className="w-full bg-black/[0.05] dark:bg-[#0a0a0a] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-black/90 dark:text-white placeholder-black/[0.28] dark:placeholder-white/[0.28] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
                     />
                   )}
 
@@ -793,11 +793,11 @@ export default function CreatePage() {
                           type="button"
                           onClick={runResearch}
                           disabled={!researchPrompt.trim() || researching}
-                          className="px-3 py-1.5 bg-white text-black text-xs font-medium rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="px-3 py-1.5 bg-black/[0.88] text-white dark:bg-white dark:text-black text-xs font-medium rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                           {researching ? "Researching..." : "Research →"}
                         </button>
-                        <button type="button" onClick={resetAddForm} disabled={researching} className="px-3 py-1.5 text-xs text-[#555] hover:text-white transition-colors disabled:opacity-30">
+                        <button type="button" onClick={resetAddForm} disabled={researching} className="px-3 py-1.5 text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/90 dark:hover:text-white transition-colors disabled:opacity-30">
                           Cancel
                         </button>
                       </>
@@ -807,11 +807,11 @@ export default function CreatePage() {
                           type="button"
                           onClick={commitItem}
                           disabled={!canCommit}
-                          className="px-3 py-1.5 bg-white text-black text-xs font-medium rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="px-3 py-1.5 bg-black/[0.88] text-white dark:bg-white dark:text-black text-xs font-medium rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                           Add
                         </button>
-                        <button type="button" onClick={resetAddForm} className="px-3 py-1.5 text-xs text-[#555] hover:text-white transition-colors">
+                        <button type="button" onClick={resetAddForm} className="px-3 py-1.5 text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/90 dark:hover:text-white transition-colors">
                           Cancel
                         </button>
                       </>
@@ -822,7 +822,7 @@ export default function CreatePage() {
                 <button
                   type="button"
                   onClick={() => setShowAddForm(true)}
-                  className="text-xs text-[#555] hover:text-white transition-colors"
+                  className="text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/90 dark:hover:text-white transition-colors"
                 >
                   + Add item
                 </button>
@@ -847,20 +847,20 @@ export default function CreatePage() {
                 }}
                 placeholder="Paste a draft, outline, or rough notes..."
                 rows={5}
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-none font-mono"
+                className="w-full bg-black/[0.05] dark:bg-[#0a0a0a] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-black/90 dark:text-white placeholder-black/[0.28] dark:placeholder-white/[0.28] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22] resize-none font-mono"
               />
               <div className="flex items-center gap-3">
-                <span className="text-xs text-[#444]">or</span>
+                <span className="text-xs text-black/[0.28] dark:text-white/[0.28]">or</span>
                 <input ref={draftFileRef} type="file" accept=".txt,.md,.pdf" onChange={handleDraftFileChange} className="hidden" />
                 <button
                   type="button"
                   onClick={() => draftFileRef.current?.click()}
-                  className="text-xs text-[#555] hover:text-white transition-colors"
+                  className="text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/90 dark:hover:text-white transition-colors"
                 >
                   {draftFileName ? `📄 ${draftFileName}` : "Upload .txt, .md, or .pdf"}
                 </button>
                 {(draftText.trim() || draftData) && (
-                  <button type="button" onClick={() => { setDraftText(""); setDraftData(""); setDraftFileName(""); setDraftMediaType(""); }} className="text-xs text-[#444] hover:text-[#888]">
+                  <button type="button" onClick={() => { setDraftText(""); setDraftData(""); setDraftFileName(""); setDraftMediaType(""); }} className="text-xs text-black/[0.28] dark:text-white/[0.28] hover:text-black/55 dark:hover:text-white/55">
                     Clear
                   </button>
                 )}
@@ -871,12 +871,12 @@ export default function CreatePage() {
           {/* Signature */}
           {signatures.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs text-[#555]">Signature</p>
+              <p className="text-xs text-black/[0.35] dark:text-white/[0.35]">Signature</p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => setSelectedSigId(null)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${selectedSigId === null ? "border-white text-white bg-[#1e1e1e]" : "border-[#222] text-[#555] hover:border-[#333]"}`}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${selectedSigId === null ? "border-black dark:border-white text-black/90 dark:text-white bg-black/[0.07] dark:bg-[#1e1e1e]" : "border-black/[0.09] dark:border-white/[0.07] text-black/[0.35] dark:text-white/[0.35] hover:border-black/[0.14] dark:hover:border-white/[0.14]"}`}
                 >
                   None
                 </button>
@@ -885,7 +885,7 @@ export default function CreatePage() {
                     key={s.id}
                     type="button"
                     onClick={() => setSelectedSigId(s.id)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${selectedSigId === s.id ? "border-white text-white bg-[#1e1e1e]" : "border-[#222] text-[#555] hover:border-[#333]"}`}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${selectedSigId === s.id ? "border-black dark:border-white text-black/90 dark:text-white bg-black/[0.07] dark:bg-[#1e1e1e]" : "border-black/[0.09] dark:border-white/[0.07] text-black/[0.35] dark:text-white/[0.35] hover:border-black/[0.14] dark:hover:border-white/[0.14]"}`}
                   >
                     {s.name}
                   </button>
@@ -903,7 +903,7 @@ export default function CreatePage() {
               type="button"
               onClick={sendToGhostwriter}
               disabled={!canSend}
-              className="flex-1 py-3 bg-white text-black text-sm font-medium rounded-xl hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="flex-1 py-3 bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {sending ? "Sending…" : "Send to Ghostwriter →"}
             </button>
@@ -911,7 +911,7 @@ export default function CreatePage() {
               type="button"
               onClick={saveForLater}
               disabled={!canSend}
-              className="py-3 px-5 bg-transparent text-[#888] border border-[#333] text-sm font-medium rounded-xl hover:text-white hover:border-[#555] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="py-3 px-5 bg-transparent text-black/[0.55] dark:text-white/[0.55] border border-black/[0.12] dark:border-white/[0.12] text-sm font-medium rounded-xl hover:text-black/90 dark:hover:text-white hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Save for later
             </button>
@@ -921,26 +921,26 @@ export default function CreatePage() {
 
       {/* ── Saved confirmation ── */}
       {phase === "saved" && (
-        <div className="bg-[#161616] border border-[#2a2a2a] rounded-xl p-8 text-center space-y-4">
+        <div className="bg-black/[0.04] dark:bg-[#161616] border border-black/[0.10] dark:border-[#2a2a2a] rounded-xl p-8 text-center space-y-4">
           <div className="flex items-center justify-center gap-2 text-emerald-400">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
             <span className="text-sm font-medium">Saved to Ghostwriter</span>
           </div>
-          <p className="text-[#555] text-sm">Your brief is queued. Head to the Ghostwriter tab when you're ready to run it.</p>
+          <p className="text-black/[0.35] dark:text-white/[0.35] text-sm">Your brief is queued. Head to the Ghostwriter tab when you're ready to run it.</p>
           <div className="flex items-center justify-center gap-4">
             <button
               type="button"
               onClick={() => router.push("/ghostwriter")}
-              className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors"
+              className="bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors"
             >
               Go to Ghostwriter
             </button>
             <button
               type="button"
               onClick={startOver}
-              className="text-[#555] text-sm hover:text-[#888] transition-colors"
+              className="text-black/[0.35] dark:text-white/[0.35] text-sm hover:text-black/55 dark:hover:text-white/55 transition-colors"
             >
               Write another
             </button>
