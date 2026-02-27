@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const maxDuration = 120;
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { analyzeVoice } from "@/lib/claude";
@@ -14,7 +17,9 @@ export async function POST() {
     );
   }
 
-  const analysis = await analyzeVoice(samples.map((s) => s.content));
+  const analysis = await analyzeVoice(
+    samples.map((s) => ({ content: s.content, category: s.category }))
+  );
 
   await prisma.voiceProfile.upsert({
     where: { id: 1 },

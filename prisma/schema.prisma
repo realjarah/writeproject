@@ -13,6 +13,7 @@ model VoiceSample {
   title     String
   content   String
   wordCount Int      @default(0)
+  category  String   @default("other")
   createdAt DateTime @default(now())
 }
 
@@ -29,4 +30,28 @@ model GeneratedContent {
   interview   String   // JSON: interview Q&A
   content     String
   createdAt   DateTime @default(now())
+}
+
+model Signature {
+  id        Int      @id @default(autoincrement())
+  name      String
+  content   String   // the footer text, supports markdown-ish formatting
+  isDefault Boolean  @default(false)
+  isSystem  Boolean  @default(false)  // locked — cannot be edited or deleted
+  createdAt DateTime @default(now())
+}
+
+model GhostwriterJob {
+  id          Int       @id @default(autoincrement())
+  contentType String
+  topic       String
+  brief       String    // JSON: { interview, context?, signatureContent? }
+  status      String    @default("queued") // queued|planning|drafting_1|drafting_2|drafting_3|comparing|checking|humanizing|done|error
+  stepLabel   String    @default("")
+  drafts      String    @default("[]")     // JSON array of up to 3 raw draft strings
+  finalDraft  String    @default("")
+  errorMsg    String    @default("")
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }

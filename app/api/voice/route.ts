@@ -1,5 +1,8 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
 
 export async function GET() {
   const samples = await prisma.voiceSample.findMany({
@@ -9,19 +12,21 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { title, content } = await req.json();
+  const { title, content, category } = await req.json();
 
   if (!content?.trim()) {
     return NextResponse.json({ error: "Content is required" }, { status: 400 });
   }
 
   const wordCount = content.trim().split(/\s+/).length;
+  const resolvedCategory: SampleCategory = category || detectCategory(content);
 
   const sample = await prisma.voiceSample.create({
     data: {
       title: title?.trim() || `Sample ${new Date().toLocaleDateString()}`,
       content: content.trim(),
       wordCount,
+      category: resolvedCategory,
     },
   });
 
