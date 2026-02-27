@@ -54,7 +54,7 @@ function timeAgo(iso: Date | string) {
 const STATUS_DOT: Record<string, string> = {
   done:       "bg-emerald-400",
   error:      "bg-red-400",
-  queued:     "bg-white/20",
+  queued:     "bg-black/25 dark:bg-white/20",
   planning:   "bg-blue-400 animate-pulse",
   drafting_1: "bg-blue-400 animate-pulse",
   drafting_2: "bg-blue-400 animate-pulse",
@@ -98,8 +98,8 @@ export default async function HomePage() {
 
       {/* Header */}
       <div className="space-y-1.5">
-        <h1 className="text-[26px] font-semibold text-white tracking-tight">Dashboard</h1>
-        <p className="text-[14px] text-white/35 max-w-xl leading-relaxed">
+        <h1 className="text-[26px] font-semibold text-black/90 dark:text-white tracking-tight">Dashboard</h1>
+        <p className="text-[14px] text-black/45 dark:text-white/35 max-w-xl leading-relaxed">
           Feed it your writing. It learns your voice. Then just tell it what to write.
         </p>
       </div>
@@ -108,21 +108,21 @@ export default async function HomePage() {
       <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
         hasProfile
           ? "bg-emerald-400/[0.04] border-emerald-400/[0.15]"
-          : "bg-white/[0.02] border-white/[0.07]"
+          : "bg-black/[0.02] dark:bg-white/[0.02] border-black/[0.08] dark:border-white/[0.07]"
       }`}>
-        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${hasProfile ? "bg-emerald-400" : "bg-white/20"}`} />
+        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${hasProfile ? "bg-emerald-400" : "bg-black/25 dark:bg-white/20"}`} />
         <div className="flex-1 min-w-0">
-          <span className="text-[13px] font-medium text-white/80">
+          <span className="text-[13px] font-medium text-black/85 dark:text-white/80">
             {hasProfile ? "Voice profile ready" : "Voice profile not set up"}
           </span>
-          <span className="text-[13px] text-white/30 ml-2">
+          <span className="text-[13px] text-black/40 dark:text-white/30 ml-2">
             {hasProfile
               ? `${sampleCount} sample${sampleCount !== 1 ? "s" : ""} · ${doneJobs} piece${doneJobs !== 1 ? "s" : ""} generated`
               : "Add writing samples to train your ghost."}
           </span>
         </div>
         {!hasProfile && (
-          <Link href="/profile" className="text-[12px] text-white/50 hover:text-white transition-colors shrink-0">
+          <Link href="/profile" className="text-[12px] text-black/60 dark:text-white/50 hover:text-black/90 dark:text-white transition-colors shrink-0">
             Set up →
           </Link>
         )}
@@ -131,9 +131,9 @@ export default async function HomePage() {
       {/* KPI grid */}
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
         {kpis.map(({ label, value }) => (
-          <div key={label} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
-            <div className="text-[20px] font-semibold text-white/90 tracking-tight">{value}</div>
-            <div className="text-[11px] text-white/30 mt-1 leading-tight">{label}</div>
+          <div key={label} className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl p-4">
+            <div className="text-[20px] font-semibold text-black/90 dark:text-white/90 tracking-tight">{value}</div>
+            <div className="text-[11px] text-black/40 dark:text-white/30 mt-1 leading-tight">{label}</div>
           </div>
         ))}
       </div>
@@ -149,7 +149,7 @@ export default async function HomePage() {
 
       {/* Module cards */}
       <div>
-        <p className="text-[11px] text-white/20 uppercase tracking-[0.12em] font-semibold mb-3">Quick access</p>
+        <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold mb-3">Quick access</p>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           {[
             {
@@ -177,17 +177,17 @@ export default async function HomePage() {
             <Link
               key={href}
               href={href}
-              className="group bg-white/[0.03] border border-white/[0.07] rounded-xl p-4 hover:bg-white/[0.05] hover:border-white/[0.12] transition-all space-y-2.5"
+              className="group bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl p-4 hover:bg-black/[0.05] dark:hover:bg-white/[0.05] hover:border-black/[0.14] dark:hover:border-white/[0.12] transition-all space-y-2.5"
             >
               <div className="flex items-center justify-between">
-                <span className="text-[13px] font-medium text-white/80 group-hover:text-white transition-colors">{title}</span>
+                <span className="text-[13px] font-medium text-black/85 dark:text-white/80 group-hover:text-black/90 dark:text-white transition-colors">{title}</span>
                 {badge !== undefined && (
                   <span className="text-[10px] font-bold bg-white text-black rounded-full px-1.5 py-0.5 leading-none">
                     {badge}
                   </span>
                 )}
               </div>
-              <div className="text-[12px] text-white/30 leading-tight">{desc}</div>
+              <div className="text-[12px] text-black/40 dark:text-white/30 leading-tight">{desc}</div>
             </Link>
           ))}
         </div>
@@ -197,26 +197,26 @@ export default async function HomePage() {
       {recentJobs.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[11px] text-white/20 uppercase tracking-[0.12em] font-semibold">Recent jobs</p>
-            <Link href="/ghostwriter" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
+            <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold">Recent jobs</p>
+            <Link href="/ghostwriter" className="text-[12px] text-black/40 dark:text-white/30 hover:text-black/70 dark:hover:text-white/60 transition-colors">
               View all →
             </Link>
           </div>
-          <div className="bg-white/[0.02] border border-white/[0.07] rounded-xl overflow-hidden divide-y divide-white/[0.05]">
+          <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-xl overflow-hidden divide-y divide-black/[0.06] dark:divide-white/[0.05]">
             {recentJobs.map((job) => (
               <Link
                 key={job.id}
                 href="/ghostwriter"
-                className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors group"
+                className="flex items-center gap-3 px-4 py-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors group"
               >
-                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[job.status] ?? "bg-white/20"}`} />
-                <span className="text-[13px] text-white/50 truncate flex-1 group-hover:text-white/70 transition-colors">
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[job.status] ?? "bg-black/25 dark:bg-white/20"}`} />
+                <span className="text-[13px] text-black/60 dark:text-white/50 truncate flex-1 group-hover:text-black/75 dark:hover:text-white/70 transition-colors">
                   {job.topic}
                 </span>
-                <span className="text-[11px] text-white/25 shrink-0">
+                <span className="text-[11px] text-black/35 dark:text-white/25 shrink-0">
                   {STATUS_LABELS[job.status] ?? job.status}
                 </span>
-                <span className="text-[11px] text-white/15 shrink-0">
+                <span className="text-[11px] text-black/25 dark:text-white/15 shrink-0">
                   {timeAgo(job.createdAt)}
                 </span>
               </Link>
@@ -228,7 +228,7 @@ export default async function HomePage() {
       {/* How it works — only when no profile */}
       {!hasProfile && (
         <div className="space-y-3">
-          <p className="text-[11px] text-white/20 uppercase tracking-[0.12em] font-semibold">How it works</p>
+          <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold">How it works</p>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             {[
               {
@@ -247,10 +247,10 @@ export default async function HomePage() {
                 desc: "The ghostwriter writes 3 drafts, picks the best, and delivers it polished.",
               },
             ].map(({ step, title, desc }) => (
-              <div key={step} className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 space-y-2">
-                <div className="text-[11px] font-semibold text-white/20 tracking-[0.12em] uppercase">{step}</div>
-                <div className="text-[13px] font-medium text-white/80">{title}</div>
-                <div className="text-[12px] text-white/35 leading-relaxed">{desc}</div>
+              <div key={step} className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.07] dark:border-white/[0.06] rounded-xl p-5 space-y-2">
+                <div className="text-[11px] font-semibold text-black/30 dark:text-white/20 tracking-[0.12em] uppercase">{step}</div>
+                <div className="text-[13px] font-medium text-black/85 dark:text-white/80">{title}</div>
+                <div className="text-[12px] text-black/45 dark:text-white/35 leading-relaxed">{desc}</div>
               </div>
             ))}
           </div>

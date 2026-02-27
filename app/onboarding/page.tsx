@@ -92,9 +92,9 @@ export default function OnboardingPage() {
 
         {/* Header */}
         <div className="space-y-2">
-          <p className="text-[11px] tracking-[0.14em] uppercase text-white/25 font-medium">Step 1 of 2</p>
-          <h1 className="text-[22px] font-semibold text-white tracking-tight">Share some of your writing</h1>
-          <p className="text-[14px] text-white/35 leading-relaxed">
+          <p className="text-[11px] tracking-[0.14em] uppercase text-black/35 dark:text-white/25 font-medium">Step 1 of 2</p>
+          <h1 className="text-[22px] font-semibold text-black/90 dark:text-white tracking-tight">Share some of your writing</h1>
+          <p className="text-[14px] text-black/45 dark:text-white/35 leading-relaxed">
             Paste 2–3 pieces you&apos;ve written — blog posts, emails, LinkedIn updates, anything.
             The more variety, the better your ghostwriter will know your voice.
           </p>
@@ -103,22 +103,22 @@ export default function OnboardingPage() {
         {/* Added samples list */}
         {samples.length > 0 && (
           <div className="space-y-2">
-            <p className="text-[11px] text-white/20 uppercase tracking-[0.12em] font-semibold">
+            <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold">
               Added ({samples.length})
             </p>
             {samples.map((s, i) => (
               <div
                 key={i}
-                className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.07] rounded-xl px-4 py-3"
+                className="flex items-center gap-3 bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-4 py-3"
               >
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/80 shrink-0" />
-                <span className="text-[13px] text-white/50 truncate flex-1">
+                <span className="text-[13px] text-black/60 dark:text-white/50 truncate flex-1">
                   {s.content.slice(0, 60)}…
                 </span>
-                <span className="text-[11px] text-white/25 shrink-0">
+                <span className="text-[11px] text-black/35 dark:text-white/25 shrink-0">
                   {s.wordCount.toLocaleString()} words
                 </span>
-                <span className="text-[10px] text-white/30 bg-white/[0.05] border border-white/[0.08] rounded-md px-2 py-0.5 shrink-0">
+                <span className="text-[10px] text-black/40 dark:text-white/30 bg-black/[0.05] dark:bg-white/[0.05] border border-black/[0.09] dark:border-white/[0.08] rounded-md px-2 py-0.5 shrink-0">
                   {CATEGORIES.find((c) => c.value === s.category)?.label ?? s.category}
                 </span>
               </div>
@@ -137,16 +137,16 @@ export default function OnboardingPage() {
                 : "Add another sample (different format recommended)…"
             }
             rows={10}
-            className="w-full bg-white/[0.03] border border-white/[0.07] rounded-2xl px-4 py-3.5 text-[14px] text-white/80 placeholder-white/20 focus:outline-none focus:border-white/[0.18] resize-none transition-colors"
+            className="w-full bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-2xl px-4 py-3.5 text-[14px] text-black/85 dark:text-white/80 placeholder-black/30 dark:placeholder-white/20 focus:outline-none focus:border-black/[0.18] dark:focus:border-white/[0.18] resize-none transition-colors"
           />
 
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <label className="text-[12px] text-white/30">Format:</label>
+              <label className="text-[12px] text-black/40 dark:text-white/30">Format:</label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="bg-white/[0.04] border border-white/[0.08] rounded-lg text-[12px] text-white/70 px-2.5 py-1.5 focus:outline-none focus:border-white/[0.18] transition-colors appearance-none"
+                className="bg-black/[0.04] dark:bg-white/[0.04] border border-black/[0.09] dark:border-white/[0.08] rounded-lg text-[12px] text-black/75 dark:text-white/70 px-2.5 py-1.5 focus:outline-none focus:border-black/[0.18] dark:focus:border-white/[0.18] transition-colors appearance-none"
               >
                 {CATEGORIES.map((c) => (
                   <option key={c.value} value={c.value} className="bg-[#111]">{c.label}</option>
@@ -154,7 +154,7 @@ export default function OnboardingPage() {
               </select>
             </div>
             {pasteText.trim() && (
-              <span className="text-[11px] text-white/25">{wc.toLocaleString()} words</span>
+              <span className="text-[11px] text-black/35 dark:text-white/25">{wc.toLocaleString()} words</span>
             )}
           </div>
 
@@ -171,11 +171,11 @@ export default function OnboardingPage() {
         </div>
 
         {/* Continue */}
-        <div className="flex items-center justify-between pt-4 border-t border-white/[0.06]">
+        <div className="flex items-center justify-between pt-4 border-t border-black/[0.07] dark:border-white/[0.06]">
           <button
             type="button"
             onClick={() => router.push("/")}
-            className="text-[12px] text-white/25 hover:text-white/50 transition-colors"
+            className="text-[12px] text-black/35 dark:text-white/25 hover:text-black/60 dark:hover:text-white/50 transition-colors"
           >
             Skip for now
           </button>
@@ -201,12 +201,12 @@ export default function OnboardingPage() {
             {[0, 150, 300].map((delay) => (
               <span
                 key={delay}
-                className="inline-block w-1.5 h-1.5 bg-white/25 rounded-full animate-pulse"
+                className="inline-block w-1.5 h-1.5 bg-black/35 dark:bg-white/25 rounded-full animate-pulse"
                 style={{ animationDelay: `${delay}ms` }}
               />
             ))}
           </div>
-          <p className="text-[14px] text-white/35">Analyzing your writing style…</p>
+          <p className="text-[14px] text-black/45 dark:text-white/35">Analyzing your writing style…</p>
           {analyzeError && (
             <p className="text-[12px] text-amber-400/70 mt-2">{analyzeError}</p>
           )}
@@ -226,10 +226,10 @@ export default function OnboardingPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-[22px] font-semibold text-white tracking-tight">Voice profile ready</h1>
-          <p className="text-[14px] text-white/35 leading-relaxed">
+          <h1 className="text-[22px] font-semibold text-black/90 dark:text-white tracking-tight">Voice profile ready</h1>
+          <p className="text-[14px] text-black/45 dark:text-white/35 leading-relaxed">
             The ghostwriter has learned your style from{" "}
-            <span className="text-white/70">{samples.length} sample{samples.length !== 1 ? "s" : ""}</span>.
+            <span className="text-black/75 dark:text-white/70">{samples.length} sample{samples.length !== 1 ? "s" : ""}</span>.
             Add more any time from your Profile.
           </p>
         </div>

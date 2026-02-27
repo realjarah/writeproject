@@ -65,8 +65,8 @@ export default function SignUpPage() {
       <div className="w-full max-w-[340px] space-y-8">
 
         <div className="text-center space-y-1.5">
-          <p className="text-[11px] tracking-[0.14em] uppercase text-white/25 font-medium">WriteClone</p>
-          <h1 className="text-[22px] font-semibold text-white tracking-tight">Create account</h1>
+          <p className="text-[11px] tracking-[0.14em] uppercase text-black/35 dark:text-white/25 font-medium">WriteClone</p>
+          <h1 className="text-[22px] font-semibold text-black/90 dark:text-white tracking-tight">Create account</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-2.5">
@@ -80,9 +80,9 @@ export default function SignUpPage() {
           </Button>
         </form>
 
-        <p className="text-center text-[13px] text-white/30">
+        <p className="text-center text-[13px] text-black/40 dark:text-white/30">
           Already have an account?{" "}
-          <Link href="/auth/signin" className="text-white/55 hover:text-white transition-colors">
+          <Link href="/auth/signin" className="text-black/65 dark:text-white/55 hover:text-black/90 dark:text-white transition-colors">
             Sign in
           </Link>
         </p>

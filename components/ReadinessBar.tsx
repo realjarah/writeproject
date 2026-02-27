@@ -94,36 +94,36 @@ export default function ReadinessBar({ totalWords, sampleCount, categoryCount }:
   ];
 
   return (
-    <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-5 space-y-4">
+    <div className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl p-5 space-y-4">
       <div className="flex items-baseline justify-between">
-        <span className="text-[13px] font-medium text-white/80">Ghostwriter readiness</span>
+        <span className="text-[13px] font-medium text-black/85 dark:text-white/80">Ghostwriter readiness</span>
         <span className="text-[20px] font-semibold tracking-tight" style={{ color }}>{total}%</span>
       </div>
 
-      <div className="h-1.5 w-full bg-white/[0.06] rounded-full overflow-hidden">
+      <div className="h-1.5 w-full bg-black/[0.06] dark:bg-white/[0.06] rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-700"
           style={{ width: `${total}%`, backgroundColor: color }}
         />
       </div>
 
-      <p className="text-[12px] text-white/30">{readinessLabel(total)}</p>
+      <p className="text-[12px] text-black/40 dark:text-white/30">{readinessLabel(total)}</p>
 
       <div className="grid grid-cols-3 gap-2 pt-1">
         {factors.map(({ label, score, max, hint }) => {
           const pct = Math.round((score / max) * 100);
           return (
-            <div key={label} className="bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2.5 space-y-1.5">
+            <div key={label} className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.07] dark:border-white/[0.06] rounded-lg px-3 py-2.5 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold text-white/25 uppercase tracking-[0.1em]">
+                <span className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-[0.1em]">
                   {label}
                 </span>
-                <span className="text-[10px] text-white/25">{pct}%</span>
+                <span className="text-[10px] text-black/35 dark:text-white/25">{pct}%</span>
               </div>
-              <div className="h-0.5 w-full bg-white/[0.06] rounded-full overflow-hidden">
+              <div className="h-0.5 w-full bg-black/[0.06] dark:bg-white/[0.06] rounded-full overflow-hidden">
                 <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
               </div>
-              <div className="text-[10px] text-white/25">{hint}</div>
+              <div className="text-[10px] text-black/35 dark:text-white/25">{hint}</div>
             </div>
           );
         })}
