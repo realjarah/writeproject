@@ -26,7 +26,11 @@ const anthropic = new Anthropic({
 
 export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnalysis> {
   const samplesText = samples
-    .map((s, i) => `--- Sample ${i + 1} [${s.category.toUpperCase()}] ---\n${s.content}`)
+    .map((s, i) => {
+      let header = `--- Sample ${i + 1} [${s.category.toUpperCase()}] ---`;
+      if (s.notes) header += `\nAuthor's note: "${s.notes}"`;
+      return `${header}\n${s.content}`;
+    })
     .join("\n\n");
 
   const categories = Array.from(new Set(samples.map((s) => s.category)));

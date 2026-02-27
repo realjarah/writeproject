@@ -14,12 +14,22 @@ export async function POST(req: NextRequest) {
     if (body.accountType === "brand" || body.accountType === "individual") {
       accountType = body.accountType;
     }
+
+    const profile: Record<string, unknown> = {
+      submittedAt: new Date().toISOString(),
+    };
+
     if (body.answers && Array.isArray(body.answers)) {
-      onboardingProfile = JSON.stringify({
-        answers: body.answers,
-        submittedAt: new Date().toISOString(),
-      });
+      profile.answers = body.answers;
     }
+    if (body.writingTypes && Array.isArray(body.writingTypes)) {
+      profile.writingTypes = body.writingTypes;
+    }
+    if (body.favoriteWords && Array.isArray(body.favoriteWords)) {
+      profile.favoriteWords = body.favoriteWords;
+    }
+
+    onboardingProfile = JSON.stringify(profile);
   } catch {
     // Body is optional — old callers send no body
   }

@@ -96,4 +96,5 @@ export interface VoiceAnalysis {
 export interface LabeledSample {
   content: string;
   category: string;
+  notes?: string;
 }

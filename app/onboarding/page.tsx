@@ -3,17 +3,18 @@
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_LABELS } from "@/lib/content-types";
+import { detectCategory } from "@/lib/detectCategory";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type AccountType = "individual" | "brand";
-type Step = "type" | "questions" | "samples" | "analyzing" | "done";
+type Step = "type" | "writing_types" | "questions" | "samples" | "words" | "review" | "submitting";
 
 interface Question {
   id: string;
   prompt: string;
   placeholder: string;
-  multiline?: boolean;
 }
 
 interface AddedSample {
@@ -21,6 +22,8 @@ interface AddedSample {
   content: string;
   wordCount: number;
   category: string;
+  notes: string; // what they liked about it / why it's a good sample
+  inputMethod: "paste" | "url" | "file";
 }
 
 // ── Question banks ─────────────────────────────────────────────────────────────
@@ -111,23 +114,11 @@ const BRAND_QUESTIONS: Question[] = [
   },
 ];
 
-// ── Sample categories ──────────────────────────────────────────────────────────
-
-const SAMPLE_CATEGORIES = [
-  { value: "blog",       label: "Blog / Article" },
-  { value: "essay",      label: "Essay / Opinion" },
-  { value: "newsletter", label: "Newsletter" },
-  { value: "social",     label: "Social post" },
-  { value: "email",      label: "Email" },
-  { value: "technical",  label: "Technical / Docs" },
-  { value: "other",      label: "Other" },
-];
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function wordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
-
-// ── Progress dots ──────────────────────────────────────────────────────────────
 
 function ProgressDots({ current, total }: { current: number; total: number }) {
   return (
@@ -148,12 +139,52 @@ function ProgressDots({ current, total }: { current: number; total: number }) {
   );
 }
 
+// Step indicator for the overall onboarding flow
+function StepIndicator({ current, steps }: { current: number; steps: string[] }) {
+  return (
+    <div className="flex items-center gap-2">
+      {steps.map((label, i) => (
+        <div key={label} className="flex items-center gap-2">
+          <div className={`flex items-center gap-1.5 transition-all duration-300 ${
+            i < current ? "opacity-40" : i === current ? "opacity-100" : "opacity-25"
+          }`}>
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold transition-all ${
+              i < current
+                ? "bg-emerald-400/20 text-emerald-500"
+                : i === current
+                ? "bg-black/10 dark:bg-white/10 text-black/80 dark:text-white/80"
+                : "bg-black/[0.04] dark:bg-white/[0.04] text-black/30 dark:text-white/20"
+            }`}>
+              {i < current ? (
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                i + 1
+              )}
+            </div>
+            <span className={`text-[11px] font-medium hidden sm:inline ${
+              i === current ? "text-black/70 dark:text-white/60" : "text-black/30 dark:text-white/20"
+            }`}>{label}</span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className={`w-4 h-px ${i < current ? "bg-emerald-400/30" : "bg-black/10 dark:bg-white/[0.06]"}`} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("type");
   const [accountType, setAccountType] = useState<AccountType>("individual");
+
+  // Writing types
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 
   // Questions flow
   const [questionIndex, setQuestionIndex] = useState(0);
@@ -163,16 +194,41 @@ export default function OnboardingPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Samples
-  const [pasteText, setPasteText] = useState("");
-  const [sampleCategory, setSampleCategory] = useState("other");
-  const [addError, setAddError] = useState("");
-  const [adding, setAdding] = useState(false);
   const [samples, setSamples] = useState<AddedSample[]>([]);
+  const [sampleInputMode, setSampleInputMode] = useState<"paste" | "url" | "file">("paste");
+  const [pasteText, setPasteText] = useState("");
+  const [sampleCategory, setSampleCategory] = useState("");
+  const [sampleNotes, setSampleNotes] = useState("");
+  const [sampleTitle, setSampleTitle] = useState("");
+  const [urlInput, setUrlInput] = useState("");
+  const [fetching, setFetching] = useState(false);
+  const [sampleError, setSampleError] = useState("");
 
-  // Analysis
-  const [analyzeError, setAnalyzeError] = useState("");
+  // Favorite words
+  const [wordInput, setWordInput] = useState("");
+  const [favoriteWords, setFavoriteWords] = useState<string[]>([]);
+
+  // Review editing
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editingTypeSearch, setEditingTypeSearch] = useState("");
+
+  // Submitting
+  const [submitError, setSubmitError] = useState("");
 
   const questions = accountType === "brand" ? BRAND_QUESTIONS : INDIVIDUAL_QUESTIONS;
+  const OVERALL_STEPS = ["You", "What you write", "About you", "Samples", "Words", "Review"];
+
+  function overallStepIndex(): number {
+    switch (step) {
+      case "type": return 0;
+      case "writing_types": return 1;
+      case "questions": return 2;
+      case "samples": return 3;
+      case "words": return 4;
+      case "review": return 5;
+      default: return 5;
+    }
+  }
 
   // Auto-focus textarea when question changes
   useEffect(() => {
@@ -189,11 +245,22 @@ export default function OnboardingPage() {
     }
   }, [questionIndex, step]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Set first selected type as default sample category
+  useEffect(() => {
+    if (step === "samples" && !sampleCategory && selectedTypes.length > 0) {
+      setSampleCategory(selectedTypes[0]);
+    }
+  }, [step, sampleCategory, selectedTypes]);
+
+  function toggleType(type: string) {
+    setSelectedTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    );
+  }
+
   function advanceQuestion() {
     const q = questions[questionIndex];
     const trimmed = currentAnswer.trim();
-
-    // Save answer (even if blank — we don't enforce it)
     setAnswers((prev) => ({ ...prev, [q.id]: trimmed }));
 
     if (questionIndex < questions.length - 1) {
@@ -204,75 +271,232 @@ export default function OnboardingPage() {
         setQuestionVisible(true);
       }, 250);
     } else {
-      // All questions answered → go to samples
       setStep("samples");
     }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    // Cmd/Ctrl + Enter → advance
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       advanceQuestion();
     }
   }
 
-  // ── Samples ────────────────────────────────────────────────────────────────
+  // ── Sample helpers ─────────────────────────────────────────────────────────
 
-  async function addSample() {
-    if (!pasteText.trim()) return;
-    const wc = wordCount(pasteText);
+  function resetSampleForm() {
+    setPasteText("");
+    setSampleNotes("");
+    setSampleTitle("");
+    setUrlInput("");
+    setSampleError("");
+    setFetching(false);
+  }
+
+  async function addSampleFromText(text: string, title: string) {
+    const wc = wordCount(text);
     if (wc < 50) {
-      setAddError("Sample too short — paste something with at least 50 words.");
+      setSampleError("Too short — paste something with at least 50 words.");
       return;
     }
-    setAddError("");
-    setAdding(true);
+    setSampleError("");
+
+    const cat = sampleCategory || detectCategory(text);
+
     const res = await fetch("/api/voice", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        content: pasteText.trim(),
-        category: sampleCategory,
-        title: `Sample ${samples.length + 1}`,
+        content: text.trim(),
+        category: cat,
+        title: title || `Sample ${samples.length + 1}`,
+        notes: sampleNotes.trim(),
       }),
     });
-    setAdding(false);
+
     if (!res.ok) {
-      setAddError("Failed to save sample. Please try again.");
+      setSampleError("Failed to save sample. Please try again.");
       return;
     }
+
     setSamples((prev) => [
       ...prev,
-      { title: `Sample ${prev.length + 1}`, content: pasteText.trim(), wordCount: wc, category: sampleCategory },
+      {
+        title: title || `Sample ${prev.length + 1}`,
+        content: text.trim(),
+        wordCount: wc,
+        category: cat,
+        notes: sampleNotes.trim(),
+        inputMethod: sampleInputMode,
+      },
     ]);
-    setPasteText("");
-    setSampleCategory("other");
+    resetSampleForm();
   }
 
-  async function analyzeAndFinish() {
-    setStep("analyzing");
-    setAnalyzeError("");
+  async function handlePasteAdd() {
+    if (!pasteText.trim()) return;
+    setFetching(true);
+    await addSampleFromText(pasteText.trim(), sampleTitle);
+    setFetching(false);
+  }
 
-    // Build ordered answer list for storage
+  async function handleUrlImport() {
+    if (!urlInput.trim()) return;
+    setFetching(true);
+    setSampleError("");
+    try {
+      const res = await fetch("/api/voice/import-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: urlInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setSampleError(data.error || "Could not fetch URL.");
+        setFetching(false);
+        return;
+      }
+      await addSampleFromText(data.text, data.title || urlInput.trim());
+    } catch {
+      setSampleError("Fetch failed. Check the URL and try again.");
+    }
+    setFetching(false);
+  }
+
+  function handleFileUpload(file: File) {
+    setSampleError("");
+    const inferredTitle = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
+
+    if (file.type === "application/pdf") {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = e.target?.result as string;
+        const [, base64] = dataUrl.split(",");
+        setFetching(true);
+        try {
+          const res = await fetch("/api/voice/import-pdf", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: base64, fileName: file.name }),
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            setSampleError(data.error || "PDF extraction failed.");
+          } else {
+            await addSampleFromText(data.text, inferredTitle);
+          }
+        } catch {
+          setSampleError("PDF extraction failed. Try again.");
+        }
+        setFetching(false);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    if (file.name.endsWith(".docx") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = e.target?.result as string;
+        const [, base64] = dataUrl.split(",");
+        setFetching(true);
+        try {
+          const res = await fetch("/api/voice/import-docx", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: base64 }),
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            setSampleError(data.error || "DOCX extraction failed.");
+          } else {
+            await addSampleFromText(data.text, inferredTitle);
+          }
+        } catch {
+          setSampleError("DOCX extraction failed. Try again.");
+        }
+        setFetching(false);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    // Plain text / markdown
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const text = (e.target?.result as string) || "";
+      if (!text.trim()) {
+        setSampleError("File appears empty.");
+        return;
+      }
+      setFetching(true);
+      await addSampleFromText(text, inferredTitle);
+      setFetching(false);
+    };
+    reader.readAsText(file);
+  }
+
+  // ── Favorite words ─────────────────────────────────────────────────────────
+
+  function addWord() {
+    const trimmed = wordInput.trim();
+    if (!trimmed) return;
+    if (favoriteWords.includes(trimmed.toLowerCase())) {
+      setWordInput("");
+      return;
+    }
+    setFavoriteWords((prev) => [...prev, trimmed.toLowerCase()]);
+    setWordInput("");
+  }
+
+  function removeWord(word: string) {
+    setFavoriteWords((prev) => prev.filter((w) => w !== word));
+  }
+
+  // ── Submit everything ──────────────────────────────────────────────────────
+
+  async function submitOnboarding() {
+    setStep("submitting");
+    setSubmitError("");
+
     const answersArray = questions
       .map((q) => ({ question: q.prompt, answer: answers[q.id] ?? "" }))
       .filter((a) => a.answer.length > 0);
 
-    const [analyzeRes] = await Promise.allSettled([
-      fetch("/api/voice/analyze", { method: "POST" }),
-    ]);
-    if (analyzeRes.status === "rejected" || (analyzeRes.status === "fulfilled" && !analyzeRes.value.ok)) {
-      setAnalyzeError("Analysis failed — you can retry from your Profile later.");
+    // Save favorite words (fire and forget — they call Claude Haiku for definitions)
+    for (const word of favoriteWords) {
+      fetch("/api/favorite-words", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ word }),
+      }).catch(() => {});
     }
 
-    await fetch("/api/auth/complete-onboarding", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accountType, answers: answersArray }),
-    }).catch(() => {});
+    // Trigger voice analysis (non-blocking)
+    if (samples.length > 0) {
+      fetch("/api/voice/analyze", { method: "POST" }).catch(() => {});
+    }
 
-    setStep("done");
+    // Complete onboarding
+    try {
+      await fetch("/api/auth/complete-onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountType,
+          answers: answersArray,
+          writingTypes: selectedTypes,
+          favoriteWords,
+        }),
+      });
+    } catch {
+      setSubmitError("Failed to save. Please try again.");
+      setStep("review");
+      return;
+    }
+
+    // Redirect to home with calibrating flag
+    router.push(samples.length > 0 ? "/?voiceCalibrating=1" : "/");
   }
 
   async function skipToFinish() {
@@ -302,10 +526,9 @@ export default function OnboardingPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Individual card */}
           <button
             type="button"
-            onClick={() => { setAccountType("individual"); setStep("questions"); }}
+            onClick={() => { setAccountType("individual"); setStep("writing_types"); }}
             className="group relative text-left border rounded-2xl px-6 py-6 transition-all duration-200 hover:border-black/25 dark:hover:border-white/20 hover:shadow-sm bg-black/[0.02] dark:bg-white/[0.02] border-black/[0.09] dark:border-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-black/20 dark:focus-visible:ring-white/20"
           >
             <div className="space-y-3">
@@ -326,10 +549,9 @@ export default function OnboardingPage() {
             </div>
           </button>
 
-          {/* Brand card */}
           <button
             type="button"
-            onClick={() => { setAccountType("brand"); setStep("questions"); }}
+            onClick={() => { setAccountType("brand"); setStep("writing_types"); }}
             className="group relative text-left border rounded-2xl px-6 py-6 transition-all duration-200 hover:border-black/25 dark:hover:border-white/20 hover:shadow-sm bg-black/[0.02] dark:bg-white/[0.02] border-black/[0.09] dark:border-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-black/20 dark:focus-visible:ring-white/20"
           >
             <div className="space-y-3">
@@ -364,22 +586,108 @@ export default function OnboardingPage() {
     );
   }
 
+  // ── Render: What do you write? ─────────────────────────────────────────────
+
+  if (step === "writing_types") {
+    return (
+      <div className="max-w-2xl mx-auto space-y-8 pt-6 px-4">
+        <StepIndicator current={overallStepIndex()} steps={OVERALL_STEPS} />
+
+        <div className="space-y-2">
+          <h1 className="text-[24px] font-semibold text-black/90 dark:text-white tracking-tight leading-snug">
+            What do you write?
+          </h1>
+          <p className="text-[14px] text-black/45 dark:text-white/35 leading-relaxed">
+            Select everything that applies. This helps us understand what formats to optimize your voice for.
+          </p>
+        </div>
+
+        <div className="space-y-6">
+          {CONTENT_TYPE_GROUPS.map((group) => (
+            <div key={group.label} className="space-y-2.5">
+              <p className="text-[11px] tracking-[0.12em] uppercase text-black/35 dark:text-white/25 font-semibold">
+                {group.label}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {group.types.map((type) => {
+                  const selected = selectedTypes.includes(type);
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => toggleType(type)}
+                      className={`px-3.5 py-2 rounded-xl text-[13px] font-medium border transition-all duration-150 ${
+                        selected
+                          ? "bg-black/[0.08] dark:bg-white/[0.10] border-black/20 dark:border-white/20 text-black/85 dark:text-white/90"
+                          : "bg-black/[0.02] dark:bg-white/[0.02] border-black/[0.08] dark:border-white/[0.07] text-black/50 dark:text-white/40 hover:border-black/15 dark:hover:border-white/15 hover:text-black/70 dark:hover:text-white/60"
+                      }`}
+                    >
+                      {selected && (
+                        <svg className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      {CONTENT_TYPE_LABELS[type]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {selectedTypes.length > 0 && (
+          <p className="text-[12px] text-black/40 dark:text-white/30">
+            {selectedTypes.length} format{selectedTypes.length !== 1 ? "s" : ""} selected
+          </p>
+        )}
+
+        <div className="flex items-center justify-between pt-4 border-t border-black/[0.07] dark:border-white/[0.06]">
+          <button
+            type="button"
+            onClick={() => setStep("type")}
+            className="text-[12px] text-black/35 dark:text-white/25 hover:text-black/60 dark:hover:text-white/50 transition-colors"
+          >
+            ← Back
+          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setStep("questions")}
+              className="text-[12px] text-black/35 dark:text-white/25 hover:text-black/55 dark:hover:text-white/45 transition-colors"
+            >
+              Skip
+            </button>
+            <Button
+              type="button"
+              onClick={() => setStep("questions")}
+            >
+              Continue
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Render: Questions ──────────────────────────────────────────────────────
 
   if (step === "questions") {
     const q = questions[questionIndex];
     const isLast = questionIndex === questions.length - 1;
-    const progress = questionIndex + 1;
-    const total = questions.length;
 
     return (
-      <div className="max-w-xl mx-auto pt-12 px-4 min-h-[70vh] flex flex-col">
+      <div className="max-w-xl mx-auto pt-8 px-4 min-h-[70vh] flex flex-col">
+        <div className="mb-8">
+          <StepIndicator current={overallStepIndex()} steps={OVERALL_STEPS} />
+        </div>
+
         {/* Top bar */}
         <div className="flex items-center justify-between mb-12">
           <button
             type="button"
             onClick={() => {
-              if (questionIndex === 0) setStep("type");
+              if (questionIndex === 0) setStep("writing_types");
               else {
                 const q = questions[questionIndex];
                 setAnswers((prev) => ({ ...prev, [q.id]: currentAnswer.trim() }));
@@ -390,13 +698,12 @@ export default function OnboardingPage() {
           >
             ← Back
           </button>
-          <ProgressDots current={questionIndex} total={total} />
+          <ProgressDots current={questionIndex} total={questions.length} />
           <span className="text-[11px] text-black/25 dark:text-white/20 tabular-nums">
-            {progress} / {total}
+            {questionIndex + 1} / {questions.length}
           </span>
         </div>
 
-        {/* Question + answer */}
         <div
           className="flex-1 space-y-8 transition-all duration-250"
           style={{ opacity: questionVisible ? 1 : 0, transform: questionVisible ? "translateY(0)" : "translateY(8px)" }}
@@ -423,12 +730,8 @@ export default function OnboardingPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            <Button
-              type="button"
-              onClick={advanceQuestion}
-              className="px-6"
-            >
-              {isLast ? "Finish" : "Next"}
+            <Button type="button" onClick={advanceQuestion} className="px-6">
+              {isLast ? "Next step" : "Next"}
             </Button>
             {!isLast && (
               <button
@@ -456,25 +759,23 @@ export default function OnboardingPage() {
 
   if (step === "samples") {
     const wc = wordCount(pasteText);
-    const sampleStepNum = questions.length + 1;
-    const sampleStepOf  = questions.length + 1;
+
+    // Build category options: selected types first, then all others
+    const allTypes = CONTENT_TYPE_GROUPS.flatMap((g) => g.types);
+    const priorityTypes = selectedTypes.length > 0 ? selectedTypes : allTypes;
+    const otherTypes = allTypes.filter((t) => !selectedTypes.includes(t));
 
     return (
-      <div className="max-w-2xl mx-auto space-y-8 pt-4 px-4">
-        {/* Header */}
+      <div className="max-w-2xl mx-auto space-y-8 pt-6 px-4">
+        <StepIndicator current={overallStepIndex()} steps={OVERALL_STEPS} />
+
         <div className="space-y-2">
-          <p className="text-[11px] tracking-[0.14em] uppercase text-black/35 dark:text-white/25 font-medium">
-            Step {sampleStepNum} of {sampleStepOf}
-          </p>
           <h1 className="text-[22px] font-semibold text-black/90 dark:text-white tracking-tight">
-            {accountType === "brand"
-              ? "Share some of your brand's writing"
-              : "Share some of your writing"}
+            {accountType === "brand" ? "Share some of your brand's writing" : "Share some of your writing"}
           </h1>
           <p className="text-[14px] text-black/45 dark:text-white/35 leading-relaxed">
-            {accountType === "brand"
-              ? "Paste 2–3 pieces your brand has published — blog posts, emails, social content, anything on-brand. The more variety, the better we'll capture your voice."
-              : "Paste 2–3 pieces you've written — blog posts, emails, LinkedIn updates, anything. The more variety, the better your ghostwriter will know your voice."}
+            Upload 2–3 pieces you&apos;ve written. For each, tell us what you liked about it — that helps us
+            understand not just how you write, but what you&apos;re going for.
           </p>
         </div>
 
@@ -487,65 +788,174 @@ export default function OnboardingPage() {
             {samples.map((s, i) => (
               <div
                 key={i}
-                className="flex items-center gap-3 bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-4 py-3"
+                className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-4 py-3 space-y-1.5"
               >
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/80 shrink-0" />
-                <span className="text-[13px] text-black/60 dark:text-white/50 truncate flex-1">
-                  {s.content.slice(0, 60)}…
-                </span>
-                <span className="text-[11px] text-black/35 dark:text-white/25 shrink-0">
-                  {s.wordCount.toLocaleString()} words
-                </span>
-                <span className="text-[10px] text-black/40 dark:text-white/30 bg-black/[0.05] dark:bg-white/[0.05] border border-black/[0.09] dark:border-white/[0.08] rounded-md px-2 py-0.5 shrink-0">
-                  {SAMPLE_CATEGORIES.find((c) => c.value === s.category)?.label ?? s.category}
-                </span>
+                <div className="flex items-center gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/80 shrink-0" />
+                  <span className="text-[13px] text-black/60 dark:text-white/50 truncate flex-1">
+                    {s.title || s.content.slice(0, 60) + "…"}
+                  </span>
+                  <span className="text-[11px] text-black/35 dark:text-white/25 shrink-0">
+                    {s.wordCount.toLocaleString()} words
+                  </span>
+                  <span className="text-[10px] text-black/40 dark:text-white/30 bg-black/[0.05] dark:bg-white/[0.05] border border-black/[0.09] dark:border-white/[0.08] rounded-md px-2 py-0.5 shrink-0">
+                    {CONTENT_TYPE_LABELS[s.category] ?? s.category}
+                  </span>
+                </div>
+                {s.notes && (
+                  <p className="text-[11px] text-black/35 dark:text-white/25 pl-5 italic">
+                    &ldquo;{s.notes}&rdquo;
+                  </p>
+                )}
               </div>
             ))}
           </div>
         )}
 
-        {/* Paste form */}
-        <div className="space-y-3">
-          <textarea
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            placeholder={
-              samples.length === 0
-                ? "Paste a blog post, email, LinkedIn update, or anything you've written…"
-                : "Add another sample (different format recommended)…"
-            }
-            rows={10}
-            className="w-full bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-2xl px-4 py-3.5 text-[14px] text-black/85 dark:text-white/80 placeholder-black/30 dark:placeholder-white/20 focus:outline-none focus:border-black/[0.18] dark:focus:border-white/[0.18] resize-none transition-colors"
-          />
-
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <label className="text-[12px] text-black/40 dark:text-white/30">Format:</label>
-              <select
-                value={sampleCategory}
-                onChange={(e) => setSampleCategory(e.target.value)}
-                className="bg-black/[0.04] dark:bg-white/[0.04] border border-black/[0.09] dark:border-white/[0.08] rounded-lg text-[12px] text-black/75 dark:text-white/70 px-2.5 py-1.5 focus:outline-none focus:border-black/[0.18] dark:focus:border-white/[0.18] transition-colors appearance-none"
+        {/* Input mode tabs */}
+        <div className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.09] dark:border-white/[0.08] rounded-xl p-5 space-y-4">
+          <div className="flex gap-1 border-b border-black/[0.09] dark:border-white/[0.08] pb-1">
+            {(["paste", "url", "file"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => { setSampleInputMode(mode); setSampleError(""); }}
+                className={`text-[11px] px-3 py-1 rounded-t transition-colors ${
+                  sampleInputMode === mode
+                    ? "bg-black/[0.08] dark:bg-white/[0.09] text-black/90 dark:text-white"
+                    : "text-black/40 dark:text-white/30 hover:text-black/60 dark:hover:text-white/50"
+                }`}
               >
-                {SAMPLE_CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value} className="bg-[#111]">{c.label}</option>
-                ))}
-              </select>
-            </div>
-            {pasteText.trim() && (
-              <span className="text-[11px] text-black/35 dark:text-white/25">{wc.toLocaleString()} words</span>
-            )}
+                {mode === "paste" ? "Paste text" : mode === "url" ? "Import from URL" : "Upload file"}
+              </button>
+            ))}
           </div>
 
-          {addError && <p className="text-[12px] text-red-400/80 pl-0.5">{addError}</p>}
+          {/* Paste mode */}
+          {sampleInputMode === "paste" && (
+            <div className="space-y-3">
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder={
+                  samples.length === 0
+                    ? "Paste a blog post, email, essay, or anything you've written…"
+                    : "Add another sample (different format recommended)…"
+                }
+                rows={8}
+                className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-4 py-3 text-[14px] text-black/85 dark:text-white/80 placeholder-black/30 dark:placeholder-white/20 focus:outline-none focus:border-black/[0.18] dark:focus:border-white/[0.18] resize-none transition-colors"
+              />
+              {pasteText.trim() && (
+                <p className="text-[11px] text-black/35 dark:text-white/25">{wc.toLocaleString()} words</p>
+              )}
+            </div>
+          )}
 
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={addSample}
-            disabled={!pasteText.trim() || adding}
-          >
-            {adding ? "Saving…" : "+ Add sample"}
-          </Button>
+          {/* URL mode */}
+          {sampleInputMode === "url" && (
+            <div className="flex gap-2">
+              <input
+                type="url"
+                placeholder="https://your-blog.com/post-title"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleUrlImport(); }}
+                className="flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.09] dark:border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-black/85 dark:text-white/80 placeholder-black/30 dark:placeholder-white/20 focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22] transition-colors"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleUrlImport}
+                disabled={!urlInput.trim() || fetching}
+              >
+                {fetching ? "Importing…" : "Import"}
+              </Button>
+            </div>
+          )}
+
+          {/* File mode */}
+          {sampleInputMode === "file" && (
+            <div className="space-y-2">
+              <label className="flex flex-col items-center justify-center gap-2 py-8 border-2 border-dashed border-black/10 dark:border-white/[0.08] rounded-xl cursor-pointer hover:border-black/20 dark:hover:border-white/15 transition-colors">
+                <svg className="w-6 h-6 text-black/30 dark:text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                </svg>
+                <span className="text-[13px] text-black/40 dark:text-white/30">
+                  Drop a file or click to browse
+                </span>
+                <span className="text-[11px] text-black/25 dark:text-white/15">
+                  .txt, .md, .pdf, .docx
+                </span>
+                <input
+                  type="file"
+                  accept=".txt,.md,.pdf,.docx"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleFileUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          )}
+
+          {/* Category + notes (shared across modes) */}
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-[12px] text-black/40 dark:text-white/30">Type:</label>
+                <select
+                  value={sampleCategory}
+                  onChange={(e) => setSampleCategory(e.target.value)}
+                  className="bg-black/[0.04] dark:bg-white/[0.04] border border-black/[0.09] dark:border-white/[0.08] rounded-lg text-[12px] text-black/75 dark:text-white/70 px-2.5 py-1.5 focus:outline-none focus:border-black/[0.18] dark:focus:border-white/[0.18] transition-colors appearance-none"
+                >
+                  {selectedTypes.length > 0 && (
+                    <optgroup label="Your formats">
+                      {priorityTypes.map((t) => (
+                        <option key={t} value={t} className="bg-[#111]">{CONTENT_TYPE_LABELS[t]}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {selectedTypes.length > 0 && otherTypes.length > 0 && (
+                    <optgroup label="Other formats">
+                      {otherTypes.map((t) => (
+                        <option key={t} value={t} className="bg-[#111]">{CONTENT_TYPE_LABELS[t]}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {selectedTypes.length === 0 && allTypes.map((t) => (
+                    <option key={t} value={t} className="bg-[#111]">{CONTENT_TYPE_LABELS[t]}</option>
+                  ))}
+                  <option value="other" className="bg-[#111]">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <textarea
+                value={sampleNotes}
+                onChange={(e) => setSampleNotes(e.target.value)}
+                placeholder="What did you like about this piece? Why is it a good sample of your voice? (optional but helpful)"
+                rows={2}
+                className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-4 py-2.5 text-[13px] text-black/70 dark:text-white/60 placeholder-black/25 dark:placeholder-white/15 focus:outline-none focus:border-black/[0.15] dark:focus:border-white/[0.15] resize-none transition-colors"
+              />
+            </div>
+          </div>
+
+          {sampleError && <p className="text-[12px] text-red-400/80">{sampleError}</p>}
+
+          {sampleInputMode === "paste" && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handlePasteAdd}
+              disabled={!pasteText.trim() || fetching}
+            >
+              {fetching ? "Saving…" : "+ Add sample"}
+            </Button>
+          )}
         </div>
 
         {/* Continue */}
@@ -558,21 +968,15 @@ export default function OnboardingPage() {
             ← Back
           </button>
           <div className="flex items-center gap-3">
-            {samples.length === 0 && (
-              <button
-                type="button"
-                onClick={skipToFinish}
-                className="text-[12px] text-black/35 dark:text-white/25 hover:text-black/55 dark:hover:text-white/45 transition-colors"
-              >
-                Skip for now
-              </button>
-            )}
-            <Button
+            <button
               type="button"
-              onClick={analyzeAndFinish}
-              disabled={samples.length === 0}
+              onClick={() => setStep("words")}
+              className="text-[12px] text-black/35 dark:text-white/25 hover:text-black/55 dark:hover:text-white/45 transition-colors"
             >
-              Build my voice profile
+              {samples.length === 0 ? "Skip" : ""}
+            </button>
+            <Button type="button" onClick={() => setStep("words")}>
+              {samples.length === 0 ? "Skip to next" : "Continue"}
             </Button>
           </div>
         </div>
@@ -580,70 +984,266 @@ export default function OnboardingPage() {
     );
   }
 
-  // ── Render: Analyzing ──────────────────────────────────────────────────────
+  // ── Render: Favorite Words ─────────────────────────────────────────────────
 
-  if (step === "analyzing") {
+  if (step === "words") {
     return (
-      <div className="max-w-2xl mx-auto flex items-center justify-center min-h-[50vh]">
-        <div className="text-center space-y-5">
-          <div className="flex items-center justify-center gap-1.5">
-            {[0, 150, 300].map((delay) => (
-              <span
-                key={delay}
-                className="inline-block w-1.5 h-1.5 bg-black/35 dark:bg-white/25 rounded-full animate-pulse"
-                style={{ animationDelay: `${delay}ms` }}
-              />
-            ))}
-          </div>
-          <p className="text-[14px] text-black/45 dark:text-white/35">
-            Analyzing your writing style…
+      <div className="max-w-2xl mx-auto space-y-8 pt-6 px-4">
+        <StepIndicator current={overallStepIndex()} steps={OVERALL_STEPS} />
+
+        <div className="space-y-2">
+          <h1 className="text-[22px] font-semibold text-black/90 dark:text-white tracking-tight">
+            Got any favorite words?
+          </h1>
+          <p className="text-[14px] text-black/45 dark:text-white/35 leading-relaxed">
+            Words or phrases you love using, find yourself reaching for, or just think are beautiful.
+            Your ghostwriter will naturally weave these in when they fit.
           </p>
-          {analyzeError && (
-            <p className="text-[12px] text-amber-400/70 mt-2">{analyzeError}</p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={wordInput}
+              onChange={(e) => setWordInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addWord(); }}}
+              placeholder='e.g. "luminous", "unravel", "the thing is"…'
+              className="flex-1 bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.09] dark:border-white/[0.08] rounded-xl px-4 py-2.5 text-[14px] text-black/85 dark:text-white/80 placeholder-black/25 dark:placeholder-white/15 focus:outline-none focus:border-black/[0.18] dark:focus:border-white/[0.18] transition-colors"
+            />
+            <Button type="button" variant="ghost" onClick={addWord} disabled={!wordInput.trim()}>
+              Add
+            </Button>
+          </div>
+
+          {favoriteWords.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {favoriteWords.map((word) => (
+                <span
+                  key={word}
+                  className="inline-flex items-center gap-1.5 bg-black/[0.05] dark:bg-white/[0.06] border border-black/[0.09] dark:border-white/[0.08] rounded-lg px-3 py-1.5 text-[13px] text-black/70 dark:text-white/60"
+                >
+                  {word}
+                  <button
+                    type="button"
+                    onClick={() => removeWord(word)}
+                    className="text-black/25 dark:text-white/20 hover:text-black/60 dark:hover:text-white/50 transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </span>
+              ))}
+            </div>
           )}
+
+          {favoriteWords.length === 0 && (
+            <p className="text-[12px] text-black/25 dark:text-white/15">
+              No pressure — you can always add these later from your profile.
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between pt-4 border-t border-black/[0.07] dark:border-white/[0.06]">
+          <button
+            type="button"
+            onClick={() => setStep("samples")}
+            className="text-[12px] text-black/35 dark:text-white/25 hover:text-black/60 dark:hover:text-white/50 transition-colors"
+          >
+            ← Back
+          </button>
+          <Button type="button" onClick={() => setStep("review")}>
+            Review everything
+          </Button>
         </div>
       </div>
     );
   }
 
-  // ── Render: Done ───────────────────────────────────────────────────────────
+  // ── Render: Review ─────────────────────────────────────────────────────────
 
-  return (
-    <div className="max-w-2xl mx-auto flex items-center justify-center min-h-[50vh] px-4">
-      <div className="text-center space-y-7">
-        <div className="space-y-3">
-          <div className="w-10 h-10 rounded-full bg-emerald-400/10 border border-emerald-400/20 flex items-center justify-center mx-auto">
-            <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
+  if (step === "review") {
+    const answeredQuestions = questions
+      .map((q) => ({ question: q.prompt, answer: answers[q.id] ?? "" }))
+      .filter((a) => a.answer.length > 0);
+
+    return (
+      <div className="max-w-2xl mx-auto space-y-8 pt-6 px-4">
+        <StepIndicator current={overallStepIndex()} steps={OVERALL_STEPS} />
+
+        <div className="space-y-2">
           <h1 className="text-[22px] font-semibold text-black/90 dark:text-white tracking-tight">
-            {accountType === "brand" ? "Brand voice profile ready" : "Voice profile ready"}
+            Here&apos;s what we&apos;ve learned about you
           </h1>
-          <p className="text-[14px] text-black/45 dark:text-white/35 leading-relaxed max-w-sm mx-auto">
-            {samples.length > 0 ? (
-              <>
-                The ghostwriter has learned {accountType === "brand" ? "your brand's" : "your"} style from{" "}
-                <span className="text-black/75 dark:text-white/70">{samples.length} sample{samples.length !== 1 ? "s" : ""}</span>.
-                Add more any time from your Profile.
-              </>
-            ) : (
-              <>
-                Your profile is set up. Add writing samples from your Profile any time to improve voice fidelity.
-              </>
-            )}
+          <p className="text-[14px] text-black/45 dark:text-white/35 leading-relaxed">
+            Review everything below. Click any section to edit before we build your voice profile.
           </p>
         </div>
 
-        <div className="flex items-center justify-center gap-2.5">
-          <Button onClick={() => router.push("/create")}>
-            Write something
-          </Button>
-          <Button variant="outline" onClick={() => router.push("/")}>
-            Go to dashboard
+        {/* Account type */}
+        <ReviewSection
+          title="Account type"
+          onEdit={() => setStep("type")}
+        >
+          <p className="text-[14px] text-black/70 dark:text-white/60">
+            {accountType === "brand" ? "Brand / Company" : "Individual"}
+          </p>
+        </ReviewSection>
+
+        {/* Writing types */}
+        <ReviewSection
+          title="What you write"
+          onEdit={() => setStep("writing_types")}
+          empty={selectedTypes.length === 0}
+          emptyLabel="No formats selected"
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {selectedTypes.map((type) => (
+              <span
+                key={type}
+                className="text-[12px] bg-black/[0.05] dark:bg-white/[0.06] border border-black/[0.08] dark:border-white/[0.07] rounded-md px-2.5 py-1 text-black/60 dark:text-white/50"
+              >
+                {CONTENT_TYPE_LABELS[type] ?? type}
+              </span>
+            ))}
+          </div>
+        </ReviewSection>
+
+        {/* Answers */}
+        <ReviewSection
+          title="About you"
+          onEdit={() => { setQuestionIndex(0); setStep("questions"); }}
+          empty={answeredQuestions.length === 0}
+          emptyLabel="No questions answered"
+        >
+          <div className="space-y-3">
+            {answeredQuestions.map((a, i) => (
+              <div key={i} className="space-y-0.5">
+                <p className="text-[11px] text-black/35 dark:text-white/25 font-medium">{a.question}</p>
+                <p className="text-[13px] text-black/70 dark:text-white/60 leading-relaxed">{a.answer}</p>
+              </div>
+            ))}
+          </div>
+        </ReviewSection>
+
+        {/* Writing samples */}
+        <ReviewSection
+          title="Writing samples"
+          onEdit={() => setStep("samples")}
+          empty={samples.length === 0}
+          emptyLabel="No samples added"
+        >
+          <div className="space-y-2">
+            {samples.map((s, i) => (
+              <div key={i} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/80 shrink-0" />
+                  <span className="text-[13px] text-black/60 dark:text-white/50 truncate">{s.title}</span>
+                  <span className="text-[11px] text-black/30 dark:text-white/20">{s.wordCount.toLocaleString()} words</span>
+                  <span className="text-[10px] text-black/35 dark:text-white/25 bg-black/[0.04] dark:bg-white/[0.04] rounded px-1.5 py-0.5">
+                    {CONTENT_TYPE_LABELS[s.category] ?? s.category}
+                  </span>
+                </div>
+                {s.notes && (
+                  <p className="text-[11px] text-black/35 dark:text-white/25 pl-4 italic">&ldquo;{s.notes}&rdquo;</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </ReviewSection>
+
+        {/* Favorite words */}
+        <ReviewSection
+          title="Favorite words"
+          onEdit={() => setStep("words")}
+          empty={favoriteWords.length === 0}
+          emptyLabel="None added"
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {favoriteWords.map((word) => (
+              <span
+                key={word}
+                className="text-[12px] bg-black/[0.05] dark:bg-white/[0.06] border border-black/[0.08] dark:border-white/[0.07] rounded-md px-2.5 py-1 text-black/60 dark:text-white/50"
+              >
+                {word}
+              </span>
+            ))}
+          </div>
+        </ReviewSection>
+
+        {submitError && <p className="text-[12px] text-red-400/80">{submitError}</p>}
+
+        <div className="flex items-center justify-between pt-4 border-t border-black/[0.07] dark:border-white/[0.06]">
+          <button
+            type="button"
+            onClick={() => setStep("words")}
+            className="text-[12px] text-black/35 dark:text-white/25 hover:text-black/60 dark:hover:text-white/50 transition-colors"
+          >
+            ← Back
+          </button>
+          <Button type="button" onClick={submitOnboarding}>
+            Build my voice profile
           </Button>
         </div>
       </div>
+    );
+  }
+
+  // ── Render: Submitting ─────────────────────────────────────────────────────
+
+  return (
+    <div className="max-w-2xl mx-auto flex items-center justify-center min-h-[50vh]">
+      <div className="text-center space-y-5">
+        <div className="flex items-center justify-center gap-1.5">
+          {[0, 150, 300].map((delay) => (
+            <span
+              key={delay}
+              className="inline-block w-1.5 h-1.5 bg-black/35 dark:bg-white/25 rounded-full animate-pulse"
+              style={{ animationDelay: `${delay}ms` }}
+            />
+          ))}
+        </div>
+        <p className="text-[14px] text-black/45 dark:text-white/35">
+          Setting everything up…
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Review section component ─────────────────────────────────────────────────
+
+function ReviewSection({
+  title,
+  onEdit,
+  empty,
+  emptyLabel,
+  children,
+}: {
+  title: string;
+  onEdit: () => void;
+  empty?: boolean;
+  emptyLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-5 py-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-[13px] font-semibold text-black/70 dark:text-white/60">{title}</h3>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-[11px] text-black/35 dark:text-white/25 hover:text-black/60 dark:hover:text-white/50 transition-colors"
+        >
+          Edit →
+        </button>
+      </div>
+      {empty ? (
+        <p className="text-[12px] text-black/25 dark:text-white/15 italic">{emptyLabel}</p>
+      ) : (
+        children
+      )}
     </div>
   );
 }

@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { title, content, category } = await req.json();
+  const { title, content, category, notes } = await req.json();
   if (!content?.trim()) {
     return NextResponse.json({ error: "Content is required" }, { status: 400 });
   }
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
       content: content.trim(),
       wordCount,
       category: resolvedCategory,
+      notes: notes?.trim() || "",
     },
   });
 

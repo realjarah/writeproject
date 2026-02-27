@@ -54,6 +54,7 @@ model VoiceSample {
   content   String
   wordCount Int      @default(0)
   category  String   @default("other")
+  notes     String   @default("") // User notes: what they liked about this sample, why it's good
   createdAt DateTime @default(now())
 }
 

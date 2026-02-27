@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { prisma } from "@/lib/db";
 import ReadinessBar from "@/components/ReadinessBar";
+import VoiceCalibratingPopup from "@/components/VoiceCalibratingPopup";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -128,6 +130,11 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-8">
+
+      {/* Voice calibrating popup (shown after onboarding) */}
+      <Suspense fallback={null}>
+        <VoiceCalibratingPopup />
+      </Suspense>
 
       {/* Header */}
       <div className="space-y-1.5">
