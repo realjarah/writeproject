@@ -126,6 +126,12 @@ export default function GhostwriterPage() {
     } finally {
       setActiveJobId(null);
       setLiveStep("");
+      // Drain the queue — start next queued job if one exists
+      setJobs((prev) => {
+        const next = prev.find((j) => j.status === "queued");
+        if (next) setTimeout(() => startJob(next.id), 400);
+        return prev;
+      });
     }
   }
 
@@ -185,12 +191,17 @@ export default function GhostwriterPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {jobs.map((job) => {
+          {(() => {
+            // Build queue position map for "queued" jobs (newest = position 1)
+            const queuedIds = jobs.filter((j) => j.status === "queued").map((j) => j.id);
+            const queuePos = Object.fromEntries(queuedIds.map((id, i) => [id, i + 1]));
+            return jobs.map((job) => {
             const isActive = job.id === activeJobId;
             const isDone = job.status === "done";
             const isError = job.status === "error";
             const isQueued = job.status === "queued";
             const isProcessing = ACTIVE_STATUSES.has(job.status);
+            const pos = queuePos[job.id];
             const currentStepIdx = stepIndex(isActive ? liveStep : job.status);
             const isExpanded = expandedId === job.id;
 
@@ -219,7 +230,11 @@ export default function GhostwriterPage() {
                         </span>
                       )}
                       {isQueued && (
-                        <span className="text-[11px] text-[#444]">Queued</span>
+                        <span className="text-[11px] text-[#444]">
+                          {activeJobId !== null
+                            ? pos === 1 ? "Up next" : `#${pos} in queue`
+                            : "Queued"}
+                        </span>
                       )}
                       {(isActive || isProcessing) && !isDone && !isError && (
                         <span className="flex items-center gap-1.5 text-[11px] text-[#888]">
@@ -313,7 +328,8 @@ export default function GhostwriterPage() {
                 )}
               </div>
             );
-          })}
+          });
+          })()}
         </div>
       )}
     </div>
