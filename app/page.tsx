@@ -1,66 +1,202 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import ReadinessBar from "@/components/ReadinessBar";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-async function getStats() {
-  const [samples, generationCount, profile] = await Promise.all([
-    prisma.voiceSample.findMany({ select: { wordCount: true, category: true } }),
-    prisma.generatedContent.count(),
-    prisma.voiceProfile.findUnique({ where: { id: 1 } }),
-  ]);
+const TIERS = [
+  { name: "Starter",     minWords: 0,       maxWords: 999,    color: "#9ca3af" },
+  { name: "Apprentice",  minWords: 1000,    maxWords: 9999,   color: "#60a5fa" },
+  { name: "Writer",      minWords: 10000,   maxWords: 49999,  color: "#a78bfa" },
+  { name: "Author",      minWords: 50000,   maxWords: 99999,  color: "#f97316" },
+  { name: "Ghostmaster", minWords: 100000,  maxWords: Infinity, color: "#facc15" },
+];
 
-  const totalWords = samples.reduce((s, x) => s + x.wordCount, 0);
+function getTier(aiWords: number) {
+  const tier = TIERS.findLast((t) => aiWords >= t.minWords) ?? TIERS[0];
+  const nextTier = TIERS[TIERS.indexOf(tier) + 1];
+  const progress = nextTier
+    ? Math.min(100, Math.round(((aiWords - tier.minWords) / (nextTier.minWords - tier.minWords)) * 100))
+    : 100;
+  return { tier, nextTier, progress };
+}
+
+function countWords(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+async function getStats(userId: string) {
+  const [samples, generationCount, profile, signatures, activeJobs, doneJobDrafts] =
+    await Promise.all([
+      prisma.voiceSample.findMany({ where: { userId }, select: { wordCount: true, category: true } }),
+      prisma.generatedContent.count({ where: { userId } }),
+      prisma.voiceProfile.findUnique({ where: { userId } }),
+      prisma.signature.count({ where: { userId } }),
+      prisma.ghostwriterJob.count({ where: { userId, NOT: { status: { in: ["done", "error", "queued"] } } } }),
+      prisma.ghostwriterJob.findMany({ where: { userId, status: "done" }, select: { finalDraft: true } }),
+    ]);
+
+  const totalWords    = samples.reduce((s, x) => s + x.wordCount, 0);
   const categoryCount = new Set(samples.map((s) => s.category)).size;
+  const doneJobs      = doneJobDrafts.length;
+  const aiWords       = doneJobDrafts.reduce((sum, j) => sum + (j.finalDraft ? countWords(j.finalDraft) : 0), 0);
+  const hoursSaved    = Math.round(aiWords / 500); // ~500 words/hour quality writing pace
 
   return {
-    sampleCount: samples.length,
+    sampleCount:     samples.length,
     totalWords,
     categoryCount,
     generationCount,
-    hasProfile: !!profile,
+    hasProfile:      !!profile,
+    signatureCount:  signatures,
+    activeJobs,
+    doneJobs,
+    totalPieces:     generationCount + doneJobs,
+    aiWords,
+    hoursSaved,
+    tierInfo:        getTier(aiWords),
   };
 }
 
+async function getRecentJobs(userId: string) {
+  return prisma.ghostwriterJob.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    take: 4,
+    select: { id: true, contentType: true, topic: true, status: true, createdAt: true },
+  });
+}
+
+function timeAgo(iso: Date | string) {
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60)    return `${secs}s ago`;
+  if (secs < 3600)  return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
+const STATUS_DOT: Record<string, string> = {
+  done:       "bg-emerald-400",
+  error:      "bg-red-400",
+  queued:     "bg-black/25 dark:bg-white/20",
+  planning:   "bg-blue-400 animate-pulse",
+  drafting_1: "bg-blue-400 animate-pulse",
+  drafting_2: "bg-blue-400 animate-pulse",
+  drafting_3: "bg-blue-400 animate-pulse",
+  comparing:  "bg-purple-400 animate-pulse",
+  checking:   "bg-yellow-400 animate-pulse",
+  humanizing: "bg-orange-400 animate-pulse",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  done: "Done", error: "Error", queued: "Queued",
+  planning: "Planning…", drafting_1: "Drafting…", drafting_2: "Drafting…",
+  drafting_3: "Drafting…", comparing: "Comparing…", checking: "Checking…",
+  humanizing: "Polishing…",
+};
+
 export default async function HomePage() {
-  const { sampleCount, totalWords, categoryCount, generationCount, hasProfile } =
-    await getStats();
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) redirect("/auth/signin");
+
+  const [stats, recentJobs] = await Promise.all([
+    getStats(session.user.id),
+    getRecentJobs(session.user.id),
+  ]);
+  const {
+    sampleCount, totalWords, categoryCount, hasProfile,
+    signatureCount, activeJobs, doneJobs, aiWords, hoursSaved, tierInfo,
+  } = stats;
+
+  function fmtWords(n: number) {
+    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000)    return `${(n / 1000).toFixed(1)}k`;
+    return String(n);
+  }
+
+  const kpis = [
+    { label: "Samples",       value: sampleCount },
+    { label: "Sample words",  value: fmtWords(totalWords) },
+    { label: "Formats",       value: categoryCount },
+    { label: "Drafted",       value: doneJobs },
+    { label: "AI words",      value: fmtWords(aiWords) },
+    { label: "Hours saved",   value: hoursSaved },
+  ];
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8">
+
       {/* Header */}
-      <div className="space-y-3">
-        <h1 className="text-3xl font-bold text-white tracking-tight">
-          Your AI Ghostwriter
-        </h1>
-        <p className="text-[#888] text-base max-w-xl">
-          Feed it your writing. It learns your voice. Then just tell it what to
-          write — it handles the rest.
+      <div className="space-y-1.5">
+        <h1 className="text-[26px] font-semibold text-black/90 dark:text-white tracking-tight">Dashboard</h1>
+        <p className="text-[14px] text-black/45 dark:text-white/35 max-w-xl leading-relaxed">
+          Feed it your writing. It learns your voice. Then just tell it what to write.
         </p>
       </div>
 
-      {/* Status */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#161616] border border-[#222] rounded-xl p-5">
-          <div className="text-2xl font-bold text-white">{sampleCount}</div>
-          <div className="text-sm text-[#666] mt-1">Writing samples</div>
+      {/* Voice status banner */}
+      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
+        hasProfile
+          ? "bg-emerald-400/[0.04] border-emerald-400/[0.15]"
+          : "bg-black/[0.02] dark:bg-white/[0.02] border-black/[0.08] dark:border-white/[0.07]"
+      }`}>
+        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${hasProfile ? "bg-emerald-400" : "bg-black/25 dark:bg-white/20"}`} />
+        <div className="flex-1 min-w-0">
+          <span className="text-[13px] font-medium text-black/85 dark:text-white/80">
+            {hasProfile ? "Voice profile ready" : "Voice profile not set up"}
+          </span>
+          <span className="text-[13px] text-black/40 dark:text-white/30 ml-2">
+            {hasProfile
+              ? `${sampleCount} sample${sampleCount !== 1 ? "s" : ""} · ${doneJobs} piece${doneJobs !== 1 ? "s" : ""} generated`
+              : "Add writing samples to train your ghost."}
+          </span>
         </div>
-        <div className="bg-[#161616] border border-[#222] rounded-xl p-5">
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-2 h-2 rounded-full ${hasProfile ? "bg-emerald-400" : "bg-[#444]"}`}
-            />
-            <span className="text-sm font-medium text-white">
-              {hasProfile ? "Voice ready" : "No profile yet"}
+        {!hasProfile && (
+          <Link href="/profile" className="text-[12px] text-black/60 dark:text-white/50 hover:text-black/90 dark:text-white transition-colors shrink-0">
+            Set up →
+          </Link>
+        )}
+      </div>
+
+      {/* KPI grid */}
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+        {kpis.map(({ label, value }) => (
+          <div key={label} className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl p-4">
+            <div className="text-[20px] font-semibold text-black/90 dark:text-white/90 tracking-tight">{value}</div>
+            <div className="text-[11px] text-black/40 dark:text-white/30 mt-1 leading-tight">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tier card */}
+      <div className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-5 py-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-[13px] font-semibold" style={{ color: tierInfo.tier.color }}>
+              {tierInfo.tier.name}
+            </span>
+            <span className="text-[12px] text-black/40 dark:text-white/30">
+              {fmtWords(aiWords)} words written by AI
             </span>
           </div>
-          <div className="text-sm text-[#666] mt-1">Voice profile</div>
+          {tierInfo.nextTier && (
+            <span className="text-[11px] text-black/30 dark:text-white/20">
+              {fmtWords(tierInfo.nextTier.minWords - aiWords)} to {tierInfo.nextTier.name}
+            </span>
+          )}
         </div>
-        <div className="bg-[#161616] border border-[#222] rounded-xl p-5">
-          <div className="text-2xl font-bold text-white">{generationCount}</div>
-          <div className="text-sm text-[#666] mt-1">Pieces generated</div>
+        <div className="h-1.5 bg-black/[0.06] dark:bg-white/[0.06] rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${tierInfo.progress}%`, backgroundColor: tierInfo.tier.color }}
+          />
         </div>
+        {!tierInfo.nextTier && (
+          <p className="text-[11px] text-black/35 dark:text-white/25">Max tier reached. You are the ghost.</p>
+        )}
       </div>
 
       {/* Readiness bar */}
@@ -72,93 +208,115 @@ export default async function HomePage() {
         />
       )}
 
-      {/* CTA Flow */}
-      <div className="space-y-3">
-        {!hasProfile ? (
-          <div className="bg-[#161616] border border-[#333] rounded-xl p-6 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-[#222] text-xs flex items-center justify-center text-[#888] font-bold">
-                1
-              </span>
-              <p className="font-medium text-white">Set up your voice first</p>
-            </div>
-            <p className="text-sm text-[#666] pl-8">
-              Paste 3–10 samples of your actual writing. The more you add, the
-              better the clone.
-            </p>
-            <div className="pl-8">
-              <Link
-                href="/voice"
-                className="inline-block bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors"
-              >
-                Go to My Voice
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-[#161616] border border-[#222] rounded-xl p-6 space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <p className="font-medium text-white">Voice profile is ready</p>
-            </div>
-            <p className="text-sm text-[#666]">
-              Your writing style has been captured. Hit Create to generate new
-              content, or update your samples any time.
-            </p>
-            <div className="flex gap-3">
-              <Link
-                href="/create"
-                className="inline-block bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors"
-              >
-                Create content
-              </Link>
-              <Link
-                href="/voice"
-                className="inline-block bg-transparent text-[#888] border border-[#333] text-sm font-medium px-4 py-2 rounded-lg hover:text-white hover:border-[#555] transition-colors"
-              >
-                Manage samples
-              </Link>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* How it works */}
-      <div className="space-y-4">
-        <h2 className="text-sm font-semibold text-[#555] uppercase tracking-widest">
-          How it works
-        </h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* Module cards */}
+      <div>
+        <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold mb-3">Quick access</p>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           {[
             {
-              step: "1",
-              title: "Train your voice",
-              desc: "Paste real writing you've done — blog posts, tweets, emails. The AI analyzes your style.",
+              href:  "/create",
+              title: "Brainstorm",
+              desc:  "Brief a new piece and send it to the ghostwriter.",
             },
             {
-              step: "2",
-              title: "Brief the piece",
-              desc: "Answer a quick interview: what's the topic, angle, key points, any data to include.",
+              href:    "/ghostwriter",
+              title:   "Ghostwriter",
+              desc:    activeJobs > 0 ? `${activeJobs} job${activeJobs !== 1 ? "s" : ""} active` : "View all queued pieces",
+              badge:   activeJobs > 0 ? activeJobs : undefined,
             },
             {
-              step: "3",
-              title: "Get your draft",
-              desc: "The AI writes it exactly as you would. Copy, edit, or regenerate in seconds.",
+              href:  "/profile",
+              title: "Train Voice",
+              desc:  `${sampleCount} sample${sampleCount !== 1 ? "s" : ""} · ${categoryCount} format${categoryCount !== 1 ? "s" : ""}`,
             },
-          ].map(({ step, title, desc }) => (
-            <div
-              key={step}
-              className="bg-[#111] border border-[#1e1e1e] rounded-xl p-5 space-y-2"
+            {
+              href:  "/profile?tab=signatures",
+              title: "Signatures",
+              desc:  `${signatureCount} saved footer${signatureCount !== 1 ? "s" : ""}`,
+            },
+          ].map(({ href, title, desc, badge }) => (
+            <Link
+              key={href}
+              href={href}
+              className="group bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl p-4 hover:bg-black/[0.05] dark:hover:bg-white/[0.05] hover:border-black/[0.14] dark:hover:border-white/[0.12] transition-all space-y-2.5"
             >
-              <div className="text-xs font-bold text-[#555] uppercase tracking-widest">
-                Step {step}
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-medium text-black/85 dark:text-white/80 group-hover:text-black/90 dark:text-white transition-colors">{title}</span>
+                {badge !== undefined && (
+                  <span className="text-[10px] font-bold bg-white text-black rounded-full px-1.5 py-0.5 leading-none">
+                    {badge}
+                  </span>
+                )}
               </div>
-              <div className="font-medium text-white">{title}</div>
-              <div className="text-sm text-[#666]">{desc}</div>
-            </div>
+              <div className="text-[12px] text-black/40 dark:text-white/30 leading-tight">{desc}</div>
+            </Link>
           ))}
         </div>
       </div>
+
+      {/* Recent ghostwriter jobs */}
+      {recentJobs.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold">Recent jobs</p>
+            <Link href="/ghostwriter" className="text-[12px] text-black/40 dark:text-white/30 hover:text-black/70 dark:hover:text-white/60 transition-colors">
+              View all →
+            </Link>
+          </div>
+          <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-xl overflow-hidden divide-y divide-black/[0.06] dark:divide-white/[0.05]">
+            {recentJobs.map((job) => (
+              <Link
+                key={job.id}
+                href="/ghostwriter"
+                className="flex items-center gap-3 px-4 py-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors group"
+              >
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[job.status] ?? "bg-black/25 dark:bg-white/20"}`} />
+                <span className="text-[13px] text-black/60 dark:text-white/50 truncate flex-1 group-hover:text-black/75 dark:hover:text-white/70 transition-colors">
+                  {job.topic}
+                </span>
+                <span className="text-[11px] text-black/35 dark:text-white/25 shrink-0">
+                  {STATUS_LABELS[job.status] ?? job.status}
+                </span>
+                <span className="text-[11px] text-black/25 dark:text-white/15 shrink-0">
+                  {timeAgo(job.createdAt)}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* How it works — only when no profile */}
+      {!hasProfile && (
+        <div className="space-y-3">
+          <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold">How it works</p>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            {[
+              {
+                step: "01",
+                title: "Train your voice",
+                desc: "Paste real writing you've done — blog posts, tweets, emails. The AI analyzes your style.",
+              },
+              {
+                step: "02",
+                title: "Brief the piece",
+                desc: "Answer a quick interview: topic, angle, key points, any data to include.",
+              },
+              {
+                step: "03",
+                title: "Get your draft",
+                desc: "The ghostwriter writes 3 drafts, picks the best, and delivers it polished.",
+              },
+            ].map(({ step, title, desc }) => (
+              <div key={step} className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.07] dark:border-white/[0.06] rounded-xl p-5 space-y-2">
+                <div className="text-[11px] font-semibold text-black/30 dark:text-white/20 tracking-[0.12em] uppercase">{step}</div>
+                <div className="text-[13px] font-medium text-black/85 dark:text-white/80">{title}</div>
+                <div className="text-[12px] text-black/45 dark:text-white/35 leading-relaxed">{desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

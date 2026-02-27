@@ -3,17 +3,24 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
+import { getUserId } from "@/lib/session";
 
 export async function GET() {
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const samples = await prisma.voiceSample.findMany({
+    where: { userId },
     orderBy: { createdAt: "desc" },
   });
   return NextResponse.json(samples);
 }
 
 export async function POST(req: NextRequest) {
-  const { title, content, category } = await req.json();
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { title, content, category } = await req.json();
   if (!content?.trim()) {
     return NextResponse.json({ error: "Content is required" }, { status: 400 });
   }
@@ -23,6 +30,7 @@ export async function POST(req: NextRequest) {
 
   const sample = await prisma.voiceSample.create({
     data: {
+      userId,
       title: title?.trim() || `Sample ${new Date().toLocaleDateString()}`,
       content: content.trim(),
       wordCount,
@@ -34,7 +42,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id } = await req.json();
-  await prisma.voiceSample.delete({ where: { id } });
+  await prisma.voiceSample.deleteMany({ where: { id, userId } });
   return NextResponse.json({ success: true });
 }

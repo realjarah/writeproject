@@ -6,46 +6,56 @@ interface Props {
   categoryCount: number;
 }
 
+// Word volume: 0-40 pts, reaches max at 100k total words
+// Sample count: 0-30 pts, reaches max at 25 samples
+// Formats covered: 0-30 pts, reaches max at 4+ distinct writing formats
 function computeFactors(totalWords: number, sampleCount: number, categoryCount: number) {
-  // Word score (0-33)
   let wordScore = 0;
-  if (totalWords >= 3000) wordScore = 33;
-  else if (totalWords >= 1500) wordScore = 20 + Math.floor(((totalWords - 1500) / 1500) * 13);
-  else if (totalWords >= 500) wordScore = 10 + Math.floor(((totalWords - 500) / 1000) * 10);
-  else if (totalWords > 0) wordScore = Math.max(2, Math.floor((totalWords / 500) * 10));
+  if      (totalWords >= 100_000) wordScore = 40;
+  else if (totalWords >=  75_000) wordScore = 34 + Math.round(((totalWords -  75_000) /  25_000) * 6);
+  else if (totalWords >=  50_000) wordScore = 26 + Math.round(((totalWords -  50_000) /  25_000) * 8);
+  else if (totalWords >=  25_000) wordScore = 16 + Math.round(((totalWords -  25_000) /  25_000) * 10);
+  else if (totalWords >=  10_000) wordScore =  8 + Math.round(((totalWords -  10_000) /  15_000) * 8);
+  else if (totalWords >=   5_000) wordScore =  4 + Math.round(((totalWords -   5_000) /   5_000) * 4);
+  else if (totalWords >=   1_000) wordScore =  1 + Math.round(((totalWords -   1_000) /   4_000) * 3);
+  else if (totalWords >        0) wordScore = 1;
 
-  // Sample count score (0-33)
   let sampleScore = 0;
-  if (sampleCount >= 8) sampleScore = 33;
-  else if (sampleCount >= 5) sampleScore = 24 + Math.floor(((sampleCount - 5) / 3) * 9);
-  else if (sampleCount >= 3) sampleScore = 16 + Math.floor(((sampleCount - 3) / 2) * 8);
-  else if (sampleCount >= 1) sampleScore = 8 + Math.floor(((sampleCount - 1) / 2) * 8);
+  if      (sampleCount >= 25) sampleScore = 30;
+  else if (sampleCount >= 15) sampleScore = 22 + Math.round(((sampleCount - 15) / 10) * 8);
+  else if (sampleCount >=  8) sampleScore = 12 + Math.round(((sampleCount -  8) /  7) * 10);
+  else if (sampleCount >=  3) sampleScore =  4 + Math.round(((sampleCount -  3) /  5) * 8);
+  else if (sampleCount >=  1) sampleScore = 2;
 
-  // Variety score (0-34)
   let varietyScore = 0;
-  if (categoryCount >= 4) varietyScore = 34;
-  else if (categoryCount === 3) varietyScore = 25;
-  else if (categoryCount === 2) varietyScore = 17;
-  else if (categoryCount === 1) varietyScore = 8;
+  if      (categoryCount >= 4) varietyScore = 30;
+  else if (categoryCount === 3) varietyScore = 22;
+  else if (categoryCount === 2) varietyScore = 13;
+  else if (categoryCount === 1) varietyScore =  5;
 
   const total = Math.min(100, wordScore + sampleScore + varietyScore);
   return { wordScore, sampleScore, varietyScore, total };
 }
 
 function barColor(score: number) {
-  if (score >= 100) return "#34d399"; // emerald
-  if (score >= 76) return "#86efac";  // green
-  if (score >= 51) return "#facc15";  // yellow
-  if (score >= 26) return "#fb923c";  // orange
-  return "#f87171";                   // red
+  if (score >= 100) return "#34d399";
+  if (score >=  76) return "#86efac";
+  if (score >=  51) return "#facc15";
+  if (score >=  26) return "#fb923c";
+  return "#f87171";
 }
 
 function readinessLabel(score: number) {
-  if (score >= 100) return "Ready to write — your voice profile is strong";
-  if (score >= 76) return "Almost there — a few more samples would sharpen it";
-  if (score >= 51) return "Good foundation — try adding different types of writing";
-  if (score >= 26) return "Building your voice — keep adding samples";
-  return "Getting started — add more writing samples";
+  if (score >= 100) return "Strong voice profile — the ghostwriter knows your style well";
+  if (score >=  76) return "Almost there — add more samples across different writing formats";
+  if (score >=  51) return "Good foundation — try adding writing from more formats";
+  if (score >=  26) return "Building your voice — keep adding samples";
+  return "Getting started — add writing samples to train the ghost";
+}
+
+function fmtWords(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return n.toLocaleString();
 }
 
 export default function ReadinessBar({ totalWords, sampleCount, categoryCount }: Props) {
@@ -60,64 +70,60 @@ export default function ReadinessBar({ totalWords, sampleCount, categoryCount }:
     {
       label: "Word volume",
       score: wordScore,
-      max: 33,
-      hint: totalWords >= 3000 ? `${totalWords.toLocaleString()} words` : `${totalWords.toLocaleString()} / 3,000 words`,
+      max: 40,
+      hint: totalWords >= 100_000
+        ? `${fmtWords(totalWords)} words ✓`
+        : `${fmtWords(totalWords)} / 100k words`,
     },
     {
       label: "Samples",
       score: sampleScore,
-      max: 33,
-      hint: sampleCount >= 8 ? `${sampleCount} samples` : `${sampleCount} / 8 samples`,
+      max: 30,
+      hint: sampleCount >= 25
+        ? `${sampleCount} samples ✓`
+        : `${sampleCount} / 25 samples`,
     },
     {
-      label: "Variety",
+      label: "Formats",
       score: varietyScore,
-      max: 34,
-      hint: categoryCount >= 4 ? `${categoryCount} types` : `${categoryCount} / 4 types`,
+      max: 30,
+      hint: categoryCount >= 4
+        ? `${categoryCount} formats ✓`
+        : `${categoryCount} / 4 formats covered`,
     },
   ];
 
   return (
-    <div className="bg-[#161616] border border-[#222] rounded-xl p-5 space-y-4">
-      {/* Header row */}
+    <div className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl p-5 space-y-4">
       <div className="flex items-baseline justify-between">
-        <span className="text-sm font-medium text-white">Ghostwriter readiness</span>
-        <span className="text-xl font-bold" style={{ color }}>{total}%</span>
+        <span className="text-[13px] font-medium text-black/85 dark:text-white/80">Ghostwriter readiness</span>
+        <span className="text-[20px] font-semibold tracking-tight" style={{ color }}>{total}%</span>
       </div>
 
-      {/* Main bar */}
-      <div className="h-2 w-full bg-[#2a2a2a] rounded-full overflow-hidden">
+      <div className="h-1.5 w-full bg-black/[0.06] dark:bg-white/[0.06] rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-700"
           style={{ width: `${total}%`, backgroundColor: color }}
         />
       </div>
 
-      {/* Label */}
-      <p className="text-xs text-[#666]">{readinessLabel(total)}</p>
+      <p className="text-[12px] text-black/40 dark:text-white/30">{readinessLabel(total)}</p>
 
-      {/* Factor pills */}
       <div className="grid grid-cols-3 gap-2 pt-1">
         {factors.map(({ label, score, max, hint }) => {
           const pct = Math.round((score / max) * 100);
           return (
-            <div
-              key={label}
-              className="bg-[#111] border border-[#222] rounded-lg px-3 py-2 space-y-1"
-            >
+            <div key={label} className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.07] dark:border-white/[0.06] rounded-lg px-3 py-2.5 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold text-[#555] uppercase tracking-widest">
+                <span className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-[0.1em]">
                   {label}
                 </span>
-                <span className="text-[10px] text-[#555]">{pct}%</span>
+                <span className="text-[10px] text-black/35 dark:text-white/25">{pct}%</span>
               </div>
-              <div className="h-1 w-full bg-[#2a2a2a] rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${pct}%`, backgroundColor: color }}
-                />
+              <div className="h-0.5 w-full bg-black/[0.06] dark:bg-white/[0.06] rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
               </div>
-              <div className="text-[10px] text-[#666]">{hint}</div>
+              <div className="text-[10px] text-black/35 dark:text-white/25">{hint}</div>
             </div>
           );
         })}
