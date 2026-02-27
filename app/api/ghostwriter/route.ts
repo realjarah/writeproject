@@ -3,21 +3,26 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
-// GET — list all jobs, newest first
-export async function GET() {
+const JOB_SELECT = {
+  id: true,
+  contentType: true,
+  topic: true,
+  status: true,
+  stepLabel: true,
+  finalDraft: true,
+  errorMsg: true,
+  archivedAt: true,
+  createdAt: true,
+  updatedAt: true,
+};
+
+// GET — list active jobs (not archived) or archived jobs with ?archived=true
+export async function GET(req: NextRequest) {
+  const archived = req.nextUrl.searchParams.get("archived") === "true";
   const jobs = await prisma.ghostwriterJob.findMany({
+    where: archived ? { archivedAt: { not: null } } : { archivedAt: null },
     orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      contentType: true,
-      topic: true,
-      status: true,
-      stepLabel: true,
-      finalDraft: true,
-      errorMsg: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: JOB_SELECT,
   });
   return NextResponse.json(jobs);
 }

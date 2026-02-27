@@ -81,12 +81,13 @@ interface Signature {
 
 export default function ProfilePage() {
   // Read initial tab from URL search param (client-side only)
-  const [activeTab, setActiveTab] = useState<"train" | "signatures">("train");
+  const [activeTab, setActiveTab] = useState<"train" | "signatures" | "archive">("train");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search);
       if (p.get("tab") === "signatures") setActiveTab("signatures");
+      if (p.get("tab") === "archive")    setActiveTab("archive");
     }
   }, []);
 
@@ -94,7 +95,7 @@ export default function ProfilePage() {
     <div className="space-y-6">
       {/* Tab bar */}
       <div className="flex gap-1 border-b border-[#222] pb-0">
-        {(["train", "signatures"] as const).map((tab) => (
+        {(["train", "signatures", "archive"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -104,13 +105,14 @@ export default function ProfilePage() {
                 : "text-[#555] border-transparent hover:text-[#888]"
             }`}
           >
-            {tab === "train" ? "My Voice" : "Signatures"}
+            {tab === "train" ? "My Voice" : tab === "signatures" ? "Signatures" : "Archive"}
           </button>
         ))}
       </div>
 
-      {activeTab === "train" && <TrainTab />}
-      {activeTab === "signatures" && <SignaturesTab />}
+      {activeTab === "train"       && <TrainTab />}
+      {activeTab === "signatures"  && <SignaturesTab />}
+      {activeTab === "archive"     && <ArchiveTab />}
     </div>
   );
 }
@@ -816,6 +818,158 @@ function SignaturesTab() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Archive tab ───────────────────────────────────────────────────────────────
+
+interface ArchivedJob {
+  id: number;
+  contentType: string;
+  topic: string;
+  finalDraft: string;
+  archivedAt: string;
+  createdAt: string;
+}
+
+function timeAgoArchive(iso: string) {
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60)         return `${secs}s ago`;
+  if (secs < 3600)       return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400)      return `${Math.floor(secs / 3600)}h ago`;
+  if (secs < 86400 * 30) return `${Math.floor(secs / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function downloadTxtArchive(topic: string, draft: string) {
+  const blob = new Blob([draft], { type: "text/plain" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = `${topic.slice(0, 60).replace(/[^a-z0-9]+/gi, "-")}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function ArchiveTab() {
+  const [jobs,       setJobs]       = useState<ArchivedJob[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [copiedId,   setCopiedId]   = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/ghostwriter?archived=true")
+      .then((r) => r.json())
+      .then((data) => { setJobs(data); setLoading(false); });
+  }, []);
+
+  async function unarchive(id: number) {
+    await fetch(`/api/ghostwriter/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: false }),
+    });
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+    if (expandedId === id) setExpandedId(null);
+  }
+
+  async function deleteJob(id: number) {
+    await fetch(`/api/ghostwriter/${id}`, { method: "DELETE" });
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+    if (expandedId === id) setExpandedId(null);
+  }
+
+  async function copyDraft(job: ArchivedJob) {
+    await navigator.clipboard.writeText(job.finalDraft);
+    setCopiedId(job.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 py-20 text-[#555] text-sm">
+        <span className="w-1.5 h-1.5 bg-[#555] rounded-full animate-pulse" />
+        Loading…
+      </div>
+    );
+  }
+
+  if (jobs.length === 0) {
+    return (
+      <div className="bg-[#111] border border-[#1e1e1e] rounded-xl p-12 text-center">
+        <p className="text-[#555] text-sm">No archived drafts yet.</p>
+        <p className="text-[#444] text-xs mt-1">
+          Finished drafts can be archived from the Ghostwriter tab.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {jobs.map((job) => {
+        const isExpanded = expandedId === job.id;
+        return (
+          <div key={job.id} className="bg-[#161616] border border-[#222] rounded-xl overflow-hidden">
+            <div className="px-5 py-4 flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-medium text-[#555] bg-[#1e1e1e] rounded px-1.5 py-0.5">
+                    {CONTENT_TYPE_LABELS[job.contentType] ?? job.contentType}
+                  </span>
+                  <span className="text-[11px] text-[#444]">
+                    Archived {timeAgoArchive(job.archivedAt)}
+                  </span>
+                </div>
+                <p className="text-sm font-medium text-white truncate">{job.topic}</p>
+                <p className="text-[11px] text-[#444]">Created {timeAgoArchive(job.createdAt)}</p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : job.id)}
+                  className="text-xs text-white border border-[#333] rounded-md px-3 py-1.5 hover:border-[#555] transition-colors"
+                >
+                  {isExpanded ? "Hide" : "View"}
+                </button>
+                <button
+                  onClick={() => copyDraft(job)}
+                  className="text-xs text-[#666] hover:text-white border border-[#333] rounded-md px-3 py-1.5 transition-colors"
+                >
+                  {copiedId === job.id ? "Copied!" : "Copy"}
+                </button>
+                <button
+                  onClick={() => downloadTxtArchive(job.topic, job.finalDraft)}
+                  className="text-xs text-[#666] hover:text-white border border-[#333] rounded-md px-3 py-1.5 transition-colors"
+                >
+                  TXT
+                </button>
+                <button
+                  onClick={() => unarchive(job.id)}
+                  className="text-xs text-[#555] hover:text-white border border-[#2a2a2a] hover:border-[#555] rounded-md px-3 py-1.5 transition-colors"
+                >
+                  Restore
+                </button>
+                <button
+                  onClick={() => deleteJob(job.id)}
+                  className="text-[#444] hover:text-red-400 transition-colors text-xs"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            {isExpanded && (
+              <div className="border-t border-[#1e1e1e] px-5 py-5">
+                <pre className="text-sm text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
+                  {job.finalDraft}
+                </pre>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

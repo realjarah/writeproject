@@ -668,3 +668,50 @@ Also maintain this specific author's voice throughout:
     },
   });
 }
+
+// ── Targeted revision ─────────────────────────────────────────────────────────
+
+/**
+ * Apply specific feedback to a finished draft.
+ * Only makes the changes described — does not rewrite anything else.
+ */
+export async function reviseDraft(
+  draft: string,
+  feedback: string,
+  voiceProfile: VoiceAnalysis,
+  contentType: string = "blog"
+): Promise<ReadableStream<Uint8Array>> {
+  const { humanize: budget } = getStageBudgets(contentType);
+
+  const systemPrompt = `You are a precise editor making surgical changes to a draft.
+
+Apply ONLY the specific changes described in the feedback. Do not rewrite, restructure, or improve anything that was not mentioned. Preserve the author's entire voice, style, phrasing, and formatting for everything not covered by the feedback.
+
+Author's voice summary: ${voiceProfile.rawSummary}
+Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}
+
+Output only the complete revised draft — no commentary, no explanation, no preamble.`;
+
+  const userPrompt = `Draft:\n\n${draft}\n\n---\n\nFeedback (apply these changes only):\n${feedback}\n\nOutput the revised draft now.`;
+
+  const stream = await anthropic.messages.stream({
+    model: "claude-sonnet-4-6",
+    max_tokens: budget.maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  return new ReadableStream({
+    async start(controller) {
+      for await (const chunk of stream) {
+        if (
+          chunk.type === "content_block_delta" &&
+          chunk.delta.type === "text_delta"
+        ) {
+          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
+        }
+      }
+      controller.close();
+    },
+  });
+}
