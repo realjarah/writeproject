@@ -49,6 +49,7 @@ export interface ContextItem {
   tag: ContextItemTag;
   // Source — exactly one of these is set per item:
   url?: string;
+  fetchedText?: string; // populated server-side after URL resolution
   text?: string;
   fileName?: string;
   isCSV?: boolean;

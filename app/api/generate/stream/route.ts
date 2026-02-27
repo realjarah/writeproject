@@ -13,6 +13,7 @@ import {
   VoiceAnalysis,
   GenerationContext,
 } from "@/lib/claude";
+import { resolveContext } from "@/lib/resolve-context";
 
 // Load humanizer instructions once at module load (server-side only)
 const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
@@ -50,6 +51,9 @@ export async function POST(req: NextRequest) {
     category: s.category,
   }));
 
+  // Resolve any URL context items to actual fetched content before the pipeline.
+  const resolvedContext = context ? await resolveContext(context) : undefined;
+
   const encoder = new TextEncoder();
 
   const sseStream = new ReadableStream({
@@ -61,11 +65,11 @@ export async function POST(req: NextRequest) {
       try {
         // ── Stage 1: Plan ────────────────────────────────────────────────
         send({ type: "stage", step: 1, total: 3, label: "Planning structure..." });
-        const plan = await planContent(voiceProfile, interview, context, sampleExamples);
+        const plan = await planContent(voiceProfile, interview, resolvedContext, sampleExamples);
 
         // ── Stage 2: Draft ───────────────────────────────────────────────
         send({ type: "stage", step: 2, total: 3, label: "Writing first draft..." });
-        const draft = await draftContent(voiceProfile, interview, plan, context, sampleExamples);
+        const draft = await draftContent(voiceProfile, interview, plan, resolvedContext, sampleExamples);
 
         // ── Stage 3: Humanize (streams to client) ────────────────────────
         send({ type: "stage", step: 3, total: 3, label: "Humanizing..." });

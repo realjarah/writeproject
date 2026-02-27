@@ -79,6 +79,12 @@ export default function VoicePage() {
   const [showForm, setShowForm]   = useState(false);
   const [fileError, setFileError] = useState("");
 
+  // Input mode: paste text | import from URL | upload file
+  const [inputMode, setInputMode] = useState<"paste" | "url" | "file">("paste");
+  const [urlInput, setUrlInput]   = useState("");
+  const [fetching, setFetching]   = useState(false);
+  const [fetchError, setFetchError] = useState("");
+
   // Analyze state
   const [analyzing, setAnalyzing]     = useState(false);
   const [analyzeError, setAnalyzeError] = useState("");
@@ -107,12 +113,40 @@ export default function VoicePage() {
   function resetForm() {
     setTitle(""); setContent(""); setCategory("blog");
     setAutoDetected(true); setShowForm(false); setFileError("");
+    setInputMode("paste"); setUrlInput(""); setFetchError("");
   }
 
   function handleFile(file: File) {
     setFileError("");
     if (file.type === "application/pdf") {
-      setFileError("PDF upload: paste the text instead, or copy from your PDF reader.");
+      // Extract text server-side via Claude
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = e.target?.result as string;
+        const [, base64] = dataUrl.split(",");
+        setFetching(true);
+        setFileError("");
+        try {
+          const res = await fetch("/api/voice/import-pdf", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: base64, fileName: file.name }),
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            setFileError(data.error || "PDF extraction failed.");
+          } else {
+            setContent(data.text);
+            if (!title) setTitle(file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
+            if (autoDetected && data.text.trim().length > 20) setCategory(detectCategory(data.text));
+          }
+        } catch {
+          setFileError("PDF extraction failed. Try again.");
+        } finally {
+          setFetching(false);
+        }
+      };
+      reader.readAsDataURL(file);
       return;
     }
     const reader = new FileReader();
@@ -123,6 +157,32 @@ export default function VoicePage() {
       if (autoDetected && text.trim().length > 20) setCategory(detectCategory(text));
     };
     reader.readAsText(file);
+  }
+
+  async function handleUrl() {
+    if (!urlInput.trim()) return;
+    setFetching(true);
+    setFetchError("");
+    try {
+      const res = await fetch("/api/voice/import-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: urlInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setFetchError(data.error || "Could not fetch URL.");
+      } else {
+        setContent(data.text);
+        if (!title && data.title) setTitle(data.title);
+        if (autoDetected && data.text.trim().length > 20) setCategory(detectCategory(data.text));
+        setInputMode("paste"); // show the extracted text in the textarea
+      }
+    } catch {
+      setFetchError("Fetch failed. Check the URL and try again.");
+    } finally {
+      setFetching(false);
+    }
   }
 
   async function addSample() {
@@ -215,8 +275,26 @@ export default function VoicePage() {
             className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#555] focus:outline-none focus:border-[#444]"
           />
 
-          {/* Textarea + file upload */}
-          <div className="space-y-2">
+          {/* Input mode tabs */}
+          <div className="flex gap-1 border-b border-[#2a2a2a] pb-1">
+            {(["paste", "url", "file"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => { setInputMode(mode); setFetchError(""); setFileError(""); }}
+                className="text-[11px] px-3 py-1 rounded-t transition-colors"
+                style={
+                  inputMode === mode
+                    ? { color: "#fff", background: "#2a2a2a" }
+                    : { color: "#555" }
+                }
+              >
+                {mode === "paste" ? "Paste text" : mode === "url" ? "Import from URL" : "Upload file"}
+              </button>
+            ))}
+          </div>
+
+          {/* Paste mode */}
+          {inputMode === "paste" && (
             <textarea
               placeholder="Paste your writing here — blog posts, emails, essays, tweets, anything you've actually written…"
               value={content}
@@ -226,20 +304,67 @@ export default function VoicePage() {
               rows={10}
               className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#555] focus:outline-none focus:border-[#444] resize-y"
             />
-            <div className="flex items-center gap-3">
-              <label className="cursor-pointer text-[11px] text-[#555] hover:text-[#888] border border-[#2a2a2a] rounded px-2.5 py-1 transition-colors">
-                Upload .txt / .md
+          )}
+
+          {/* URL import mode */}
+          {inputMode === "url" && (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://your-blog.com/post-title"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleUrl(); }}
+                  className="flex-1 bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#555] focus:outline-none focus:border-[#444]"
+                />
+                <button
+                  onClick={handleUrl}
+                  disabled={fetching || !urlInput.trim()}
+                  className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-40 whitespace-nowrap"
+                >
+                  {fetching ? "Fetching…" : "Fetch"}
+                </button>
+              </div>
+              {fetchError && <p className="text-[11px] text-red-400">{fetchError}</p>}
+              <p className="text-[11px] text-[#444]">
+                Paste a link to any published writing — blog posts, articles, newsletters, etc.
+              </p>
+            </div>
+          )}
+
+          {/* File upload mode */}
+          {inputMode === "file" && (
+            <div className="space-y-2">
+              <label className="flex flex-col items-center justify-center gap-2 border border-dashed border-[#2a2a2a] rounded-lg p-8 cursor-pointer hover:border-[#444] transition-colors">
+                <span className="text-[#555] text-sm">
+                  {fetching ? "Extracting…" : "Click to upload or drag a file here"}
+                </span>
+                <span className="text-[11px] text-[#444]">.txt · .md · .pdf</span>
                 <input
                   type="file"
-                  accept=".txt,.md,.markdown,.text"
+                  accept=".txt,.md,.markdown,.text,.pdf"
                   className="hidden"
+                  disabled={fetching}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }}
                 />
               </label>
-              {fileError && <span className="text-[11px] text-amber-400">{fileError}</span>}
-              <span className="text-[11px] text-[#444]">or drag a file onto the text area</span>
+              {fileError && <p className="text-[11px] text-red-400">{fileError}</p>}
+              {content && (
+                <p className="text-[11px] text-emerald-400">
+                  Extracted {content.trim().split(/\s+/).length.toLocaleString()} words — review below before saving.
+                </p>
+              )}
+              {content && (
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  rows={8}
+                  className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#555] focus:outline-none focus:border-[#444] resize-y"
+                />
+              )}
             </div>
-          </div>
+          )}
 
           {/* Category picker — grouped, aligned with content types */}
           <div className="space-y-3">

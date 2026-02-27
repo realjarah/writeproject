@@ -113,6 +113,11 @@ function buildContextBlock(context: GenerationContext): string {
 
     if (item.url) {
       lines.push(`--- Context ${i + 1}: [${tag}] ${item.url} ---`);
+      if (item.fetchedText) {
+        lines.push(item.fetchedText.trim());
+      } else {
+        lines.push("(Content at this URL could not be retrieved.)");
+      }
     } else if (item.data && item.mediaType) {
       // Binary file — content delivered as a separate message block
       const kind = item.mediaType === "application/pdf"
