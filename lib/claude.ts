@@ -82,17 +82,18 @@ const WORD_GUIDANCE: Record<string, string> = {
   blog:          "600–1200 words unless specified. Short paragraphs, natural web formatting.",
   essay:         "500–1500 words. Clear thesis, structured argument, strong opening and close.",
   newsletter:    "Conversational, scannable. Clear sections with headers. 200–600 words per section.",
-  whitepaper:    "1500–3000 words. Abstract → executive summary → body sections → conclusion. Data-backed throughout.",
+  whitepaper:    "1500–3000 words. Abstract → executive summary → body sections → conclusion. Data-backed throughout. Cite all [REFERENCE] context items.",
   email:         "Subject line first, then body. Short paragraphs, one clear ask or CTA. 50–400 words.",
-  report:        "Structured with headers. Executive summary first. Data-driven, precise language. Length varies by scope.",
+  report:        "Structured with headers. Executive summary first. Data-driven, precise language. Length varies by scope. Attribute all [REFERENCE] context items as sources.",
   press_release: "Inverted pyramid: headline + dateline + lead (who/what/when/where/why) + body + boilerplate. 400–600 words.",
   proposal:      "Executive summary → problem → solution → timeline → budget (if provided) → next steps. Persuasive but factual.",
   case_study:    "Challenge → approach → results → lessons learned. 800–1500 words. Specific, quantified outcomes.",
   resume:        "Reverse chronological unless specified. Achievement-focused bullets. Quantify impact. No filler. ATS-friendly.",
   cover_letter:  "3–4 paragraphs: hook → specific connection to role → evidence → closing ask. 250–400 words.",
-  research:      "Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references.",
-  technical:     "Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level.",
-  social:        "Twitter/X: under 280 characters. LinkedIn: 150–300 words with line breaks. No markdown symbols.",
+  research:      "Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references. Cite every [REFERENCE] context item in-text and in the references section.",
+  technical:     "Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level. Cite [REFERENCE] context items with inline links or footnotes where appropriate.",
+  social:          "Single post. Twitter/X: under 280 characters total. LinkedIn: 150–300 words with line breaks. No markdown symbols.",
+  twitter_thread:  "Output each tweet separated by '---' on its own line (e.g. tweet text\\n---\\nnext tweet). Each tweet MUST be under 280 characters — this is a hard platform limit, count carefully. Aim for 5–12 tweets. Each tweet should flow naturally into the next but stand alone. Plain text only — no markdown bold/italics/headers/bullets. Open strong, close with a hook or call to action.",
   caption:       "1–4 sentences. Conversational, relevant to the image or moment.",
   text_message:  "1–3 sentences max. Casual, direct. Match the sender's register.",
   speech:        "Write for the ear, not the eye. Short sentences, natural pauses, direct address. Memorable opening and close.",
@@ -128,18 +129,25 @@ function buildContextBlock(context: GenerationContext): string {
       // Text-based file
       lines.push(`--- Context ${i + 1}: [${tag}] ${item.fileName}${item.isCSV ? " (CSV data)" : ""} ---`);
       lines.push(`\`\`\`\n${item.text}\n\`\`\``);
-      if (item.isCSV && item.includePlaceholders) {
+      if (item.includePlaceholders) {
         lines.push(
-          `_Where this data would benefit from visualization, insert [CHART: description] or [TABLE: description] placeholder markers._`
+          `_Where this data would benefit from visualization, insert [CHART: description], [TABLE: description], or [FIGURE: description] placeholder markers._`
         );
       }
     } else if (item.text) {
       lines.push(`--- Context ${i + 1}: [${tag}] Note ---`);
       lines.push(item.text.trim());
+      if (item.includePlaceholders) {
+        lines.push(
+          `_Where this content would benefit from visualization, insert [CHART: description], [TABLE: description], or [FIGURE: description] placeholder markers._`
+        );
+      }
     }
 
     if (item.instructions?.trim()) {
       lines.push(`→ How to use this: ${item.instructions.trim()}`);
+    } else if (item.tag === "reference") {
+      lines.push(`→ Cite this source in your writing where you draw from it.`);
     }
 
     return lines.join("\n");
@@ -298,9 +306,10 @@ const STAGE_BUDGETS: Record<string, StageBudgets> = {
   cover_letter:  { plan: { maxTokens: 5000,  thinkingBudget: 3000  }, draft: { maxTokens: 6000,  thinkingBudget: 4000  }, humanize: { maxTokens: 5000,  thinkingBudget: 3000  } },
   email:         { plan: { maxTokens: 4000,  thinkingBudget: 2000  }, draft: { maxTokens: 4000,  thinkingBudget: 2000  }, humanize: { maxTokens: 4000,  thinkingBudget: 2000  } },
   // Short-form
-  social:        { plan: { maxTokens: 3000,  thinkingBudget: 2000  }, draft: { maxTokens: 2000,  thinkingBudget: 1500  }, humanize: { maxTokens: 2000,  thinkingBudget: 1500  } },
-  caption:       { plan: { maxTokens: 2000,  thinkingBudget: 1500  }, draft: { maxTokens: 1500,  thinkingBudget: 1000  }, humanize: { maxTokens: 1500,  thinkingBudget: 1000  } },
-  text_message:  { plan: { maxTokens: 2000,  thinkingBudget: 1500  }, draft: { maxTokens: 1500,  thinkingBudget: 1000  }, humanize: { maxTokens: 1500,  thinkingBudget: 1000  } },
+  social:          { plan: { maxTokens: 3000,  thinkingBudget: 2000  }, draft: { maxTokens: 2000,  thinkingBudget: 1500  }, humanize: { maxTokens: 2000,  thinkingBudget: 1500  } },
+  twitter_thread:  { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 6000,  thinkingBudget: 3000  }, humanize: { maxTokens: 6000,  thinkingBudget: 3000  } },
+  caption:         { plan: { maxTokens: 2000,  thinkingBudget: 1500  }, draft: { maxTokens: 1500,  thinkingBudget: 1000  }, humanize: { maxTokens: 1500,  thinkingBudget: 1000  } },
+  text_message:    { plan: { maxTokens: 2000,  thinkingBudget: 1500  }, draft: { maxTokens: 1500,  thinkingBudget: 1000  }, humanize: { maxTokens: 1500,  thinkingBudget: 1000  } },
 };
 
 const DEFAULT_BUDGETS: StageBudgets = {

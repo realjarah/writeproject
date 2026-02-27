@@ -23,9 +23,10 @@ export const CONTENT_TYPE_LABELS: Record<string, string> = {
   research:      "research paper",
   technical:     "technical documentation",
   // Short-form
-  social:        "social media post (Twitter/X or LinkedIn)",
-  caption:       "caption (Instagram or TikTok)",
-  text_message:  "text message",
+  social:         "social media post (LinkedIn or single tweet)",
+  twitter_thread: "Twitter/X thread",
+  caption:        "caption (Instagram or TikTok)",
+  text_message:   "text message",
   // Spoken word
   speech:        "speech",
   script:        "script (podcast / video)",
@@ -37,7 +38,7 @@ export const CONTENT_TYPE_GROUPS: { label: string; types: string[] }[] = [
   { label: "Business",             types: ["email", "report", "press_release", "proposal", "case_study"] },
   { label: "Career",               types: ["resume", "cover_letter"] },
   { label: "Academic & Technical", types: ["research", "technical"] },
-  { label: "Short-form",           types: ["social", "caption", "text_message"] },
+  { label: "Short-form",           types: ["social", "twitter_thread", "caption", "text_message"] },
   { label: "Spoken word",          types: ["speech", "script"] },
 ];
 

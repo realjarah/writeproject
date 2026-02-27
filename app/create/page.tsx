@@ -30,6 +30,22 @@ interface Signature {
   isDefault: boolean;
 }
 
+interface QueuedJob {
+  id: number;
+  contentType: string;
+  topic: string;
+  status: string;
+  createdAt: string;
+}
+
+function timeAgoCreate(iso: string) {
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60)    return `${secs}s ago`;
+  if (secs < 3600)  return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
 type Phase = "describe" | "analyzing" | "followup" | "sent" | "saved";
 type SourceType = "url" | "file" | "text" | "research";
 
@@ -150,7 +166,18 @@ export default function CreatePage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
+  // Saved (queued) briefs visible on this page
+  const [queuedJobs, setQueuedJobs] = useState<QueuedJob[]>([]);
+
+  function loadQueuedJobs() {
+    fetch("/api/ghostwriter")
+      .then((r) => r.json())
+      .then((jobs: QueuedJob[]) => setQueuedJobs(jobs.filter((j) => j.status === "queued")))
+      .catch(() => {});
+  }
+
   useEffect(() => {
+    loadQueuedJobs();
     fetch("/api/signatures")
       .then((r) => r.json())
       .then((sigs: Signature[]) => {
@@ -320,6 +347,9 @@ export default function CreatePage() {
     } else {
       if (!newText.trim()) return;
       item.text = newText.trim();
+      if (newTag === "data" && newIncludePlaceholders) {
+        item.includePlaceholders = true;
+      }
     }
     setContextItems((prev) => [...prev, item]);
     resetAddForm();
@@ -450,12 +480,18 @@ export default function CreatePage() {
     setSending(true);
     try {
       await createJob();
+      loadQueuedJobs();
       setPhase("saved");
     } catch {
       setError("Failed to save. Please try again.");
     } finally {
       setSending(false);
     }
+  }
+
+  async function deleteQueuedJob(id: number) {
+    await fetch(`/api/ghostwriter/${id}`, { method: "DELETE" });
+    setQueuedJobs((prev) => prev.filter((j) => j.id !== id));
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -501,6 +537,40 @@ export default function CreatePage() {
               Continue →
             </button>
           </div>
+
+          {/* Saved briefs */}
+          {queuedJobs.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <p className="text-[11px] text-[#444] uppercase tracking-widest font-semibold">Saved briefs</p>
+              {queuedJobs.map((job) => (
+                <div key={job.id} className="flex items-center justify-between gap-3 bg-[#111] border border-[#1e1e1e] rounded-xl px-4 py-3">
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span className="text-[10px] font-medium text-[#444] bg-[#1a1a1a] border border-[#222] rounded px-1.5 py-0.5 shrink-0">
+                      {CONTENT_TYPE_LABELS[job.contentType] ?? job.contentType}
+                    </span>
+                    <span className="text-xs text-[#666] truncate">{job.topic}</span>
+                    <span className="text-[11px] text-[#333] shrink-0">{timeAgoCreate(job.createdAt)}</span>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => { window.location.href = "/ghostwriter"; }}
+                      className="text-[11px] text-white border border-[#333] rounded-md px-2.5 py-1 hover:border-[#555] transition-colors"
+                    >
+                      Open in Ghostwriter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteQueuedJob(job.id)}
+                      className="text-[#444] hover:text-red-400 transition-colors text-[11px]"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -663,23 +733,31 @@ export default function CreatePage() {
                       >
                         {newFileName ? newFileName : "Click to choose file"}
                       </button>
-                      {newIsCSV && (
+                      {(newIsCSV || newTag === "data") && (
                         <label className="flex items-center gap-2 mt-2 text-xs text-[#666] cursor-pointer">
                           <input type="checkbox" checked={newIncludePlaceholders} onChange={(e) => setNewIncludePlaceholders(e.target.checked)} className="accent-white" />
-                          Include chart/table placeholders
+                          Include chart / table / figure placeholders
                         </label>
                       )}
                     </div>
                   )}
 
                   {sourceType === "text" && (
-                    <textarea
-                      value={newText}
-                      onChange={(e) => setNewText(e.target.value)}
-                      placeholder="Paste text, notes, or data..."
-                      rows={4}
-                      className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-none"
-                    />
+                    <div>
+                      <textarea
+                        value={newText}
+                        onChange={(e) => setNewText(e.target.value)}
+                        placeholder="Paste text, notes, or data..."
+                        rows={4}
+                        className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-none"
+                      />
+                      {newTag === "data" && (
+                        <label className="flex items-center gap-2 mt-2 text-xs text-[#666] cursor-pointer">
+                          <input type="checkbox" checked={newIncludePlaceholders} onChange={(e) => setNewIncludePlaceholders(e.target.checked)} className="accent-white" />
+                          Include chart / table / figure placeholders
+                        </label>
+                      )}
+                    </div>
                   )}
 
                   {sourceType === "research" && (

@@ -31,33 +31,34 @@ contentType must be exactly one of:
   email, report, press_release, proposal, case_study,
   resume, cover_letter,
   research, technical,
-  social, caption, text_message,
+  social, twitter_thread, caption, text_message,
   speech, script
 
 Detection rules (use the FIRST match):
-- text_message  → "text", "SMS", "iMessage", "quick message to", casual message to a person
-- caption       → Instagram, TikTok, reel, caption, story
-- social        → tweet, Twitter/X, LinkedIn post, "post for social", "post about"
-- email         → email, "write to [person]", "reach out to", "message to [person]"
-- resume        → resume, CV, curriculum vitae
-- cover_letter  → cover letter, "applying for", "job application"
-- research      → research paper, academic paper, journal article, thesis, dissertation
-- technical     → documentation, docs, README, API guide, how-to, tutorial, developer guide
-- whitepaper    → whitepaper, "white paper", industry paper, thought leadership paper
-- press_release → press release, "for immediate release", PR announcement
-- report        → report, quarterly, "Q1/Q2/Q3/Q4", findings, status update, analysis report
-- case_study    → case study, "how we", success story
-- proposal      → proposal, RFP, pitch, business case, "project proposal"
-- speech        → speech, keynote, commencement, toast, "remarks", presentation script
-- script        → podcast, video script, YouTube script, ad copy, voiceover, screenplay
-- newsletter    → newsletter, digest, weekly/monthly update, subscriber email
-- essay         → essay, opinion piece, "my take", personal essay, argument, "I think/believe/argue"
-- blog          → article, blog post, long-form, "piece about", or default if unclear
+- text_message    → "text", "SMS", "iMessage", "quick message to", casual message to a person
+- caption         → Instagram, TikTok, reel, caption, story
+- twitter_thread  → "twitter thread", "tweet thread", "x thread", "tweetstorm", "thread of tweets", "thread about", "write a thread"
+- social          → tweet, Twitter/X, LinkedIn post, "post for social", "post about"
+- email           → email, "write to [person]", "reach out to", "message to [person]"
+- resume          → resume, CV, curriculum vitae
+- cover_letter    → cover letter, "applying for", "job application"
+- research        → research paper, academic paper, journal article, thesis, dissertation
+- technical       → documentation, docs, README, API guide, how-to, tutorial, developer guide
+- whitepaper      → whitepaper, "white paper", industry paper, thought leadership paper
+- press_release   → press release, "for immediate release", PR announcement
+- report          → report, quarterly, "Q1/Q2/Q3/Q4", findings, status update, analysis report
+- case_study      → case study, "how we", success story
+- proposal        → proposal, RFP, pitch, business case, "project proposal"
+- speech          → speech, keynote, commencement, toast, "remarks", presentation script
+- script          → podcast, video script, YouTube script, ad copy, voiceover, screenplay
+- newsletter      → newsletter, digest, weekly/monthly update, subscriber email
+- essay           → essay, opinion piece, "my take", personal essay, argument, "I think/believe/argue"
+- blog            → article, blog post, long-form, "piece about", or default if unclear
 
 Field extraction rules:
 - topic: the subject — almost always extractable
 - angle: the specific take, argument, or thesis — null only if genuinely absent; for resume/technical/report this can be null
-- keyPoints: specific points to cover, comma-separated — null if none mentioned; not required for resume/email/text_message/caption
+- keyPoints: specific points to cover, comma-separated — null if none mentioned; not required for resume/email/text_message/caption/social/twitter_thread
 - targetAudience: null if not mentioned (never ask for this)
 - toneNotes: null if not mentioned (never ask for this)
 - summary: "A [contentType label] about/for [brief topic phrase]" — one tight phrase
@@ -65,7 +66,7 @@ Field extraction rules:
 questions rules:
 - Ask ONLY for missing required fields
 - Required for blog/essay/whitepaper/newsletter/press_release/report/case_study/proposal/speech/script: angle AND keyPoints
-- Required for social/caption/text_message: angle only (keyPoints optional)
+- Required for social/caption/text_message/twitter_thread: angle only (keyPoints optional)
 - Required for email: angle (what's the ask or purpose) only
 - Required for research: angle (thesis/research question) AND keyPoints (methodology/sections)
 - Required for technical: topic (what is being documented) if absent

@@ -54,6 +54,14 @@ function sortJobs(jobs: Job[]) {
   );
 }
 
+/** Parse a thread draft (tweets separated by '---') into individual tweet strings */
+function parseTweets(draft: string): string[] {
+  return draft
+    .split(/\n---\n|\n---$|^---\n/m)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
 /** Minimal markdown → HTML for draft rendering */
 function renderMarkdown(md: string): string {
   let html = md
@@ -466,7 +474,13 @@ export default function GhostwriterPage() {
                   )}
 
                   {/* Expanded: draft + feedback */}
-                  {isDone && isExpanded && (
+                  {isDone && isExpanded && (() => {
+                    const isThread = job.contentType === "twitter_thread";
+                    // threadView: null = plain, "thread" = thread cards, "rendered" = markdown
+                    const viewMode = isThread
+                      ? (isMarkdown ? "thread" : "plain")
+                      : (isMarkdown ? "rendered" : "plain");
+                    return (
                     <div className="border-t border-[#1e1e1e]">
                       {/* View toggle */}
                       <div className="px-5 pt-4 pb-2">
@@ -477,18 +491,49 @@ export default function GhostwriterPage() {
                           >
                             Plain
                           </button>
-                          <button
-                            onClick={() => setMarkdownId(job.id)}
-                            className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-[#222] text-white" : "text-[#555] hover:text-[#888]"}`}
-                          >
-                            Rendered
-                          </button>
+                          {isThread ? (
+                            <button
+                              onClick={() => setMarkdownId(job.id)}
+                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-[#222] text-white" : "text-[#555] hover:text-[#888]"}`}
+                            >
+                              Thread view
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setMarkdownId(job.id)}
+                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-[#222] text-white" : "text-[#555] hover:text-[#888]"}`}
+                            >
+                              Rendered
+                            </button>
+                          )}
                         </div>
                       </div>
 
                       {/* Draft */}
                       <div className="px-5 pb-5">
-                        {isMarkdown ? (
+                        {viewMode === "thread" ? (
+                          // Thread card view — each tweet as a card with char count
+                          <div className="space-y-2">
+                            {parseTweets(displayDraft).map((tweet, idx, arr) => {
+                              const len = tweet.length;
+                              const over = len > 280;
+                              return (
+                                <div key={idx} className={`bg-[#111] border rounded-lg p-4 space-y-2 ${over ? "border-red-500/40" : "border-[#222]"}`}>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-[#444]">{idx + 1} / {arr.length}</span>
+                                    <span className={`text-[10px] tabular-nums font-medium ${over ? "text-red-400" : len > 240 ? "text-amber-400" : "text-[#555]"}`}>
+                                      {len} / 280
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-[#ccc] leading-relaxed whitespace-pre-wrap">{tweet}</p>
+                                  {over && (
+                                    <p className="text-[10px] text-red-400">⚠ {len - 280} characters over limit</p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : viewMode === "rendered" ? (
                           <div
                             className="text-sm text-[#ccc] leading-relaxed [&_h1]:text-white [&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-5 [&_h2]:text-white [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h3]:text-[#ddd] [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-3 [&_p]:mb-3 [&_ul]:mb-3 [&_ul]:pl-5 [&_li]:mb-1 [&_li]:list-disc [&_strong]:text-white [&_em]:italic [&_code]:font-mono [&_code]:text-[#9cdcfe] [&_code]:bg-[#1e1e1e] [&_code]:px-1 [&_code]:rounded [&_hr]:border-[#333] [&_hr]:my-4"
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(displayDraft) }}
@@ -530,7 +575,8 @@ export default function GhostwriterPage() {
                         </div>
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               );
             })}
