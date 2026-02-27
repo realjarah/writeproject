@@ -456,8 +456,7 @@ function TrainTab() {
                         <button
                           key={type}
                           onClick={() => { setCategory(type as SampleCategory); setAutoDetected(false); }}
-                          className="px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all"
-                          className={category !== type ? "border-black/[0.1] dark:border-white/[0.1] text-black/40 dark:text-white/30" : ""}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all${category !== type ? " border-black/[0.1] dark:border-white/[0.1] text-black/40 dark:text-white/30" : ""}`}
                           style={
                             category === type
                               ? { backgroundColor: groupColor(type) + "22", borderColor: groupColor(type), color: groupColor(type) }
