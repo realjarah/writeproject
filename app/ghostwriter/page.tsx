@@ -8,6 +8,8 @@ interface Job {
   id: number;
   contentType: string;
   topic: string;
+  title: string;
+  summaryText: string;
   status: string;
   stepLabel: string;
   finalDraft: string;
@@ -378,7 +380,10 @@ export default function GhostwriterPage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm font-medium text-black/90 dark:text-white truncate">{job.topic}</p>
+                      <p className="text-sm font-medium text-black/90 dark:text-white truncate">{job.title || job.topic}</p>
+                      {job.summaryText && (
+                        <p className="text-[11px] text-black/[0.40] dark:text-white/[0.40] line-clamp-2">{job.summaryText}</p>
+                      )}
                       <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28]">{timeAgo(job.createdAt)}</p>
                     </div>
 
@@ -398,14 +403,14 @@ export default function GhostwriterPage() {
                             {copiedId === job.id ? "Copied!" : "Copy"}
                           </button>
                           <button
-                            onClick={() => downloadTxt(job.topic, job.finalDraft)}
+                            onClick={() => downloadTxt(job.title || job.topic, job.finalDraft)}
                             className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
                             title="Download as TXT"
                           >
                             TXT
                           </button>
                           <button
-                            onClick={() => printAsPdf(job.topic, job.finalDraft)}
+                            onClick={() => printAsPdf(job.title || job.topic, job.finalDraft)}
                             className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
                             title="Print / Save as PDF"
                           >

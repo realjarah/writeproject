@@ -8,6 +8,8 @@ const JOB_SELECT = {
   id: true,
   contentType: true,
   topic: true,
+  title: true,
+  summaryText: true,
   status: true,
   stepLabel: true,
   finalDraft: true,
@@ -38,12 +40,12 @@ export async function POST(req: NextRequest) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { contentType, topic, brief } = await req.json();
+  const { contentType, topic, title, summaryText, brief } = await req.json();
   if (!contentType || !topic || !brief) {
     return NextResponse.json({ error: "contentType, topic, and brief are required" }, { status: 400 });
   }
   const job = await prisma.ghostwriterJob.create({
-    data: { userId, contentType, topic, brief, status: "queued" },
+    data: { userId, contentType, topic, title: title ?? "", summaryText: summaryText ?? "", brief, status: "queued" },
   });
   return NextResponse.json({ id: job.id });
 }

@@ -34,6 +34,8 @@ interface QueuedJob {
   id: number;
   contentType: string;
   topic: string;
+  title: string;
+  summaryText: string;
   status: string;
   createdAt: string;
 }
@@ -162,6 +164,11 @@ export default function CreatePage() {
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [selectedSigId, setSelectedSigId] = useState<number | null>(null);
 
+  // Title
+  const [titleInput, setTitleInput]           = useState("");
+  const [suggestedTitles, setSuggestedTitles] = useState<string[]>([]);
+  const [suggestingTitles, setSuggestingTitles] = useState(false);
+
   // Send to ghostwriter / save for later
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -229,6 +236,28 @@ export default function CreatePage() {
     setOverrideType(null);
     setContextOpen(false);
     setDraftOpen(false);
+    setTitleInput("");
+    setSuggestedTitles([]);
+  }
+
+  async function suggestTitles() {
+    if (!intake || suggestingTitles) return;
+    setSuggestingTitles(true);
+    try {
+      const res = await fetch("/api/intake/suggest-titles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentType: overrideType ?? intake.contentType ?? "blog",
+          topic:       intake.topic      ?? answers.topic      ?? "",
+          angle:       intake.angle      ?? answers.angle      ?? "",
+          keyPoints:   intake.keyPoints  ?? answers.keyPoints  ?? "",
+        }),
+      });
+      const data = await res.json();
+      if (Array.isArray(data.titles)) setSuggestedTitles(data.titles);
+    } catch { /* ignore */ }
+    finally { setSuggestingTitles(false); }
   }
 
   // ── File handlers ────────────────────────────────────────────────────────
@@ -416,6 +445,7 @@ export default function CreatePage() {
       keyPoints:   intake.keyPoints  ?? answers.keyPoints  ?? "",
       targetAudience: intake.targetAudience ?? answers.targetAudience ?? undefined,
       toneNotes:      intake.toneNotes      ?? answers.toneNotes      ?? undefined,
+      title:          titleInput.trim()     || undefined,
     };
 
     const allItems: ContextItem[] = [];
@@ -453,9 +483,11 @@ export default function CreatePage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contentType: brief.interview.contentType,
-        topic: brief.interview.topic,
-        brief: JSON.stringify(brief),
+        contentType:  brief.interview.contentType,
+        topic:        brief.interview.topic,
+        title:        titleInput.trim(),
+        summaryText:  intake.summary ?? "",
+        brief:        JSON.stringify(brief),
       }),
     });
     const data = await res.json();
@@ -543,15 +575,22 @@ export default function CreatePage() {
             <div className="space-y-2 pt-2">
               <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28] uppercase tracking-widest font-semibold">Saved briefs</p>
               {queuedJobs.map((job) => (
-                <div key={job.id} className="flex items-center justify-between gap-3 bg-black/[0.04] dark:bg-[#111] border border-black/[0.06] dark:border-white/[0.05] rounded-xl px-4 py-3">
-                  <div className="min-w-0 flex items-center gap-2">
-                    <span className="text-[10px] font-medium text-black/[0.28] dark:text-white/[0.28] bg-black/[0.06] dark:bg-[#1a1a1a] border border-black/[0.09] dark:border-white/[0.07] rounded px-1.5 py-0.5 shrink-0">
-                      {CONTENT_TYPE_LABELS[job.contentType] ?? job.contentType}
-                    </span>
-                    <span className="text-xs text-black/[0.40] dark:text-white/[0.40] truncate">{job.topic}</span>
-                    <span className="text-[11px] text-black/[0.22] dark:text-white/[0.22] shrink-0">{timeAgoCreate(job.createdAt)}</span>
+                <div key={job.id} className="flex items-start justify-between gap-3 bg-black/[0.04] dark:bg-[#111] border border-black/[0.06] dark:border-white/[0.05] rounded-xl px-4 py-3">
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-medium text-black/[0.28] dark:text-white/[0.28] bg-black/[0.06] dark:bg-[#1a1a1a] border border-black/[0.09] dark:border-white/[0.07] rounded px-1.5 py-0.5 shrink-0">
+                        {CONTENT_TYPE_LABELS[job.contentType] ?? job.contentType}
+                      </span>
+                      <span className="text-xs font-medium text-black/[0.70] dark:text-white/[0.70] truncate">
+                        {job.title || job.topic}
+                      </span>
+                      <span className="text-[11px] text-black/[0.22] dark:text-white/[0.22] shrink-0">{timeAgoCreate(job.createdAt)}</span>
+                    </div>
+                    {job.summaryText && (
+                      <p className="text-[11px] text-black/[0.35] dark:text-white/[0.35] truncate">{job.summaryText}</p>
+                    )}
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-3 shrink-0 pt-0.5">
                     <button
                       type="button"
                       onClick={() => { window.location.href = "/ghostwriter"; }}
@@ -648,6 +687,48 @@ export default function CreatePage() {
               ))}
             </div>
           )}
+
+          {/* Title */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm text-black/[0.68] dark:text-white/[0.68]">
+                Title <span className="text-black/[0.28] dark:text-white/[0.28] font-normal">— optional</span>
+              </label>
+              <button
+                type="button"
+                onClick={suggestTitles}
+                disabled={suggestingTitles}
+                className="text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/90 dark:hover:text-white transition-colors disabled:opacity-40"
+              >
+                {suggestingTitles ? "Suggesting…" : "Suggest titles →"}
+              </button>
+            </div>
+            <input
+              type="text"
+              value={titleInput}
+              onChange={(e) => setTitleInput(e.target.value)}
+              placeholder="Leave blank to let the ghost choose"
+              className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-xl px-4 py-3 text-sm text-black/90 dark:text-white placeholder-black/[0.25] dark:placeholder-white/[0.22] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
+            />
+            {suggestedTitles.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {suggestedTitles.map((t, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setTitleInput(t)}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                      titleInput === t
+                        ? "border-black dark:border-white text-black/90 dark:text-white bg-black/[0.07] dark:bg-[#1e1e1e]"
+                        : "border-black/[0.09] dark:border-white/[0.07] text-black/[0.55] dark:text-white/[0.55] hover:border-black/[0.18] dark:hover:border-white/[0.18] hover:text-black/90 dark:hover:text-white"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Context */}
           <Collapsible

@@ -70,6 +70,8 @@ model GhostwriterJob {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   contentType String
   topic       String
+  title       String    @default("")
+  summaryText String    @default("")
   brief       String    // JSON: { interview, context?, signatureContent? }
   status      String    @default("queued") // queued|planning|drafting_1|drafting_2|drafting_3|comparing|checking|humanizing|done|error
   stepLabel   String    @default("")
