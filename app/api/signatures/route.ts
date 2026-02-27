@@ -4,22 +4,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
 const DEFAULT_SIGNATURE = {
-  name: "Ghostwrite Default",
+  name: "Ghostwrite Attribution",
   content: "---\n\n*Written by me, powered by [Ghostwrite](https://ghostwrite.you)*",
   isDefault: true,
+  isSystem: true,
 };
 
 async function ensureDefaults() {
-  const count = await prisma.signature.count();
-  if (count === 0) {
-    await prisma.signature.create({ data: DEFAULT_SIGNATURE });
+  // Ensure the system attribution exists and is marked as system
+  const system = await prisma.signature.findFirst({ where: { isSystem: true } });
+  if (!system) {
+    // Check if the old "Ghostwrite Default" exists and migrate it
+    const legacy = await prisma.signature.findFirst({ where: { name: "Ghostwrite Default" } });
+    if (legacy) {
+      await prisma.signature.update({
+        where: { id: legacy.id },
+        data: { name: DEFAULT_SIGNATURE.name, isSystem: true, isDefault: true },
+      });
+    } else {
+      await prisma.signature.create({ data: DEFAULT_SIGNATURE });
+    }
   }
 }
 
 export async function GET() {
   await ensureDefaults();
   const signatures = await prisma.signature.findMany({
-    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    orderBy: [{ isSystem: "desc" }, { isDefault: "desc" }, { createdAt: "asc" }],
   });
   return NextResponse.json(signatures);
 }
@@ -30,7 +41,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Name and content are required." }, { status: 400 });
   }
 
-  // If this one is being set as default, clear all others
   if (isDefault) {
     await prisma.signature.updateMany({ data: { isDefault: false } });
   }
@@ -44,6 +54,12 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const { id, name, content, isDefault } = await req.json();
   if (!id) return NextResponse.json({ error: "ID required." }, { status: 400 });
+
+  // Block edits to system signatures
+  const existing = await prisma.signature.findUnique({ where: { id } });
+  if (existing?.isSystem) {
+    return NextResponse.json({ error: "System signatures cannot be modified." }, { status: 403 });
+  }
 
   if (isDefault) {
     await prisma.signature.updateMany({ data: { isDefault: false } });
@@ -63,6 +79,13 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const { id } = await req.json();
   if (!id) return NextResponse.json({ error: "ID required." }, { status: 400 });
+
+  // Block deletion of system signatures
+  const existing = await prisma.signature.findUnique({ where: { id } });
+  if (existing?.isSystem) {
+    return NextResponse.json({ error: "System signatures cannot be deleted." }, { status: 403 });
+  }
+
   await prisma.signature.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }

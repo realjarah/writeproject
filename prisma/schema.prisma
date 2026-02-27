@@ -37,6 +37,7 @@ model Signature {
   name      String
   content   String   // the footer text, supports markdown-ish formatting
   isDefault Boolean  @default(false)
+  isSystem  Boolean  @default(false)  // locked — cannot be edited or deleted
   createdAt DateTime @default(now())
 }
 

@@ -23,15 +23,25 @@ function groupColor(type: string): string {
   return "#9ca3af";
 }
 
+// Per-type mastery: smooth curve targeting 100k words for 100%
 function masteryPct(words: number, count: number): number {
   if (count === 0) return 0;
+  if (words === 0) return 0;
   const w =
-    words >= 2000 ? 60 :
-    words >= 1000 ? 45 + Math.floor(((words - 1000) / 1000) * 15) :
-    words >= 400  ? 25 + Math.floor(((words - 400) / 600) * 20) :
-    words >= 100  ? 10 + Math.floor(((words - 100) / 300) * 15) : 5;
-  const c = count >= 5 ? 40 : count >= 3 ? 30 : count >= 2 ? 20 : 10;
-  return Math.min(100, w + c);
+    words >= 100_000 ? 100 :
+    words >=  75_000 ? 88 + Math.round(((words -  75_000) / 25_000) * 12) :
+    words >=  50_000 ? 74 + Math.round(((words -  50_000) / 25_000) * 14) :
+    words >=  25_000 ? 56 + Math.round(((words -  25_000) / 25_000) * 18) :
+    words >=  10_000 ? 38 + Math.round(((words -  10_000) / 15_000) * 18) :
+    words >=   5_000 ? 24 + Math.round(((words -   5_000) /  5_000) * 14) :
+    words >=   1_000 ? 10 + Math.round(((words -   1_000) /  4_000) * 14) :
+    words >=     100 ?  2 + Math.round(((words -     100) /    900) *  8) : 1;
+  return Math.min(100, w);
+}
+
+function fmtWords(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return n.toLocaleString();
 }
 
 function masteryColor(pct: number): string {
@@ -74,6 +84,7 @@ interface Signature {
   name: string;
   content: string;
   isDefault: boolean;
+  isSystem: boolean;
   createdAt: string;
 }
 
@@ -531,45 +542,83 @@ function TrainTab() {
       )}
 
       {/* Per-type mastery */}
-      {samples.length > 0 && (
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Ghost training by format</h2>
-            <p className="text-xs text-[#555] mt-0.5">
-              How much of your writing the ghost has seen per format.
-            </p>
-          </div>
-          {CONTENT_TYPE_GROUPS.map((group) => (
-            <div key={group.label} className="space-y-2">
-              <div
-                className="text-[10px] font-bold uppercase tracking-widest"
-                style={{ color: GROUP_COLORS[group.label] + "99" }}
-              >
-                {group.label}
-              </div>
-              {group.types.map((type) => {
-                const stats = typeStats[type] ?? { count: 0, words: 0 };
-                const pct = masteryPct(stats.words, stats.count);
-                const color = masteryColor(pct);
-                return (
-                  <div key={type} className="flex items-center gap-3">
-                    <span className="text-[11px] text-[#555] w-28 shrink-0">{CONTENT_TYPE_LABELS[type]}</span>
-                    <div className="flex-1 h-1 bg-[#1e1e1e] rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%`, backgroundColor: color }}
-                      />
-                    </div>
-                    <span className="text-[10px] w-8 text-right shrink-0" style={{ color }}>
-                      {pct > 0 ? `${pct}%` : "—"}
-                    </span>
-                  </div>
-                );
-              })}
+      {samples.length > 0 && (() => {
+        // Separate trained types (any words) from untrained
+        const trainedGroups = CONTENT_TYPE_GROUPS
+          .map((g) => ({ ...g, types: g.types.filter((t) => (typeStats[t]?.words ?? 0) > 0) }))
+          .filter((g) => g.types.length > 0);
+        const untrainedGroups = CONTENT_TYPE_GROUPS
+          .map((g) => ({ ...g, types: g.types.filter((t) => (typeStats[t]?.words ?? 0) === 0) }))
+          .filter((g) => g.types.length > 0);
+
+        return (
+          <div className="space-y-5">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Training by format</h2>
+              <p className="text-xs text-[#555] mt-0.5">
+                100k words per format = full mastery. Each format trains the ghost independently.
+              </p>
             </div>
-          ))}
-        </div>
-      )}
+
+            {/* Trained types */}
+            {trainedGroups.map((group) => (
+              <div key={group.label} className="space-y-3">
+                <div
+                  className="text-[10px] font-bold uppercase tracking-widest"
+                  style={{ color: GROUP_COLORS[group.label] + "99" }}
+                >
+                  {group.label}
+                </div>
+                {group.types.map((type) => {
+                  const stats = typeStats[type] ?? { count: 0, words: 0 };
+                  const pct   = masteryPct(stats.words, stats.count);
+                  const color = masteryColor(pct);
+                  return (
+                    <div key={type} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-[#888]">{CONTENT_TYPE_LABELS[type]}</span>
+                        <span className="text-[10px] text-[#444]">
+                          {fmtWords(stats.words)} words · {stats.count} {stats.count === 1 ? "sample" : "samples"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-[#1e1e1e] rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${pct}%`, backgroundColor: color }}
+                          />
+                        </div>
+                        <span className="text-[10px] w-8 text-right shrink-0 tabular-nums" style={{ color }}>
+                          {pct}%
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            {/* Untrained types — collapsed hint */}
+            {untrainedGroups.length > 0 && (
+              <div className="border-t border-[#1a1a1a] pt-4 space-y-1.5">
+                <p className="text-[10px] text-[#3a3a3a] uppercase tracking-widest font-bold">
+                  Not yet trained
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {untrainedGroups.flatMap((g) => g.types).map((type) => (
+                    <span
+                      key={type}
+                      className="text-[10px] text-[#333] bg-[#111] border border-[#1e1e1e] rounded-md px-2 py-0.5"
+                    >
+                      {CONTENT_TYPE_LABELS[type]}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Sample list */}
       {samples.length > 0 && (
@@ -790,7 +839,29 @@ function SignaturesTab() {
                     <button onClick={cancelEdit} className="text-[#666] text-sm hover:text-[#999] transition-colors">Cancel</button>
                   </div>
                 </div>
+              ) : sig.isSystem ? (
+                /* System / locked signature */
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-[#888] text-sm">{sig.name}</span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#1e1e1e] text-[#444] border border-[#2a2a2a]">
+                          Required
+                        </span>
+                        {sig.isDefault && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-400/15 text-emerald-400 border border-emerald-400/30">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <pre className="text-xs text-[#444] whitespace-pre-wrap font-sans leading-relaxed mt-2 line-clamp-3">{sig.content}</pre>
+                      <p className="text-[10px] text-[#333] mt-1.5">This attribution is always included and cannot be removed.</p>
+                    </div>
+                  </div>
+                </div>
               ) : (
+                /* User signature */
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1 min-w-0">
