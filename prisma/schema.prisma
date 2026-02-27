@@ -8,8 +8,25 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  onboarded    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  voiceSamples     VoiceSample[]
+  voiceProfile     VoiceProfile?
+  signatures       Signature[]
+  ghostwriterJobs  GhostwriterJob[]
+  generatedContent GeneratedContent[]
+}
+
 model VoiceSample {
   id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
   content   String
   wordCount Int      @default(0)
@@ -19,13 +36,17 @@ model VoiceSample {
 
 model VoiceProfile {
   id        Int      @id @default(autoincrement())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   analysis  String   // JSON: style traits, patterns, vocab notes
   updatedAt DateTime @updatedAt
 }
 
 model GeneratedContent {
   id          Int      @id @default(autoincrement())
-  contentType String   // "blog" | "social" | "caption"
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentType String
   topic       String
   interview   String   // JSON: interview Q&A
   content     String
@@ -34,6 +55,8 @@ model GeneratedContent {
 
 model Signature {
   id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   content   String   // the footer text, supports markdown-ish formatting
   isDefault Boolean  @default(false)
@@ -43,6 +66,8 @@ model Signature {
 
 model GhostwriterJob {
   id          Int       @id @default(autoincrement())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   contentType String
   topic       String
   brief       String    // JSON: { interview, context?, signatureContent? }

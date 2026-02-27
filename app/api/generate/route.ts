@@ -3,11 +3,15 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateContent, InterviewAnswers, VoiceAnalysis } from "@/lib/claude";
+import { getUserId } from "@/lib/session";
 
 export async function POST(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const interview: InterviewAnswers = await req.json();
 
-  const profileRow = await prisma.voiceProfile.findUnique({ where: { id: 1 } });
+  const profileRow = await prisma.voiceProfile.findUnique({ where: { userId } });
   if (!profileRow) {
     return NextResponse.json(
       { error: "No voice profile found. Please analyze your writing samples first." },
@@ -32,6 +36,7 @@ export async function POST(req: NextRequest) {
 
   await prisma.generatedContent.create({
     data: {
+      userId,
       contentType: interview.contentType,
       topic: interview.topic,
       interview: JSON.stringify(interview),

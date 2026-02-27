@@ -6,22 +6,26 @@ interface Props {
   categoryCount: number;
 }
 
-// Word volume: 0-40 pts, reaches max at 20k total words
-// Sample count: 0-30 pts, reaches max at 10 samples
-// Variety: 0-30 pts, reaches max at 4+ distinct content types
+// Word volume: 0-40 pts, reaches max at 100k total words
+// Sample count: 0-30 pts, reaches max at 25 samples
+// Formats covered: 0-30 pts, reaches max at 4+ distinct writing formats
 function computeFactors(totalWords: number, sampleCount: number, categoryCount: number) {
   let wordScore = 0;
-  if      (totalWords >= 20_000) wordScore = 40;
-  else if (totalWords >= 10_000) wordScore = 30 + Math.round(((totalWords - 10_000) / 10_000) * 10);
-  else if (totalWords >=  5_000) wordScore = 20 + Math.round(((totalWords -  5_000) /  5_000) * 10);
-  else if (totalWords >=  1_000) wordScore =  8 + Math.round(((totalWords -  1_000) /  4_000) * 12);
-  else if (totalWords >       0) wordScore = Math.max(1, Math.round((totalWords / 1_000) * 8));
+  if      (totalWords >= 100_000) wordScore = 40;
+  else if (totalWords >=  75_000) wordScore = 34 + Math.round(((totalWords -  75_000) /  25_000) * 6);
+  else if (totalWords >=  50_000) wordScore = 26 + Math.round(((totalWords -  50_000) /  25_000) * 8);
+  else if (totalWords >=  25_000) wordScore = 16 + Math.round(((totalWords -  25_000) /  25_000) * 10);
+  else if (totalWords >=  10_000) wordScore =  8 + Math.round(((totalWords -  10_000) /  15_000) * 8);
+  else if (totalWords >=   5_000) wordScore =  4 + Math.round(((totalWords -   5_000) /   5_000) * 4);
+  else if (totalWords >=   1_000) wordScore =  1 + Math.round(((totalWords -   1_000) /   4_000) * 3);
+  else if (totalWords >        0) wordScore = 1;
 
   let sampleScore = 0;
-  if      (sampleCount >= 10) sampleScore = 30;
-  else if (sampleCount >=  6) sampleScore = 22 + Math.round(((sampleCount -  6) / 4) * 8);
-  else if (sampleCount >=  3) sampleScore = 12 + Math.round(((sampleCount -  3) / 3) * 10);
-  else if (sampleCount >=  1) sampleScore =  4 + Math.round(((sampleCount -  1) / 2) * 8);
+  if      (sampleCount >= 25) sampleScore = 30;
+  else if (sampleCount >= 15) sampleScore = 22 + Math.round(((sampleCount - 15) / 10) * 8);
+  else if (sampleCount >=  8) sampleScore = 12 + Math.round(((sampleCount -  8) /  7) * 10);
+  else if (sampleCount >=  3) sampleScore =  4 + Math.round(((sampleCount -  3) /  5) * 8);
+  else if (sampleCount >=  1) sampleScore = 2;
 
   let varietyScore = 0;
   if      (categoryCount >= 4) varietyScore = 30;
@@ -43,8 +47,8 @@ function barColor(score: number) {
 
 function readinessLabel(score: number) {
   if (score >= 100) return "Strong voice profile — the ghostwriter knows your style well";
-  if (score >=  76) return "Almost there — add more samples across different formats";
-  if (score >=  51) return "Good foundation — try adding writing from more categories";
+  if (score >=  76) return "Almost there — add more samples across different writing formats";
+  if (score >=  51) return "Good foundation — try adding writing from more formats";
   if (score >=  26) return "Building your voice — keep adding samples";
   return "Getting started — add writing samples to train the ghost";
 }
@@ -67,25 +71,25 @@ export default function ReadinessBar({ totalWords, sampleCount, categoryCount }:
       label: "Word volume",
       score: wordScore,
       max: 40,
-      hint: totalWords >= 20_000
+      hint: totalWords >= 100_000
         ? `${fmtWords(totalWords)} words ✓`
-        : `${fmtWords(totalWords)} / 20k words`,
+        : `${fmtWords(totalWords)} / 100k words`,
     },
     {
       label: "Samples",
       score: sampleScore,
       max: 30,
-      hint: sampleCount >= 10
+      hint: sampleCount >= 25
         ? `${sampleCount} samples ✓`
-        : `${sampleCount} / 10 samples`,
+        : `${sampleCount} / 25 samples`,
     },
     {
-      label: "Variety",
+      label: "Formats",
       score: varietyScore,
       max: 30,
       hint: categoryCount >= 4
-        ? `${categoryCount} types ✓`
-        : `${categoryCount} / 4 types`,
+        ? `${categoryCount} formats ✓`
+        : `${categoryCount} / 4 formats covered`,
     },
   ];
 

@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { prisma } from "@/lib/db";
+import { getUserId } from "@/lib/session";
 import {
   planContent,
   draftContent,
@@ -33,16 +34,19 @@ function wordCount(text: string) {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const userId = await getUserId();
+  if (!userId) return new Response("Unauthorized", { status: 401 });
+
   const jobId = parseInt(params.id);
   if (isNaN(jobId)) return new Response("Invalid ID", { status: 400 });
 
-  const job = await prisma.ghostwriterJob.findUnique({ where: { id: jobId } });
+  const job = await prisma.ghostwriterJob.findFirst({ where: { id: jobId, userId } });
   if (!job) return new Response("Job not found", { status: 404 });
 
-  const profileRow = await prisma.voiceProfile.findUnique({ where: { id: 1 } });
+  const profileRow = await prisma.voiceProfile.findUnique({ where: { userId } });
   if (!profileRow) {
     await prisma.ghostwriterJob.update({
       where: { id: jobId },
@@ -58,11 +62,11 @@ export async function GET(
 
   // Load samples — type-matching first
   const typeSpecific = await prisma.voiceSample.findMany({
-    where: { category: job.contentType },
+    where: { userId, category: job.contentType },
     orderBy: { wordCount: "desc" },
   });
   const others = await prisma.voiceSample.findMany({
-    where: { NOT: { category: job.contentType } },
+    where: { userId, NOT: { category: job.contentType } },
     orderBy: { wordCount: "desc" },
   });
   const sampleExamples = [...typeSpecific, ...others].map((s) => ({
@@ -168,6 +172,7 @@ export async function GET(
         prisma.generatedContent
           .create({
             data: {
+              userId,
               contentType: interview.contentType,
               topic: interview.topic,
               interview: JSON.stringify(interview),

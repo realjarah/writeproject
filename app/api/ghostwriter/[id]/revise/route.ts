@@ -5,23 +5,27 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { reviseDraft } from "@/lib/claude";
 import type { VoiceAnalysis } from "@/lib/claude";
+import { getUserId } from "@/lib/session";
 
 // POST — stream a targeted revision of a finished draft
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const userId = await getUserId();
+  if (!userId) return new Response("Unauthorized", { status: 401 });
+
   const jobId = parseInt(params.id);
   if (isNaN(jobId)) return new Response("Invalid ID", { status: 400 });
 
   const { feedback } = await req.json();
   if (!feedback?.trim()) return new Response("feedback is required", { status: 400 });
 
-  const job = await prisma.ghostwriterJob.findUnique({ where: { id: jobId } });
+  const job = await prisma.ghostwriterJob.findFirst({ where: { id: jobId, userId } });
   if (!job) return new Response("Job not found", { status: 404 });
   if (!job.finalDraft) return new Response("No draft to revise", { status: 400 });
 
-  const profileRow = await prisma.voiceProfile.findUnique({ where: { id: 1 } });
+  const profileRow = await prisma.voiceProfile.findUnique({ where: { userId } });
   if (!profileRow) return new Response("No voice profile", { status: 400 });
 
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);

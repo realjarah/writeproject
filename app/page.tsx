@@ -1,18 +1,21 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import ReadinessBar from "@/components/ReadinessBar";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-async function getStats() {
+async function getStats(userId: string) {
   const [samples, generationCount, profile, signatures, activeJobs, doneJobs] =
     await Promise.all([
-      prisma.voiceSample.findMany({ select: { wordCount: true, category: true } }),
-      prisma.generatedContent.count(),
-      prisma.voiceProfile.findUnique({ where: { id: 1 } }),
-      prisma.signature.count(),
-      prisma.ghostwriterJob.count({ where: { NOT: { status: { in: ["done", "error", "queued"] } } } }),
-      prisma.ghostwriterJob.count({ where: { status: "done" } }),
+      prisma.voiceSample.findMany({ where: { userId }, select: { wordCount: true, category: true } }),
+      prisma.generatedContent.count({ where: { userId } }),
+      prisma.voiceProfile.findUnique({ where: { userId } }),
+      prisma.signature.count({ where: { userId } }),
+      prisma.ghostwriterJob.count({ where: { userId, NOT: { status: { in: ["done", "error", "queued"] } } } }),
+      prisma.ghostwriterJob.count({ where: { userId, status: "done" } }),
     ]);
 
   const totalWords    = samples.reduce((s, x) => s + x.wordCount, 0);
@@ -31,8 +34,9 @@ async function getStats() {
   };
 }
 
-async function getRecentJobs() {
+async function getRecentJobs(userId: string) {
   return prisma.ghostwriterJob.findMany({
+    where: { userId },
     orderBy: { createdAt: "desc" },
     take: 4,
     select: { id: true, contentType: true, topic: true, status: true, createdAt: true },
@@ -68,7 +72,13 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default async function HomePage() {
-  const [stats, recentJobs] = await Promise.all([getStats(), getRecentJobs()]);
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) redirect("/auth/signin");
+
+  const [stats, recentJobs] = await Promise.all([
+    getStats(session.user.id),
+    getRecentJobs(session.user.id),
+  ]);
   const {
     sampleCount, totalWords, categoryCount, hasProfile,
     signatureCount, activeJobs, doneJobs, totalPieces,

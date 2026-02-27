@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { prisma } from "@/lib/db";
+import { getUserId } from "@/lib/session";
 import {
   planContent,
   draftContent,
@@ -19,13 +20,20 @@ import { resolveContext } from "@/lib/resolve-context";
 const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
 
 export async function POST(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401, headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const body = await req.json();
   const { signatureContent, context, ...interview } = body as InterviewAnswers & {
     signatureContent?: string;
     context?: GenerationContext;
   };
 
-  const profileRow = await prisma.voiceProfile.findUnique({ where: { id: 1 } });
+  const profileRow = await prisma.voiceProfile.findUnique({ where: { userId } });
   if (!profileRow) {
     return new Response(
       JSON.stringify({ error: "No voice profile found. Please analyze your writing samples first." }),
@@ -38,11 +46,11 @@ export async function POST(req: NextRequest) {
   // Fetch all writing samples — type-matching first, then others.
   // No truncation: pass the full content to take advantage of the large context window.
   const typeSpecific = await prisma.voiceSample.findMany({
-    where: { category: interview.contentType },
+    where: { userId, category: interview.contentType },
     orderBy: { wordCount: "desc" },
   });
   const others = await prisma.voiceSample.findMany({
-    where: { NOT: { category: interview.contentType } },
+    where: { userId, NOT: { category: interview.contentType } },
     orderBy: { wordCount: "desc" },
   });
 
@@ -94,6 +102,7 @@ export async function POST(req: NextRequest) {
         prisma.generatedContent
           .create({
             data: {
+              userId,
               contentType: interview.contentType,
               topic: interview.topic,
               interview: JSON.stringify(interview),
