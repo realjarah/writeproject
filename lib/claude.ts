@@ -1,28 +1,28 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-export const anthropic = new Anthropic({
+// Re-export shared types and constants from the client-safe module
+export type {
+  ContextItemTag,
+  ContextItem,
+  GenerationContext,
+  InterviewAnswers,
+  VoiceAnalysis,
+  LabeledSample,
+} from "./content-types";
+export { CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "./content-types";
+
+import type {
+  VoiceAnalysis,
+  LabeledSample,
+  ContextItem,
+  GenerationContext,
+  InterviewAnswers,
+} from "./content-types";
+import { CONTENT_TYPE_LABELS } from "./content-types";
+
+const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
-
-export interface VoiceAnalysis {
-  tone: string;
-  sentenceStructure: string;
-  vocabularyStyle: string;
-  punctuationHabits: string;
-  paragraphStyle: string;
-  rhetoricalDevices: string;
-  commonPatterns: string[];
-  thingsToAvoid: string[];
-  rawSummary: string;
-  categoryInsights?: Record<string, string>;
-  // Per-format guidelines generated on demand
-  contentGuidelines?: Record<string, string[]>;
-}
-
-export interface LabeledSample {
-  content: string;
-  category: string;
-}
 
 export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnalysis> {
   const samplesText = samples
@@ -69,75 +69,9 @@ Only include keys in categoryInsights that are actually represented in the sampl
   return JSON.parse(text) as VoiceAnalysis;
 }
 
-export interface InterviewAnswers {
-  contentType: string;
-  topic: string;
-  angle: string;
-  keyPoints: string;
-  sourcesOrData?: string;
-  targetAudience?: string;
-  toneNotes?: string;
-  wordCountTarget?: string;
-}
-
-export type ContextItemTag = "data" | "example" | "research" | "reference" | "note";
-
-export interface ContextItem {
-  tag: ContextItemTag;
-  // Source — exactly one of these is set per item:
-  url?: string;       // a referenced URL
-  text?: string;      // text file content or a manual text/note
-  fileName?: string;  // original filename for any uploaded file
-  isCSV?: boolean;
-  includePlaceholders?: boolean; // for CSV: emit [CHART:] / [TABLE:] markers
-  // Binary files (images, PDFs) — base64-encoded, no data: prefix
-  data?: string;
-  mediaType?: string; // "image/jpeg" | "image/png" | ... | "application/pdf"
-  instructions?: string; // how the author wants this context used
-}
-
-export interface GenerationContext {
-  items: ContextItem[];
-}
 
 // ── Shared constants ────────────────────────────────────────────────────────
-
-export const CONTENT_TYPE_LABELS: Record<string, string> = {
-  // Writing
-  blog:          "blog post / article",
-  essay:         "essay",
-  newsletter:    "newsletter",
-  whitepaper:    "whitepaper",
-  // Business
-  email:         "email",
-  report:        "report",
-  press_release: "press release",
-  proposal:      "proposal",
-  case_study:    "case study",
-  // Career
-  resume:        "resume / CV",
-  cover_letter:  "cover letter",
-  // Academic & Technical
-  research:      "research paper",
-  technical:     "technical documentation",
-  // Short-form
-  social:        "social media post (Twitter/X or LinkedIn)",
-  caption:       "caption (Instagram or TikTok)",
-  text_message:  "text message",
-  // Spoken word
-  speech:        "speech",
-  script:        "script (podcast / video)",
-};
-
-// Groups used by the type selector UI
-export const CONTENT_TYPE_GROUPS: { label: string; types: string[] }[] = [
-  { label: "Writing",              types: ["blog", "essay", "newsletter", "whitepaper"] },
-  { label: "Business",             types: ["email", "report", "press_release", "proposal", "case_study"] },
-  { label: "Career",               types: ["resume", "cover_letter"] },
-  { label: "Academic & Technical", types: ["research", "technical"] },
-  { label: "Short-form",           types: ["social", "caption", "text_message"] },
-  { label: "Spoken word",          types: ["speech", "script"] },
-];
+// CONTENT_TYPE_LABELS and CONTENT_TYPE_GROUPS are imported from ./content-types
 
 const WORD_GUIDANCE: Record<string, string> = {
   blog:          "600–1200 words unless specified. Short paragraphs, natural web formatting.",

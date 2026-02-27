@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
-import { type ContextItem, type ContextItemTag, CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "@/lib/claude";
+import { type ContextItem, type ContextItemTag, CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "@/lib/content-types";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

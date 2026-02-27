@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
 import ReadinessBar from "@/components/ReadinessBar";
-import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_LABELS } from "@/lib/claude";
+import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_LABELS } from "@/lib/content-types";
 
 const CATEGORIES: { value: SampleCategory; label: string; color: string }[] = [
   { value: "blog",    label: "Blog / Article", color: "#60a5fa" },
