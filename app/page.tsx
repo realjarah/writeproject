@@ -7,19 +7,43 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
+const TIERS = [
+  { name: "Starter",     minWords: 0,       maxWords: 999,    color: "#9ca3af" },
+  { name: "Apprentice",  minWords: 1000,    maxWords: 9999,   color: "#60a5fa" },
+  { name: "Writer",      minWords: 10000,   maxWords: 49999,  color: "#a78bfa" },
+  { name: "Author",      minWords: 50000,   maxWords: 99999,  color: "#f97316" },
+  { name: "Ghostmaster", minWords: 100000,  maxWords: Infinity, color: "#facc15" },
+];
+
+function getTier(aiWords: number) {
+  const tier = TIERS.findLast((t) => aiWords >= t.minWords) ?? TIERS[0];
+  const nextTier = TIERS[TIERS.indexOf(tier) + 1];
+  const progress = nextTier
+    ? Math.min(100, Math.round(((aiWords - tier.minWords) / (nextTier.minWords - tier.minWords)) * 100))
+    : 100;
+  return { tier, nextTier, progress };
+}
+
+function countWords(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 async function getStats(userId: string) {
-  const [samples, generationCount, profile, signatures, activeJobs, doneJobs] =
+  const [samples, generationCount, profile, signatures, activeJobs, doneJobDrafts] =
     await Promise.all([
       prisma.voiceSample.findMany({ where: { userId }, select: { wordCount: true, category: true } }),
       prisma.generatedContent.count({ where: { userId } }),
       prisma.voiceProfile.findUnique({ where: { userId } }),
       prisma.signature.count({ where: { userId } }),
       prisma.ghostwriterJob.count({ where: { userId, NOT: { status: { in: ["done", "error", "queued"] } } } }),
-      prisma.ghostwriterJob.count({ where: { userId, status: "done" } }),
+      prisma.ghostwriterJob.findMany({ where: { userId, status: "done" }, select: { finalDraft: true } }),
     ]);
 
   const totalWords    = samples.reduce((s, x) => s + x.wordCount, 0);
   const categoryCount = new Set(samples.map((s) => s.category)).size;
+  const doneJobs      = doneJobDrafts.length;
+  const aiWords       = doneJobDrafts.reduce((sum, j) => sum + (j.finalDraft ? countWords(j.finalDraft) : 0), 0);
+  const hoursSaved    = Math.round(aiWords / 500); // ~500 words/hour quality writing pace
 
   return {
     sampleCount:     samples.length,
@@ -31,6 +55,9 @@ async function getStats(userId: string) {
     activeJobs,
     doneJobs,
     totalPieces:     generationCount + doneJobs,
+    aiWords,
+    hoursSaved,
+    tierInfo:        getTier(aiWords),
   };
 }
 
@@ -81,16 +108,22 @@ export default async function HomePage() {
   ]);
   const {
     sampleCount, totalWords, categoryCount, hasProfile,
-    signatureCount, activeJobs, doneJobs,
+    signatureCount, activeJobs, doneJobs, aiWords, hoursSaved, tierInfo,
   } = stats;
 
+  function fmtWords(n: number) {
+    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000)    return `${(n / 1000).toFixed(1)}k`;
+    return String(n);
+  }
+
   const kpis = [
-    { label: "Samples",   value: sampleCount },
-    { label: "Words",     value: totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : totalWords },
-    { label: "Formats",   value: categoryCount },
-    { label: "Drafted",   value: doneJobs },
-    { label: "Active",    value: activeJobs },
-    { label: "Sigs",      value: signatureCount },
+    { label: "Samples",       value: sampleCount },
+    { label: "Sample words",  value: fmtWords(totalWords) },
+    { label: "Formats",       value: categoryCount },
+    { label: "Drafted",       value: doneJobs },
+    { label: "AI words",      value: fmtWords(aiWords) },
+    { label: "Hours saved",   value: hoursSaved },
   ];
 
   return (
@@ -136,6 +169,34 @@ export default async function HomePage() {
             <div className="text-[11px] text-black/40 dark:text-white/30 mt-1 leading-tight">{label}</div>
           </div>
         ))}
+      </div>
+
+      {/* Tier card */}
+      <div className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-5 py-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-[13px] font-semibold" style={{ color: tierInfo.tier.color }}>
+              {tierInfo.tier.name}
+            </span>
+            <span className="text-[12px] text-black/40 dark:text-white/30">
+              {fmtWords(aiWords)} words written by AI
+            </span>
+          </div>
+          {tierInfo.nextTier && (
+            <span className="text-[11px] text-black/30 dark:text-white/20">
+              {fmtWords(tierInfo.nextTier.minWords - aiWords)} to {tierInfo.nextTier.name}
+            </span>
+          )}
+        </div>
+        <div className="h-1.5 bg-black/[0.06] dark:bg-white/[0.06] rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${tierInfo.progress}%`, backgroundColor: tierInfo.tier.color }}
+          />
+        </div>
+        {!tierInfo.nextTier && (
+          <p className="text-[11px] text-black/35 dark:text-white/25">Max tier reached. You are the ghost.</p>
+        )}
       </div>
 
       {/* Readiness bar */}

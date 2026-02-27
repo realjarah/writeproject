@@ -79,19 +79,19 @@ Rules:
 // CONTENT_TYPE_LABELS and CONTENT_TYPE_GROUPS are imported from ./content-types
 
 const WORD_GUIDANCE: Record<string, string> = {
-  blog:          "600–1200 words unless specified. Short paragraphs, natural web formatting.",
+  blog:          "600–1200 words unless the brief specifies otherwise. Short paragraphs, natural web formatting.",
   essay:         "500–1500 words. Clear thesis, structured argument, strong opening and close.",
   newsletter:    "Conversational, scannable. Clear sections with headers. 200–600 words per section.",
-  whitepaper:    "1500–3000 words. Abstract → executive summary → body sections → conclusion. Data-backed throughout. Cite all [REFERENCE] context items.",
+  whitepaper:    "Write as long as the scope demands — cover the full argument completely. Abstract → executive summary → body sections → conclusion. Data-backed throughout. Cite all [REFERENCE] context items.",
   email:         "Subject line first, then body. Short paragraphs, one clear ask or CTA. 50–400 words.",
-  report:        "Structured with headers. Executive summary first. Data-driven, precise language. Length varies by scope. Attribute all [REFERENCE] context items as sources.",
+  report:        "Structured with headers. Executive summary first. Data-driven, precise language. Write as long as the scope demands — never truncate to hit a word count. Attribute all [REFERENCE] context items as sources.",
   press_release: "Inverted pyramid: headline + dateline + lead (who/what/when/where/why) + body + boilerplate. 400–600 words.",
   proposal:      "Executive summary → problem → solution → timeline → budget (if provided) → next steps. Persuasive but factual.",
-  case_study:    "Challenge → approach → results → lessons learned. 800–1500 words. Specific, quantified outcomes.",
+  case_study:    "Challenge → approach → results → lessons learned. 800–2000 words. Specific, quantified outcomes.",
   resume:        "Reverse chronological unless specified. Achievement-focused bullets. Quantify impact. No filler. ATS-friendly.",
   cover_letter:  "3–4 paragraphs: hook → specific connection to role → evidence → closing ask. 250–400 words.",
-  research:      "Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references. Cite every [REFERENCE] context item in-text and in the references section.",
-  technical:     "Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level. Cite [REFERENCE] context items with inline links or footnotes where appropriate.",
+  research:      "Write as long as the scope demands — do not truncate to hit a word count. Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references. Cover every facet of the topic. Cite every [REFERENCE] context item in-text and in the references section.",
+  technical:     "Write as long as the scope demands — complete coverage beats brevity. Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level. Cite [REFERENCE] context items with inline links or footnotes.",
   social:          "Single post. Twitter/X: under 280 characters total. LinkedIn: 150–300 words with line breaks. No markdown symbols.",
   twitter_thread:  "Output each tweet separated by '---' on its own line (e.g. tweet text\\n---\\nnext tweet). Each tweet MUST be under 280 characters — this is a hard platform limit, count carefully. Aim for 5–12 tweets. Each tweet should flow naturally into the next but stand alone. Plain text only — no markdown bold/italics/headers/bullets. Open strong, close with a hook or call to action.",
   caption:       "1–4 sentences. Conversational, relevant to the image or moment.",
@@ -416,7 +416,8 @@ export async function planContent(
   voiceProfile: VoiceAnalysis,
   interview: InterviewAnswers,
   context?: GenerationContext,
-  sampleExamples?: { content: string; category: string }[]
+  sampleExamples?: { content: string; category: string }[],
+  favoriteWords?: { word: string; definition: string }[]
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
@@ -440,6 +441,12 @@ export async function planContent(
       }\n`
     : "";
 
+  const favoriteWordsBlock = favoriteWords?.length
+    ? `\n**Author's Favorite Words (use only when they fit naturally — never force them):**\n${
+        favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")
+      }\n`
+    : "";
+
   const userPrompt = `You are about to ghost-write a ${CONTENT_TYPE_LABELS[interview.contentType]}.
 
 Before writing a single word, produce a detailed structural plan.
@@ -452,7 +459,7 @@ ${examplesBlock}
 - Tone notes: ${interview.toneNotes || "none"}${interview.wordCountTarget ? `\n- Target length: ${interview.wordCountTarget}` : ""}
 ${contextBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
-${categoryInsightBlock}${guidelinesBlock}
+${categoryInsightBlock}${guidelinesBlock}${favoriteWordsBlock}
 **Plan requirements:**
 - The exact opening move — what's the hook? Be specific.
 - How the argument builds and where the emotional beats land
@@ -497,7 +504,8 @@ export async function draftContent(
   interview: InterviewAnswers,
   plan: string,
   context?: GenerationContext,
-  sampleExamples?: { content: string; category: string }[]
+  sampleExamples?: { content: string; category: string }[],
+  favoriteWords?: { word: string; definition: string }[]
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
@@ -521,6 +529,10 @@ export async function draftContent(
       }\n`
     : "";
 
+  const wordCountLine = interview.wordCountTarget
+    ? `Target length: ${interview.wordCountTarget}. `
+    : "";
+
   const systemPrompt = `You are a ghost-writer. Write ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
 
 ## Author Voice Profile
@@ -536,9 +548,25 @@ ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid:**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 ${examplesSection}${categoryInsightBlock}${guidelinesBlock}
+## Forbidden AI Writing Patterns (never use — these are instant giveaways)
+- Opener clichés: "In today's fast-paced world", "In the digital age", "It goes without saying", "In an era where"
+- AI filler verbs: "delve into", "underscore", "leverage" (as metaphor), "utilize", "facilitate", "navigate" (as metaphor), "foster"
+- Hollow hedge phrases: "It's worth noting that", "It's important to note", "It's crucial to understand", "Needless to say", "One might argue"
+- Transition clichés as paragraph openers: "Furthermore,", "Moreover,", "Additionally,", "In addition,"
+- Closing tell: "In conclusion,", "To summarize,", "To wrap up,", "As we've seen,"
+- Performative mirroring: restating the intro as if it's a fresh insight in the final paragraph
+- Qualification stacking: "However, it's worth considering that, while generally speaking, one could argue…"
+- Hollow superlatives: "It is undeniable that", "There is no doubt that", "It is clear that", "Evidently,"
+- Over-structured output: bolding every paragraph header when flowing prose is more natural for this format
+
+## Author's Favorite Words
+${favoriteWords?.length
+  ? `Use these words only when they fit the context naturally. Never repeat them more than once per piece. Never force them in.\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}`
+  : "None specified — use your best judgment."}
+
 ## Output Rules
 - Write ONLY the piece. Nothing else.
-- ${WORD_GUIDANCE[interview.contentType] ?? ""}`;
+- ${wordCountLine}${WORD_GUIDANCE[interview.contentType] ?? ""}`;
 
   const userPrompt = `Follow this structural plan:
 
@@ -608,13 +636,16 @@ ${voiceProfile.rawSummary}
 ${drafts.map((d, i) => `--- DRAFT ${i + 1} ---\n${d}`).join("\n\n")}
 
 Using extended thinking, analyze each draft for:
-1. Voice authenticity — does it sound specifically like this author?
-2. Brief fidelity — does it faithfully cover the topic, angle, and key points?
-3. Quality, impact, and resonance
+1. Voice authenticity — does it sound specifically like this author (not like generic AI prose)?
+2. Brief fidelity — does it faithfully cover the topic, angle, and all key points?
+3. Quality, impact, and resonance — does it have a strong hook, forward momentum, and a satisfying close?
+4. AI-pattern detection — flag any of these if present: opener clichés ("In today's fast-paced world", "It goes without saying"), filler verbs ("delve into", "underscore", "leverage" used metaphorically, "utilize"), hollow hedges ("It's worth noting", "It's important to note"), transition clichés as openers ("Furthermore,", "Moreover,"), closing tells ("In conclusion,", "To summarize,"), or a final paragraph that simply restates the opening
 
 Then produce the FINAL BEST VERSION by either:
 - Selecting the strongest draft as-is, OR
 - Synthesizing the best elements from multiple drafts into one superior piece
+
+If the selected/synthesized piece contains any AI patterns flagged above, remove or rewrite those sections before outputting.
 
 Output ONLY the final piece. No preamble, no "I chose draft X", no commentary. Just the finished text.`;
 

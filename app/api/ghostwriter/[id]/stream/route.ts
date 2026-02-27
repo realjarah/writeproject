@@ -19,14 +19,16 @@ import { resolveContext } from "@/lib/resolve-context";
 
 const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
 
-// Approximate word count range per content type (min, max)
+// Approximate word count range per content type (min, max).
+// Upper bounds are intentionally generous for long-form types —
+// a wordCountTarget in the interview overrides these entirely.
 const WORD_RANGES: Record<string, [number, number]> = {
-  blog: [600, 1200], essay: [500, 1500], newsletter: [200, 1000],
-  whitepaper: [1500, 3000], email: [50, 400], report: [500, 2000],
-  press_release: [300, 600], proposal: [500, 2000], case_study: [800, 1500],
-  resume: [300, 800], cover_letter: [250, 400], research: [1500, 5000],
-  technical: [500, 2000], social: [20, 300], caption: [10, 100],
-  text_message: [5, 50], speech: [500, 2000], script: [500, 2000],
+  blog: [600, 1400], essay: [500, 2000], newsletter: [200, 1000],
+  whitepaper: [1500, 10000], email: [50, 400], report: [500, 4000],
+  press_release: [300, 600], proposal: [500, 3000], case_study: [800, 2500],
+  resume: [300, 800], cover_letter: [250, 400], research: [1500, 20000],
+  technical: [500, 10000], social: [20, 300], caption: [10, 100],
+  text_message: [5, 50], speech: [500, 2500], script: [500, 3000],
 };
 
 function wordCount(text: string) {
@@ -61,18 +63,16 @@ export async function GET(
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);
 
   // Load samples — type-matching first
-  const typeSpecific = await prisma.voiceSample.findMany({
-    where: { userId, category: job.contentType },
-    orderBy: { wordCount: "desc" },
-  });
-  const others = await prisma.voiceSample.findMany({
-    where: { userId, NOT: { category: job.contentType } },
-    orderBy: { wordCount: "desc" },
-  });
+  const [typeSpecific, others, favoriteWordsRows] = await Promise.all([
+    prisma.voiceSample.findMany({ where: { userId, category: job.contentType }, orderBy: { wordCount: "desc" } }),
+    prisma.voiceSample.findMany({ where: { userId, NOT: { category: job.contentType } }, orderBy: { wordCount: "desc" } }),
+    prisma.favoriteWord.findMany({ where: { userId }, select: { word: true, definition: true } }),
+  ]);
   const sampleExamples = [...typeSpecific, ...others].map((s) => ({
     content: s.content,
     category: s.category,
   }));
+  const favoriteWords = favoriteWordsRows.length > 0 ? favoriteWordsRows : undefined;
 
   const briefData = JSON.parse(job.brief) as {
     interview: InterviewAnswers;
@@ -97,11 +97,11 @@ export async function GET(
       try {
         // ── Step 1: Plan ───────────────────────────────────────────────────
         await setStep("planning", "Planning structure…");
-        const plan = await planContent(voiceProfile, interview, resolvedContext, sampleExamples);
+        const plan = await planContent(voiceProfile, interview, resolvedContext, sampleExamples, favoriteWords);
 
         // ── Step 2: Draft 1 — standard ────────────────────────────────────
         await setStep("drafting_1", "Writing first draft…");
-        const draft1 = await draftContent(voiceProfile, interview, plan, resolvedContext, sampleExamples);
+        const draft1 = await draftContent(voiceProfile, interview, plan, resolvedContext, sampleExamples, favoriteWords);
 
         // ── Step 3: Draft 2 — narrative emphasis ──────────────────────────
         await setStep("drafting_2", "Writing second draft…");
@@ -110,7 +110,7 @@ export async function GET(
           toneNotes: [interview.toneNotes, "Prioritize narrative momentum — let the story carry the argument"]
             .filter(Boolean).join(". "),
         };
-        const draft2 = await draftContent(voiceProfile, interview2, plan, resolvedContext, sampleExamples);
+        const draft2 = await draftContent(voiceProfile, interview2, plan, resolvedContext, sampleExamples, favoriteWords);
 
         // ── Step 4: Draft 3 — bold and direct ─────────────────────────────
         await setStep("drafting_3", "Writing third draft…");
@@ -119,7 +119,7 @@ export async function GET(
           toneNotes: [interview.toneNotes, "Be bold and direct — fewer qualifications, stronger claims, sharper edges"]
             .filter(Boolean).join(". "),
         };
-        const draft3 = await draftContent(voiceProfile, interview3, plan, resolvedContext, sampleExamples);
+        const draft3 = await draftContent(voiceProfile, interview3, plan, resolvedContext, sampleExamples, favoriteWords);
 
         // Persist raw drafts
         await prisma.ghostwriterJob.update({
@@ -132,14 +132,30 @@ export async function GET(
         const selected = await compareAndSelectBestDraft([draft1, draft2, draft3], voiceProfile, interview);
 
         // ── Step 6: Quality check ─────────────────────────────────────────
+        // MUST stay immediately before humanizing — never reorder.
         await setStep("checking", "Checking word count & structure…");
         const wc = wordCount(selected);
-        const [minW, maxW] = WORD_RANGES[interview.contentType] ?? [300, 2000];
+
+        // wordCountTarget from the brief always beats WORD_RANGES.
+        let minW: number, maxW: number;
+        const targetStr = interview.wordCountTarget;
+        if (targetStr) {
+          const targetNum = parseInt(String(targetStr).replace(/[^\d]/g, ""), 10);
+          if (!isNaN(targetNum) && targetNum > 0) {
+            minW = Math.floor(targetNum * 0.7);
+            maxW = Math.ceil(targetNum * 1.3);
+          } else {
+            [minW, maxW] = WORD_RANGES[interview.contentType] ?? [300, 2000];
+          }
+        } else {
+          [minW, maxW] = WORD_RANGES[interview.contentType] ?? [300, 2000];
+        }
+
         let countNote = "";
         if (wc < minW * 0.7) {
-          countNote = `[Note for polish: draft is short at ${wc} words; target range ${minW}–${maxW}. Expand where appropriate.]`;
+          countNote = `[Polishing note: draft is ${wc} words; target is ${minW}–${maxW}. Expand thin sections — add substance, not padding.]`;
         } else if (wc > maxW * 1.4) {
-          countNote = `[Note for polish: draft is long at ${wc} words; target range ${minW}–${maxW}. Tighten where possible.]`;
+          countNote = `[Polishing note: draft is ${wc} words; target is ${minW}–${maxW}. Tighten by cutting redundancy, not ideas.]`;
         }
 
         // ── Step 7: Humanize ──────────────────────────────────────────────

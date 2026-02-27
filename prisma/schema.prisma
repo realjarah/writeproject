@@ -8,6 +8,15 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model FavoriteWord {
+  id         Int      @id @default(autoincrement())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word       String
+  definition String   @default("")
+  createdAt  DateTime @default(now())
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -21,6 +30,7 @@ model User {
   signatures       Signature[]
   ghostwriterJobs  GhostwriterJob[]
   generatedContent GeneratedContent[]
+  favoriteWords    FavoriteWord[]
 }
 
 model VoiceSample {

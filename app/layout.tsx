@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Nav from "@/components/Nav";
+import AppShell from "@/components/AppShell";
 import SessionWrapper from "@/components/SessionWrapper";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
@@ -16,7 +16,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      {/* Anti-flash: apply stored theme before first paint */}
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -32,11 +31,10 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-screen bg-[#f5f5f5] dark:bg-[#080808] text-[#0d0d0d] dark:text-[#efefef]">
+      <body className="h-screen overflow-hidden bg-[#f5f5f5] dark:bg-[#080808] text-[#0d0d0d] dark:text-[#efefef]">
         <ThemeProvider>
           <SessionWrapper>
-            <Nav />
-            <main className="max-w-4xl mx-auto px-4 py-10">{children}</main>
+            <AppShell>{children}</AppShell>
           </SessionWrapper>
         </ThemeProvider>
       </body>

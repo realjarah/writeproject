@@ -92,12 +92,13 @@ interface Signature {
 
 export default function ProfilePage() {
   // Read initial tab from URL search param (client-side only)
-  const [activeTab, setActiveTab] = useState<"train" | "signatures" | "archive">("train");
+  const [activeTab, setActiveTab] = useState<"train" | "signatures" | "words" | "archive">("train");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search);
       if (p.get("tab") === "signatures") setActiveTab("signatures");
+      if (p.get("tab") === "words")      setActiveTab("words");
       if (p.get("tab") === "archive")    setActiveTab("archive");
     }
   }, []);
@@ -106,7 +107,7 @@ export default function ProfilePage() {
     <div className="space-y-6">
       {/* Tab bar */}
       <div className="flex items-center gap-1 bg-black/[0.04] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/[0.07] rounded-xl p-1 w-fit">
-        {(["train", "signatures", "archive"] as const).map((tab) => (
+        {(["train", "signatures", "words", "archive"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -116,13 +117,14 @@ export default function ProfilePage() {
                 : "text-black/50 dark:text-white/40 hover:text-black/75 dark:hover:text-white/70"
             }`}
           >
-            {tab === "train" ? "My Voice" : tab === "signatures" ? "Signatures" : "Archive"}
+            {tab === "train" ? "My Voice" : tab === "signatures" ? "Signatures" : tab === "words" ? "My Words" : "Archive"}
           </button>
         ))}
       </div>
 
       {activeTab === "train"       && <TrainTab />}
       {activeTab === "signatures"  && <SignaturesTab />}
+      {activeTab === "words"       && <FavoriteWordsTab />}
       {activeTab === "archive"     && <ArchiveTab />}
     </div>
   );
@@ -1040,6 +1042,126 @@ function ArchiveTab() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Favorite Words tab ────────────────────────────────────────────────────────
+
+interface FavoriteWord {
+  id: number;
+  word: string;
+  definition: string;
+  createdAt: string;
+}
+
+function FavoriteWordsTab() {
+  const [words, setWords]         = useState<FavoriteWord[]>([]);
+  const [input, setInput]         = useState("");
+  const [adding, setAdding]       = useState(false);
+  const [error, setError]         = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  async function load() {
+    const res = await fetch("/api/favorite-words");
+    if (res.ok) setWords(await res.json());
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function addWord() {
+    const trimmed = input.trim();
+    if (!trimmed || adding) return;
+    setAdding(true);
+    setError("");
+    try {
+      const res = await fetch("/api/favorite-words", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ word: trimmed }),
+      });
+      if (!res.ok) throw new Error("Failed to save word");
+      setInput("");
+      await load();
+    } catch {
+      setError("Could not save word. Please try again.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function deleteWord(id: number) {
+    setDeletingId(id);
+    try {
+      await fetch(`/api/favorite-words/${id}`, { method: "DELETE" });
+      setWords((prev) => prev.filter((w) => w.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="space-y-1">
+        <h2 className="text-[15px] font-semibold text-black/90 dark:text-white">My Words</h2>
+        <p className="text-[13px] text-black/40 dark:text-white/35 leading-relaxed max-w-lg">
+          Words and phrases you love. The AI will use them when they fit naturally — never forced, never overdone.
+        </p>
+      </div>
+
+      {/* Add word */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") addWord(); }}
+          placeholder="e.g. liminal, palimpsest, the long tail…"
+          className="flex-1 bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-xl px-4 py-2.5 text-sm text-black/90 dark:text-white placeholder-black/[0.25] dark:placeholder-white/[0.22] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
+        />
+        <button
+          type="button"
+          onClick={addWord}
+          disabled={adding || !input.trim()}
+          className="px-4 py-2.5 rounded-xl text-sm font-medium bg-black/[0.08] dark:bg-white/[0.08] text-black/80 dark:text-white/80 hover:bg-black/[0.12] dark:hover:bg-white/[0.12] disabled:opacity-40 transition-all"
+        >
+          {adding ? "Adding…" : "Add"}
+        </button>
+      </div>
+      {error && <p className="text-[12px] text-red-500">{error}</p>}
+
+      {/* Word cards */}
+      {words.length === 0 ? (
+        <div className="text-[13px] text-black/35 dark:text-white/25 py-6 text-center border border-dashed border-black/[0.08] dark:border-white/[0.07] rounded-xl">
+          No favorite words yet. Add a word above.
+        </div>
+      ) : (
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          {words.map((w) => (
+            <div
+              key={w.id}
+              className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl p-4 space-y-1.5 group relative"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-[14px] font-semibold text-black/90 dark:text-white tracking-tight">{w.word}</span>
+                <button
+                  type="button"
+                  onClick={() => deleteWord(w.id)}
+                  disabled={deletingId === w.id}
+                  className="text-black/[0.20] dark:text-white/[0.20] hover:text-black/50 dark:hover:text-white/50 transition-colors text-xs shrink-0 mt-0.5 disabled:opacity-40"
+                  aria-label="Remove word"
+                >
+                  ✕
+                </button>
+              </div>
+              {w.definition && (
+                <p className="text-[12px] text-black/45 dark:text-white/35 leading-relaxed">{w.definition}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

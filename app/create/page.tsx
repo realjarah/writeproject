@@ -169,6 +169,9 @@ export default function CreatePage() {
   const [suggestedTitles, setSuggestedTitles] = useState<string[]>([]);
   const [suggestingTitles, setSuggestingTitles] = useState(false);
 
+  // Word count target
+  const [wordCountTarget, setWordCountTarget] = useState("");
+
   // Send to ghostwriter / save for later
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -238,6 +241,7 @@ export default function CreatePage() {
     setDraftOpen(false);
     setTitleInput("");
     setSuggestedTitles([]);
+    setWordCountTarget("");
   }
 
   async function suggestTitles() {
@@ -444,8 +448,9 @@ export default function CreatePage() {
       angle:       intake.angle      ?? answers.angle      ?? "",
       keyPoints:   intake.keyPoints  ?? answers.keyPoints  ?? "",
       targetAudience: intake.targetAudience ?? answers.targetAudience ?? undefined,
-      toneNotes:      intake.toneNotes      ?? answers.toneNotes      ?? undefined,
-      title:          titleInput.trim()     || undefined,
+      toneNotes:        intake.toneNotes      ?? answers.toneNotes      ?? undefined,
+      title:            titleInput.trim()     || undefined,
+      wordCountTarget:  wordCountTarget.trim() || undefined,
     };
 
     const allItems: ContextItem[] = [];
@@ -728,6 +733,20 @@ export default function CreatePage() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Target length */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-black/[0.45] dark:text-white/[0.40] uppercase tracking-wide">
+              Target length <span className="normal-case font-normal text-black/[0.28] dark:text-white/[0.25]">optional</span>
+            </label>
+            <input
+              type="text"
+              value={wordCountTarget}
+              onChange={(e) => setWordCountTarget(e.target.value)}
+              placeholder="e.g. 800 words, 10,000 words, short"
+              className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-xl px-4 py-3 text-sm text-black/90 dark:text-white placeholder-black/[0.25] dark:placeholder-white/[0.22] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
+            />
           </div>
 
           {/* Context */}
