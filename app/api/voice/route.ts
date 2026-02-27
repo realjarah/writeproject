@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
 import { getUserId } from "@/lib/session";
+import { extractTopics } from "@/lib/claude";
 
 export async function GET() {
   const userId = await getUserId();
@@ -37,6 +38,16 @@ export async function POST(req: NextRequest) {
       category: resolvedCategory,
     },
   });
+
+  // Extract topics async — don't block the response
+  extractTopics(content.trim()).then(async (topics) => {
+    if (topics.length > 0) {
+      await prisma.voiceSample.update({
+        where: { id: sample.id },
+        data: { topics: JSON.stringify(topics) },
+      });
+    }
+  }).catch(() => {});
 
   return NextResponse.json(sample);
 }

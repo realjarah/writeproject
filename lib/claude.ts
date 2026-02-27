@@ -76,6 +76,36 @@ Rules:
   return JSON.parse(text) as VoiceAnalysis;
 }
 
+/**
+ * Extracts 2–4 concise topic tags from a writing sample.
+ * Returns lowercase strings like ["leadership", "SaaS", "mental health"].
+ * Uses Haiku for speed — called fire-and-forget after sample upload.
+ */
+export async function extractTopics(content: string): Promise<string[]> {
+  try {
+    const preview = content.slice(0, 1500); // cap to keep cost tiny
+    const res = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 120,
+      messages: [
+        {
+          role: "user",
+          content: `Extract 2–4 topic tags from this writing sample. Tags should be concise (1–3 words), lowercase, specific (e.g. "venture capital", "stoicism", "remote work", "personal branding"). Return ONLY a JSON array of strings — no markdown, no explanation.
+
+Sample:
+${preview}`,
+        },
+      ],
+    });
+    const raw = res.content[0].type === "text" ? res.content[0].text : "[]";
+    const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const parsed = JSON.parse(clean);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((t): t is string => typeof t === "string").slice(0, 4);
+  } catch {
+    return [];
+  }
+}
 
 // ── Shared constants ────────────────────────────────────────────────────────
 // CONTENT_TYPE_LABELS and CONTENT_TYPE_GROUPS are imported from ./content-types

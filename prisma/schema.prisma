@@ -53,6 +53,7 @@ model VoiceSample {
   content   String
   wordCount Int      @default(0)
   category  String   @default("other")
+  topics    String   @default("[]") // JSON string[]: e.g. ["leadership","SaaS","mental health"]
   createdAt DateTime @default(now())
 }
 

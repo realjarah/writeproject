@@ -69,9 +69,29 @@ export async function GET(
     prisma.favoriteWord.findMany({ where: { userId }, select: { word: true, definition: true } }),
     prisma.user.findUnique({ where: { id: userId }, select: { accountType: true, onboardingProfile: true } }),
   ]);
-  const sampleExamples = [...typeSpecific, ...others].map((s) => ({
+  // Topic-boost sample ordering: samples whose topics overlap with the job's topic/angle
+  // float to the top within each tier (type-specific first, then general).
+  function topicScore(sampleTopics: string, jobKeywords: string[]): number {
+    try {
+      const tags: string[] = JSON.parse(sampleTopics);
+      return tags.filter((t) => jobKeywords.some((kw) => t.includes(kw) || kw.includes(t))).length;
+    } catch { return 0; }
+  }
+  // Tokenise the job's topic+angle into lowercase words ≥ 4 chars
+  const jobKeywords = `${job.topic} ${JSON.parse(job.brief)?.interview?.angle ?? ""}`.toLowerCase()
+    .split(/\W+/).filter((w) => w.length >= 4);
+
+  function sortByTopic<T extends { topics: string }>(arr: T[]): T[] {
+    return [...arr].sort((a, b) => topicScore(b.topics, jobKeywords) - topicScore(a.topics, jobKeywords));
+  }
+
+  const sampleExamples = [
+    ...sortByTopic(typeSpecific),
+    ...sortByTopic(others),
+  ].map((s) => ({
     content: s.content,
     category: s.category,
+    topics: (() => { try { return JSON.parse(s.topics) as string[]; } catch { return []; } })(),
   }));
   const favoriteWords = favoriteWordsRows.length > 0 ? favoriteWordsRows : undefined;
 

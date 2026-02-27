@@ -61,6 +61,7 @@ interface Sample {
   content: string;
   wordCount: number;
   category: string;
+  topics: string;   // JSON string[]
   createdAt: string;
 }
 
@@ -802,38 +803,82 @@ function TrainTab() {
         );
       })()}
 
+      {/* Topic cloud */}
+      {samples.length > 0 && (() => {
+        const topicCounts: Record<string, number> = {};
+        for (const s of samples) {
+          try {
+            const tags: string[] = JSON.parse(s.topics);
+            for (const t of tags) if (t) topicCounts[t] = (topicCounts[t] ?? 0) + 1;
+          } catch { /* skip */ }
+        }
+        const sorted = Object.entries(topicCounts).sort((a, b) => b[1] - a[1]);
+        if (sorted.length === 0) return null;
+        return (
+          <div className="space-y-2">
+            <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold">Your topics</p>
+            <div className="flex flex-wrap gap-1.5">
+              {sorted.map(([topic, count]) => (
+                <span
+                  key={topic}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-500/[0.07] border border-violet-500/20 text-[11px] text-violet-500 dark:text-violet-400"
+                >
+                  {topic}
+                  {count > 1 && <span className="opacity-50 text-[10px]">×{count}</span>}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Sample list */}
       {samples.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-black/90 dark:text-white">Samples ({samples.length})</h2>
-          {samples.map((s) => (
-            <div key={s.id} className="flex items-center justify-between gap-3 py-2.5 border-b border-black/[0.06] dark:border-white/[0.05]">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                    style={
-                      s.category.startsWith("custom_")
-                        ? { color: "#22d3ee", backgroundColor: "#22d3ee22" }
-                        : { color: groupColor(s.category), backgroundColor: groupColor(s.category) + "22" }
-                    }
-                  >
-                    {CONTENT_TYPE_LABELS[s.category]
-                      ?? customTypes.find((ct) => ct.slug === s.category)?.name
-                      ?? s.category}
-                  </span>
-                  <span className="text-xs text-black/40 dark:text-white/30">{s.wordCount.toLocaleString()} words</span>
+          {samples.map((s) => {
+            const sampleTopics: string[] = (() => { try { return JSON.parse(s.topics); } catch { return []; } })();
+            return (
+              <div key={s.id} className="flex items-start justify-between gap-3 py-2.5 border-b border-black/[0.06] dark:border-white/[0.05]">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                      style={
+                        s.category.startsWith("custom_")
+                          ? { color: "#22d3ee", backgroundColor: "#22d3ee22" }
+                          : { color: groupColor(s.category), backgroundColor: groupColor(s.category) + "22" }
+                      }
+                    >
+                      {CONTENT_TYPE_LABELS[s.category]
+                        ?? customTypes.find((ct) => ct.slug === s.category)?.name
+                        ?? s.category}
+                    </span>
+                    <span className="text-xs text-black/40 dark:text-white/30">{s.wordCount.toLocaleString()} words</span>
+                  </div>
+                  <p className="text-sm text-black/60 dark:text-white/50 truncate">{s.title || "Untitled"}</p>
+                  {sampleTopics.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {sampleTopics.map((t) => (
+                        <span
+                          key={t}
+                          className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/[0.06] border border-violet-500/15 text-violet-500/70 dark:text-violet-400/70"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <p className="text-sm text-black/60 dark:text-white/50 truncate">{s.title || "Untitled"}</p>
+                <button
+                  onClick={() => deleteSample(s.id)}
+                  className="text-black/30 dark:text-white/20 hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
+                >
+                  Remove
+                </button>
               </div>
-              <button
-                onClick={() => deleteSample(s.id)}
-                className="text-black/30 dark:text-white/20 hover:text-red-400 transition-colors text-xs shrink-0"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

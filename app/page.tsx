@@ -31,7 +31,7 @@ function countWords(text: string) {
 async function getStats(userId: string) {
   const [samples, generationCount, profile, signatures, activeJobs, doneJobDrafts] =
     await Promise.all([
-      prisma.voiceSample.findMany({ where: { userId }, select: { wordCount: true, category: true } }),
+      prisma.voiceSample.findMany({ where: { userId }, select: { wordCount: true, category: true, topics: true } }),
       prisma.generatedContent.count({ where: { userId } }),
       prisma.voiceProfile.findUnique({ where: { userId } }),
       prisma.signature.count({ where: { userId } }),
@@ -44,6 +44,19 @@ async function getStats(userId: string) {
   const doneJobs      = doneJobDrafts.length;
   const aiWords       = doneJobDrafts.reduce((sum, j) => sum + (j.finalDraft ? countWords(j.finalDraft) : 0), 0);
   const hoursSaved    = Math.round(aiWords / 500); // ~500 words/hour quality writing pace
+
+  // Aggregate topic frequencies from sample topics
+  const topicCounts: Record<string, number> = {};
+  for (const s of samples) {
+    try {
+      const tags: string[] = JSON.parse(s.topics);
+      for (const t of tags) if (t) topicCounts[t] = (topicCounts[t] ?? 0) + 1;
+    } catch { /* skip */ }
+  }
+  const topTopics = Object.entries(topicCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([topic, count]) => ({ topic, count }));
 
   return {
     sampleCount:     samples.length,
@@ -58,6 +71,7 @@ async function getStats(userId: string) {
     aiWords,
     hoursSaved,
     tierInfo:        getTier(aiWords),
+    topTopics,
   };
 }
 
@@ -108,7 +122,7 @@ export default async function HomePage() {
   ]);
   const {
     sampleCount, totalWords, categoryCount, hasProfile,
-    signatureCount, activeJobs, doneJobs, aiWords, hoursSaved, tierInfo,
+    signatureCount, activeJobs, doneJobs, aiWords, hoursSaved, tierInfo, topTopics,
   } = stats;
 
   function fmtWords(n: number) {
@@ -198,6 +212,27 @@ export default async function HomePage() {
           <p className="text-[11px] text-black/35 dark:text-white/25">Max tier reached. You are the ghost.</p>
         )}
       </div>
+
+      {/* Top topics */}
+      {topTopics.length > 0 && (
+        <div className="bg-black/[0.03] dark:bg-white/[0.03] border border-black/[0.08] dark:border-white/[0.07] rounded-xl px-5 py-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-black/30 dark:text-white/20 uppercase tracking-[0.12em] font-semibold">Favorite topics</p>
+            <p className="text-[11px] text-black/25 dark:text-white/15">from your writing samples</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {topTopics.map(({ topic, count }) => (
+              <span
+                key={topic}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/[0.08] border border-violet-500/20 text-[12px] text-violet-500 dark:text-violet-400"
+              >
+                {topic}
+                <span className="text-[10px] opacity-55">{count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Readiness bar */}
       {sampleCount > 0 && (
