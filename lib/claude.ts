@@ -37,7 +37,7 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
 
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 2000,
+    max_tokens: 3000,
     messages: [
       {
         role: "user",
@@ -451,7 +451,8 @@ function extractText(content: any[]): string {
 export async function planContent(
   voiceProfile: VoiceAnalysis,
   interview: InterviewAnswers,
-  context?: GenerationContext
+  context?: GenerationContext,
+  sampleExamples?: { content: string; category: string }[]
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
@@ -462,10 +463,23 @@ export async function planContent(
     ? `\n**Format-specific guidelines for ${CONTENT_TYPE_LABELS[interview.contentType]}:**\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
     : "";
 
+  // Cap each sample at 1000 words to stay within a reasonable token budget
+  const capWords = (text: string, max: number) => {
+    const ws = text.split(/\s+/);
+    return ws.length > max ? ws.slice(0, max).join(" ") + "…" : text;
+  };
+  const examplesBlock = sampleExamples?.length
+    ? `\n**Author's Actual Writing (study before planning — match this voice exactly):**\n${
+        sampleExamples
+          .map((s, i) => `### Sample ${i + 1} [${s.category}]\n${capWords(s.content, 1000)}`)
+          .join("\n\n")
+      }\n`
+    : "";
+
   const userPrompt = `You are about to ghost-write a ${CONTENT_TYPE_LABELS[interview.contentType]}.
 
 Before writing a single word, produce a detailed structural plan.
-
+${examplesBlock}
 **Brief:**
 - Topic: ${interview.topic}
 - Angle / argument: ${interview.angle}
@@ -518,7 +532,8 @@ export async function draftContent(
   voiceProfile: VoiceAnalysis,
   interview: InterviewAnswers,
   plan: string,
-  context?: GenerationContext
+  context?: GenerationContext,
+  sampleExamples?: { content: string; category: string }[]
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
@@ -527,6 +542,18 @@ export async function draftContent(
   const guidelines = voiceProfile.contentGuidelines?.[interview.contentType];
   const guidelinesBlock = guidelines?.length
     ? `\n## Format-Specific Guidelines (${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
+    : "";
+
+  const capWords = (text: string, max: number) => {
+    const ws = text.split(/\s+/);
+    return ws.length > max ? ws.slice(0, max).join(" ") + "…" : text;
+  };
+  const examplesSection = sampleExamples?.length
+    ? `\n## Author's Actual Writing Samples (absorb these — write with the exact same voice)\n${
+        sampleExamples
+          .map((s, i) => `### Example ${i + 1} [${s.category}]\n${capWords(s.content, 1000)}`)
+          .join("\n\n")
+      }\n`
     : "";
 
   const systemPrompt = `You are a ghost-writer. Write ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
@@ -543,7 +570,7 @@ export async function draftContent(
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid:**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${guidelinesBlock}
+${examplesSection}${guidelinesBlock}
 ## Output Rules
 - Write ONLY the piece. Nothing else.
 - ${WORD_GUIDANCE[interview.contentType] ?? ""}`;
