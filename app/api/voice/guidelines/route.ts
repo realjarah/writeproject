@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { generateContentGuideline, VoiceAnalysis } from "@/lib/claude";
+import { VoiceAnalysis } from "@/lib/claude";
 
 export async function POST(req: NextRequest) {
   const { contentType } = await req.json();
@@ -14,31 +14,16 @@ export async function POST(req: NextRequest) {
   }
 
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);
+  const guidelines = voiceProfile.contentGuidelines?.[contentType];
 
-  // Check if guidelines already exist for this type
-  const existing = voiceProfile.contentGuidelines?.[contentType];
-  if (existing?.length) {
-    return Response.json({ contentType, guidelines: existing, cached: true });
+  if (!guidelines?.length) {
+    return Response.json(
+      { error: `No guidelines found for "${contentType}". Re-run voice analysis to generate them.` },
+      { status: 404 }
+    );
   }
 
-  // Generate fresh guidelines
-  const guidelines = await generateContentGuideline(voiceProfile, contentType);
-
-  // Merge back into the analysis JSON and save
-  const updatedAnalysis: VoiceAnalysis = {
-    ...voiceProfile,
-    contentGuidelines: {
-      ...(voiceProfile.contentGuidelines ?? {}),
-      [contentType]: guidelines,
-    },
-  };
-
-  await prisma.voiceProfile.update({
-    where: { id: 1 },
-    data: { analysis: JSON.stringify(updatedAnalysis) },
-  });
-
-  return Response.json({ contentType, guidelines, cached: false });
+  return Response.json({ contentType, guidelines });
 }
 
 export async function DELETE(req: NextRequest) {

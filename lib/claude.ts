@@ -37,7 +37,7 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
 
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 3000,
+    max_tokens: 8000,
     messages: [
       {
         role: "user",
@@ -56,10 +56,15 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "commonPatterns": ["specific recurring phrases or structural patterns", "another pattern"],
   "thingsToAvoid": ["writing patterns NOT present in their work that should be avoided", "another thing to avoid"],
   "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference",
-  "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" }
+  "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
+  "contentGuidelines": {
+    "[contentType]": ["6–8 specific, actionable guidelines bridging THIS author's voice with that format's conventions. Each must be specific to this author's actual patterns—not generic writing advice. A ghostwriter must be able to apply each one immediately."]
+  }
 }
 
-Only include keys in categoryInsights that are actually represented in the samples. Omit the field entirely if only one format is present.`,
+Rules:
+- Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
+- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.`,
       },
     ],
   });
@@ -265,61 +270,6 @@ Write it now.`;
   });
 }
 
-// ── Content guidelines ───────────────────────────────────────────────────────
-
-/**
- * Generate format-specific writing guidelines for one content type,
- * grounded in this author's actual voice profile.
- * These layer ON TOP of the universal voice analysis.
- */
-export async function generateContentGuideline(
-  voiceProfile: VoiceAnalysis,
-  contentType: string
-): Promise<string[]> {
-  const formatLabel = CONTENT_TYPE_LABELS[contentType] ?? contentType;
-  const formatGuidance = WORD_GUIDANCE[contentType] ?? "";
-
-  const prompt = `You are helping a ghostwriter understand exactly how to write ${formatLabel} in a specific author's voice.
-
-Author voice profile:
-- Summary: ${voiceProfile.rawSummary}
-- Tone: ${voiceProfile.tone}
-- Sentence structure: ${voiceProfile.sentenceStructure}
-- Vocabulary: ${voiceProfile.vocabularyStyle}
-- Punctuation habits: ${voiceProfile.punctuationHabits}
-- Paragraph style: ${voiceProfile.paragraphStyle}
-- Rhetorical devices: ${voiceProfile.rhetoricalDevices}
-- Recurring patterns: ${voiceProfile.commonPatterns.join("; ")}
-- Things to avoid: ${voiceProfile.thingsToAvoid.join("; ")}
-
-Format: ${formatLabel}
-Format requirements: ${formatGuidance}
-
-Generate 6–8 specific, actionable guidelines that bridge THIS author's natural voice with ${formatLabel} format conventions. Each guideline must be:
-- Specific to this author's patterns — not generic writing advice
-- Actionable: a ghostwriter can immediately apply it
-- A concrete instruction, not a vague principle
-
-Focus on: how their natural patterns adapt (or should be suppressed) for this format, structural choices that fit their style, what makes their version of this format distinctive, what tendencies to dial up vs dial down.
-
-Return ONLY a JSON array of strings. No preamble, no explanation.`;
-
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = res.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-
-  const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  return JSON.parse(clean) as string[];
-}
-
 // ── Stage budgets (scales with format complexity / output length) ─────────────
 
 interface StageBudget { maxTokens: number; thinkingBudget: number }
@@ -468,15 +418,10 @@ export async function planContent(
     ? `\n**How this author's voice shows up in ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType}:** ${categoryInsight}\n`
     : "";
 
-  // Cap each sample at 1000 words to stay within a reasonable token budget
-  const capWords = (text: string, max: number) => {
-    const ws = text.split(/\s+/);
-    return ws.length > max ? ws.slice(0, max).join(" ") + "…" : text;
-  };
   const examplesBlock = sampleExamples?.length
     ? `\n**Author's Actual Writing (study before planning — match this voice exactly):**\n${
         sampleExamples
-          .map((s, i) => `### Sample ${i + 1} [${s.category}]\n${capWords(s.content, 1000)}`)
+          .map((s, i) => `### Sample ${i + 1} [${s.category}]\n${s.content}`)
           .join("\n\n")
       }\n`
     : "";
@@ -554,14 +499,10 @@ export async function draftContent(
     ? `\n## How This Author Writes ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType}\n${categoryInsight}\n`
     : "";
 
-  const capWords = (text: string, max: number) => {
-    const ws = text.split(/\s+/);
-    return ws.length > max ? ws.slice(0, max).join(" ") + "…" : text;
-  };
   const examplesSection = sampleExamples?.length
     ? `\n## Author's Actual Writing Samples (absorb these — write with the exact same voice)\n${
         sampleExamples
-          .map((s, i) => `### Example ${i + 1} [${s.category}]\n${capWords(s.content, 1000)}`)
+          .map((s, i) => `### Example ${i + 1} [${s.category}]\n${s.content}`)
           .join("\n\n")
       }\n`
     : "";

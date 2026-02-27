@@ -17,12 +17,6 @@ import {
 // Load humanizer instructions once at module load (server-side only)
 const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
 
-// Cap a string to a max number of words (for sample examples passed to the model)
-function capWords(text: string, max: number): string {
-  const ws = text.split(/\s+/);
-  return ws.length > max ? ws.slice(0, max).join(" ") + "…" : text;
-}
-
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { signatureContent, context, ...interview } = body as InterviewAnswers & {
@@ -40,25 +34,19 @@ export async function POST(req: NextRequest) {
 
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);
 
-  // Fetch writing samples to pass as few-shot examples.
-  // Prefer samples matching the target content type; fill remaining slots with others.
+  // Fetch all writing samples — type-matching first, then others.
+  // No truncation: pass the full content to take advantage of the large context window.
   const typeSpecific = await prisma.voiceSample.findMany({
     where: { category: interview.contentType },
     orderBy: { wordCount: "desc" },
-    take: 3,
   });
-  const fillCount = Math.max(0, 2 - typeSpecific.length);
-  const general =
-    fillCount > 0
-      ? await prisma.voiceSample.findMany({
-          where: { NOT: { category: interview.contentType } },
-          orderBy: { wordCount: "desc" },
-          take: fillCount,
-        })
-      : [];
+  const others = await prisma.voiceSample.findMany({
+    where: { NOT: { category: interview.contentType } },
+    orderBy: { wordCount: "desc" },
+  });
 
-  const sampleExamples = [...typeSpecific, ...general].map((s) => ({
-    content: capWords(s.content, 1000),
+  const sampleExamples = [...typeSpecific, ...others].map((s) => ({
+    content: s.content,
     category: s.category,
   }));
 
