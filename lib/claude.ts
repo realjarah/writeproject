@@ -69,8 +69,10 @@ Rules:
     ],
   });
 
-  const text =
+  const raw =
     message.content[0].type === "text" ? message.content[0].text : "";
+  // Strip markdown code fences if the model wraps the JSON despite instructions
+  const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   return JSON.parse(text) as VoiceAnalysis;
 }
 
