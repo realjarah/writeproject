@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { type ContextItem, type ContextItemTag, CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "@/lib/content-types";
+import { extractTemplateBrief, defaultTemplateName, type TemplateBrief } from "@/lib/template-utils";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,15 @@ interface QueuedJob {
   summaryText: string;
   status: string;
   createdAt: string;
+}
+
+interface Template {
+  id: number;
+  name: string;
+  contentType: string;
+  brief: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 function timeAgoCreate(iso: string) {
@@ -182,6 +192,14 @@ export default function CreatePage() {
   // Saved (queued) briefs visible on this page
   const [queuedJobs, setQueuedJobs] = useState<QueuedJob[]>([]);
 
+  // Templates
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
+  const [editTemplateName, setEditTemplateName] = useState("");
+
   function loadQueuedJobs() {
     fetch("/api/ghostwriter")
       .then((r) => r.json())
@@ -201,6 +219,10 @@ export default function CreatePage() {
     fetch("/api/custom-types")
       .then((r) => r.json())
       .then(setCustomTypes)
+      .catch(() => {});
+    fetch("/api/templates")
+      .then((r) => r.json())
+      .then((t: Template[]) => setTemplates(t))
       .catch(() => {});
   }, []);
 
@@ -543,6 +565,74 @@ export default function CreatePage() {
     setQueuedJobs((prev) => prev.filter((j) => j.id !== id));
   }
 
+  // ── Templates ──────────────────────────────────────────────────────────
+
+  function applyTemplate(template: Template) {
+    const tBrief: TemplateBrief = JSON.parse(template.brief);
+    const interview = tBrief.interview;
+
+    // Build questions for fields the template doesn't provide
+    const questions: IntakeQuestion[] = [
+      { id: "topic", label: "What's the topic?", placeholder: "The specific subject for this piece" },
+    ];
+    if (!interview.angle) {
+      questions.push({ id: "angle", label: "Angle or perspective", placeholder: "What's your unique take?" });
+    }
+    if (!interview.keyPoints) {
+      questions.push({ id: "keyPoints", label: "Key points to cover", placeholder: "Main ideas, arguments, or sections" });
+    }
+
+    const syntheticIntake: IntakeResult = {
+      contentType: interview.contentType,
+      topic: null,
+      angle: interview.angle ?? null,
+      keyPoints: interview.keyPoints ?? null,
+      targetAudience: interview.targetAudience ?? null,
+      toneNotes: interview.toneNotes ?? null,
+      summary: `Template: ${template.name}`,
+      questions,
+    };
+
+    setIntake(syntheticIntake);
+    setAnswers({});
+    setOverrideType(interview.contentType);
+    setPhase("followup");
+    setDescription("");
+    setError("");
+    if (interview.wordCountTarget) setWordCountTarget(interview.wordCountTarget);
+    if (tBrief.context?.items?.length) {
+      setContextItems(tBrief.context.items);
+      setContextOpen(true);
+    } else {
+      setContextItems([]);
+    }
+    if (tBrief.signatureId) {
+      setSelectedSigId(tBrief.signatureId);
+    }
+  }
+
+  async function deleteTemplate(id: number) {
+    await fetch("/api/templates", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  async function renameTemplate() {
+    if (!editingTemplateId || !editTemplateName.trim()) return;
+    await fetch("/api/templates", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: editingTemplateId, name: editTemplateName.trim() }),
+    });
+    setTemplates((prev) =>
+      prev.map((t) => t.id === editingTemplateId ? { ...t, name: editTemplateName.trim() } : t),
+    );
+    setEditingTemplateId(null);
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -557,6 +647,63 @@ export default function CreatePage() {
               Describe your idea — rough or detailed. The more context, the fewer follow-up questions.
             </p>
           </div>
+
+          {/* Template picker */}
+          {templates.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28] uppercase tracking-widest font-semibold">
+                Start from template
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {templates.map((t) => (
+                  <div key={t.id} className="group relative">
+                    <button
+                      type="button"
+                      onClick={() => applyTemplate(t)}
+                      className="text-xs px-3 py-2 rounded-lg border border-black/[0.09] dark:border-white/[0.07] text-black/[0.55] dark:text-white/[0.55] hover:border-black/[0.18] dark:hover:border-white/[0.18] hover:text-black/90 dark:hover:text-white bg-black/[0.03] dark:bg-[#111] transition-colors text-left"
+                    >
+                      <span className="text-[10px] text-black/[0.28] dark:text-white/[0.28] block mb-0.5">
+                        {CONTENT_TYPE_LABELS[t.contentType] ?? t.contentType}
+                      </span>
+                      {t.name}
+                    </button>
+                    <div className="absolute -top-1 -right-1 hidden group-hover:flex gap-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setEditingTemplateId(t.id); setEditTemplateName(t.name); }}
+                        className="w-5 h-5 flex items-center justify-center bg-white dark:bg-[#222] border border-black/[0.12] dark:border-white/[0.12] rounded text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white text-[10px]"
+                        title="Rename"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); deleteTemplate(t.id); }}
+                        className="w-5 h-5 flex items-center justify-center bg-white dark:bg-[#222] border border-black/[0.12] dark:border-white/[0.12] rounded text-black/[0.28] dark:text-white/[0.28] hover:text-red-500 dark:hover:text-red-400 text-[10px]"
+                        title="Delete"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {editingTemplateId !== null && (
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={editTemplateName}
+                    onChange={(e) => setEditTemplateName(e.target.value)}
+                    className="flex-1 bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-1.5 text-xs text-black/90 dark:text-white focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") renameTemplate(); if (e.key === "Escape") setEditingTemplateId(null); }}
+                  />
+                  <button type="button" onClick={renameTemplate} className="text-xs text-black/90 dark:text-white font-medium">Save</button>
+                  <button type="button" onClick={() => setEditingTemplateId(null)} className="text-xs text-black/[0.35] dark:text-white/[0.35]">Cancel</button>
+                </div>
+              )}
+            </div>
+          )}
 
           <textarea
             value={description}
@@ -1018,24 +1165,88 @@ export default function CreatePage() {
           {/* Error */}
           {error && <p className="text-xs text-red-400">{error}</p>}
 
-          {/* Send to Ghostwriter / Save for later */}
-          <div className="flex items-center gap-3 pt-1">
-            <button
-              type="button"
-              onClick={sendToGhostwriter}
-              disabled={!canSend}
-              className="flex-1 py-3 bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              {sending ? "Sending…" : "Send to Ghostwriter →"}
-            </button>
-            <button
-              type="button"
-              onClick={saveForLater}
-              disabled={!canSend}
-              className="py-3 px-5 bg-transparent text-black/[0.55] dark:text-white/[0.55] border border-black/[0.12] dark:border-white/[0.12] text-sm font-medium rounded-xl hover:text-black/90 dark:hover:text-white hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              Save for later
-            </button>
+          {/* Send to Ghostwriter / Save for later / Save as Template */}
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={sendToGhostwriter}
+                disabled={!canSend}
+                className="flex-1 py-3 bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {sending ? "Sending…" : "Send to Ghostwriter →"}
+              </button>
+              <button
+                type="button"
+                onClick={saveForLater}
+                disabled={!canSend}
+                className="py-3 px-5 bg-transparent text-black/[0.55] dark:text-white/[0.55] border border-black/[0.12] dark:border-white/[0.12] text-sm font-medium rounded-xl hover:text-black/90 dark:hover:text-white hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Save for later
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const brief = buildBrief();
+                  if (!brief) return;
+                  const tBrief = extractTemplateBrief(JSON.stringify(brief), selectedSigId);
+                  setNewTemplateName(defaultTemplateName(tBrief));
+                  setShowSaveTemplate(true);
+                }}
+                disabled={!intake}
+                className="py-3 px-5 bg-transparent text-black/[0.40] dark:text-white/[0.40] border border-black/[0.09] dark:border-white/[0.07] text-sm rounded-xl hover:text-black/90 dark:hover:text-white hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Save as Template
+              </button>
+            </div>
+            {showSaveTemplate && (
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  placeholder="Template name"
+                  className="flex-1 bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === "Escape") setShowSaveTemplate(false); }}
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSavingTemplate(true);
+                    const brief = buildBrief();
+                    if (!brief) { setSavingTemplate(false); return; }
+                    const tBrief = extractTemplateBrief(JSON.stringify(brief), selectedSigId);
+                    const res = await fetch("/api/templates", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        name: newTemplateName.trim() || defaultTemplateName(tBrief),
+                        contentType: tBrief.interview.contentType,
+                        brief: JSON.stringify(tBrief),
+                      }),
+                    });
+                    if (res.ok) {
+                      const created = await res.json();
+                      setTemplates((prev) => [created, ...prev]);
+                    }
+                    setSavingTemplate(false);
+                    setShowSaveTemplate(false);
+                  }}
+                  disabled={savingTemplate || !newTemplateName.trim()}
+                  className="bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-40"
+                >
+                  {savingTemplate ? "Saving..." : "Save Template"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSaveTemplate(false)}
+                  className="text-sm text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

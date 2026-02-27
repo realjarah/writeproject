@@ -3,6 +3,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
+import {
+  downloadTxt as dlTxt,
+  downloadMarkdown,
+  downloadDocx,
+  downloadHtml,
+  printAsPdf as printPdf,
+} from "@/lib/export-utils";
+import { extractTemplateBrief, defaultTemplateName } from "@/lib/template-utils";
 
 interface Job {
   id: number;
@@ -106,37 +114,6 @@ function renderMarkdown(md: string): string {
   return html;
 }
 
-function downloadTxt(topic: string, draft: string) {
-  const blob = new Blob([draft], { type: "text/plain" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = `${topic.slice(0, 60).replace(/[^a-z0-9]+/gi, "-")}.txt`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function printAsPdf(topic: string, draft: string) {
-  const win = window.open("", "_blank", "width=800,height=900");
-  if (!win) return;
-  win.document.write(`<!DOCTYPE html><html><head>
-<meta charset="utf-8">
-<title>${topic.replace(/</g, "&lt;")}</title>
-<style>
-  body{font-family:Georgia,serif;font-size:15px;line-height:1.75;max-width:680px;margin:48px auto;color:#111}
-  h1{font-size:2em;margin-bottom:.4em}h2{font-size:1.4em}h3{font-size:1.2em}
-  p{margin:0 0 1em}ul{margin:0 0 1em;padding-left:1.4em}li{margin-bottom:.3em}
-  code{font-family:monospace;background:#f2f2f2;padding:0 .3em}
-  hr{border:none;border-top:1px solid #ccc;margin:1.5em 0}
-  strong{font-weight:700}em{font-style:italic}
-  @media print{body{margin:0}}
-</style>
-</head><body>${renderMarkdown(draft)}</body></html>`);
-  win.document.close();
-  win.focus();
-  win.print();
-}
-
 export default function GhostwriterPage() {
   const [jobs,    setJobs]    = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -151,12 +128,32 @@ export default function GhostwriterPage() {
   const [revisingId,   setRevisingId]   = useState<number | null>(null);
   const [liveRevision, setLiveRevision] = useState<string>("");
 
+  // Download dropdown
+  const [downloadDropdownId, setDownloadDropdownId] = useState<number | null>(null);
+  // Save as template
+  const [saveTemplateId,  setSaveTemplateId]  = useState<number | null>(null);
+  const [templateName,    setTemplateName]    = useState("");
+  const [savingTemplate,  setSavingTemplate]  = useState(false);
+  const [savedTemplateId, setSavedTemplateId] = useState<number | null>(null);
+
   // Per-job pipeline steps (sent by the server at pipeline start)
   const [jobSteps, setJobSteps] = useState<Record<number, PipelineStep[]>>({});
   // Accumulated streaming content during humanization
   const [liveContent, setLiveContent] = useState<string>("");
 
   const abortRef = useRef<AbortController | null>(null);
+
+  // Close download dropdown on outside click
+  useEffect(() => {
+    if (downloadDropdownId === null) return;
+    function handleClick(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest("[data-download-dropdown]")) {
+        setDownloadDropdownId(null);
+      }
+    }
+    document.addEventListener("click", handleClick, { capture: true });
+    return () => document.removeEventListener("click", handleClick, { capture: true });
+  }, [downloadDropdownId]);
 
   const loadJobs = useCallback(async () => {
     const res  = await fetch("/api/ghostwriter");
@@ -439,19 +436,51 @@ export default function GhostwriterPage() {
                           >
                             {copiedId === job.id ? "Copied!" : "Copy"}
                           </button>
+
+                          {/* Download dropdown */}
+                          <div className="relative" data-download-dropdown>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDownloadDropdownId(downloadDropdownId === job.id ? null : job.id); }}
+                              className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors flex items-center gap-1"
+                            >
+                              Download
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                            {downloadDropdownId === job.id && (
+                              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1a1a1a] border border-black/[0.12] dark:border-white/[0.12] rounded-lg shadow-lg py-1 z-50 min-w-[140px]">
+                                {[
+                                  { label: "Text (.txt)",   action: () => dlTxt(job.title || job.topic, job.finalDraft) },
+                                  { label: "Markdown (.md)", action: () => downloadMarkdown(job.title || job.topic, job.finalDraft) },
+                                  { label: "Word (.docx)",  action: () => downloadDocx(job.title || job.topic, job.finalDraft) },
+                                  { label: "PDF (print)",   action: () => printPdf(job.title || job.topic, job.finalDraft, renderMarkdown) },
+                                  { label: "HTML (.html)",  action: () => downloadHtml(job.title || job.topic, job.finalDraft, renderMarkdown) },
+                                ].map((opt) => (
+                                  <button
+                                    key={opt.label}
+                                    onClick={() => { opt.action(); setDownloadDropdownId(null); }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-black/[0.60] dark:text-white/[0.60] hover:bg-black/[0.05] dark:hover:bg-white/[0.07] hover:text-black/90 dark:hover:text-white transition-colors"
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
                           <button
-                            onClick={() => downloadTxt(job.title || job.topic, job.finalDraft)}
-                            className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
-                            title="Download as TXT"
+                            onClick={async () => {
+                              const res = await fetch(`/api/ghostwriter/${job.id}`);
+                              const fullJob = await res.json();
+                              if (!fullJob.brief) return;
+                              const tBrief = extractTemplateBrief(fullJob.brief);
+                              setTemplateName(defaultTemplateName(tBrief));
+                              setSaveTemplateId(job.id);
+                            }}
+                            className="text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/90 dark:hover:text-white border border-black/[0.10] dark:border-[#2a2a2a] hover:border-black/[0.21] dark:hover:border-white/[0.22] rounded-md px-3 py-1.5 transition-colors"
                           >
-                            TXT
-                          </button>
-                          <button
-                            onClick={() => printAsPdf(job.title || job.topic, job.finalDraft)}
-                            className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
-                            title="Print / Save as PDF"
-                          >
-                            PDF
+                            {savedTemplateId === job.id ? "Saved!" : "Template"}
                           </button>
                           <button
                             onClick={() => archiveJob(job.id)}
@@ -477,6 +506,52 @@ export default function GhostwriterPage() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Save as template form */}
+                  {saveTemplateId === job.id && (
+                    <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-3 flex items-center gap-3">
+                      <input
+                        type="text"
+                        value={templateName}
+                        onChange={(e) => setTemplateName(e.target.value)}
+                        placeholder="Template name"
+                        className="flex-1 bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-1.5 text-xs text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === "Escape") setSaveTemplateId(null); }}
+                      />
+                      <button
+                        onClick={async () => {
+                          setSavingTemplate(true);
+                          const res = await fetch(`/api/ghostwriter/${job.id}`);
+                          const fullJob = await res.json();
+                          const tBrief = extractTemplateBrief(fullJob.brief);
+                          await fetch("/api/templates", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              name: templateName.trim() || defaultTemplateName(tBrief),
+                              contentType: tBrief.interview.contentType,
+                              brief: JSON.stringify(tBrief),
+                            }),
+                          });
+                          setSavingTemplate(false);
+                          setSaveTemplateId(null);
+                          setSavedTemplateId(job.id);
+                          setTimeout(() => setSavedTemplateId(null), 2000);
+                        }}
+                        disabled={savingTemplate || !templateName.trim()}
+                        className="text-xs bg-black/[0.88] text-white dark:bg-white dark:text-black font-medium px-3 py-1.5 rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-40"
+                      >
+                        {savingTemplate ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        onClick={() => setSaveTemplateId(null)}
+                        className="text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
 
                   {/* Progress steps (dynamic per-job) */}
                   {(isActive || (isProcessing && !isDone)) && (
