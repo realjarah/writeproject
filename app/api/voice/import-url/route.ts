@@ -59,6 +59,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Fetch failed: ${msg}` }, { status: 400 });
   }
 }
-
-// Keep fetchUrlAsText export accessible for other server-side usage
-export { fetchUrlAsText };
