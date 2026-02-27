@@ -569,6 +569,58 @@ Write the piece now.`;
 }
 
 /**
+ * Stage 2b — Compare and select the best of multiple drafts
+ * Analyzes each draft against the voice profile and brief, then outputs the
+ * best single piece (selected or synthesized from the strongest elements).
+ */
+export async function compareAndSelectBestDraft(
+  drafts: string[],
+  voiceProfile: VoiceAnalysis,
+  interview: InterviewAnswers
+): Promise<string> {
+  const { draft: draftBudget } = getStageBudgets(interview.contentType);
+
+  const userPrompt = `You are evaluating ${drafts.length} ghost-written versions of a ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType} to select and deliver the single best piece.
+
+**Author Voice Profile:**
+${voiceProfile.rawSummary}
+- Tone: ${voiceProfile.tone}
+- Sentence structure: ${voiceProfile.sentenceStructure}
+- Vocabulary: ${voiceProfile.vocabularyStyle}
+- Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}
+
+**Original Brief:**
+- Topic: ${interview.topic}
+- Angle: ${interview.angle}
+- Key points: ${interview.keyPoints}
+- Audience: ${interview.targetAudience || "the author's usual audience"}
+
+**The Drafts:**
+${drafts.map((d, i) => `--- DRAFT ${i + 1} ---\n${d}`).join("\n\n")}
+
+Using extended thinking, analyze each draft for:
+1. Voice authenticity — does it sound specifically like this author?
+2. Brief fidelity — does it faithfully cover the topic, angle, and key points?
+3. Quality, impact, and resonance
+
+Then produce the FINAL BEST VERSION by either:
+- Selecting the strongest draft as-is, OR
+- Synthesizing the best elements from multiple drafts into one superior piece
+
+Output ONLY the final piece. No preamble, no "I chose draft X", no commentary. Just the finished text.`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await (anthropic.messages.create as any)({
+    model: "claude-opus-4-6",
+    max_tokens: draftBudget.maxTokens,
+    thinking: { type: "enabled", budget_tokens: draftBudget.thinkingBudget },
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  return extractText(res.content);
+}
+
+/**
  * Stage 3 — Humanize
  * Strips AI patterns, audits itself, and produces the final polished piece.
  * Streams the output.

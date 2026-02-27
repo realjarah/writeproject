@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { type ContextItem, type ContextItemTag, CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "@/lib/content-types";
 
@@ -30,7 +30,7 @@ interface Signature {
   isDefault: boolean;
 }
 
-type Phase = "describe" | "analyzing" | "followup";
+type Phase = "describe" | "analyzing" | "followup" | "sent" | "saved";
 type SourceType = "url" | "file" | "text" | "research";
 
 const TAGS: { value: ContextItemTag; label: string; color: string }[] = [
@@ -146,12 +146,9 @@ export default function CreatePage() {
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [selectedSigId, setSelectedSigId] = useState<number | null>(null);
 
-  // Generation
-  const [generating, setGenerating] = useState(false);
-  const [currentStage, setCurrentStage] = useState<{ step: number; total: number; label: string } | null>(null);
-  const [output, setOutput] = useState("");
+  // Send to ghostwriter / save for later
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch("/api/signatures")
@@ -196,7 +193,6 @@ export default function CreatePage() {
     setDescription("");
     setIntake(null);
     setAnswers({});
-    setOutput("");
     setError("");
     setContextItems([]);
     setDraftText("");
@@ -374,16 +370,15 @@ export default function CreatePage() {
     sourceType === "research" ? false : // research uses its own button
     !!newText.trim();
 
-  // ── Generation ───────────────────────────────────────────────────────────
+  // ── Build brief ──────────────────────────────────────────────────────────
 
-  const canGenerate =
+  const canSend =
     intake !== null &&
-    !generating &&
+    !sending &&
     (intake.questions ?? []).every((q) => !!answers[q.id]?.trim());
 
-  async function generate() {
-    if (!intake) return;
-
+  function buildBrief() {
+    if (!intake) return null;
     const interview = {
       contentType: overrideType ?? intake.contentType ?? "blog",
       topic:       intake.topic      ?? answers.topic      ?? "",
@@ -393,25 +388,19 @@ export default function CreatePage() {
       toneNotes:      intake.toneNotes      ?? answers.toneNotes      ?? undefined,
     };
 
-    setError("");
-    setGenerating(true);
-    setOutput("");
-    setCurrentStage(null);
-
-    // Build context — prepend original brief so all specifics feed in
     const allItems: ContextItem[] = [];
     if (description.trim().length > 80) {
       allItems.push({
         tag: "note",
         text: description.trim(),
-        instructions: "This is the author's original brief. Use any specific details, examples, data points, or context from it.",
+        instructions: "Author's original brief — use any specific details, examples, or context from it.",
       });
     }
     allItems.push(...contextItems);
 
     if (draftText.trim() || draftData) {
       const draftInstructions =
-        "The user has provided existing material for this piece. Assess what it is — a full or partial draft, an outline/structure, or rough notes/fragments — and handle it accordingly: if it's a draft, rewrite and refine it in the author's voice; if it's an outline, write a full piece following that structure; if it's rough notes, use them as source material and write the piece from scratch. Always write in the author's voice.";
+        "User provided existing material. Assess it — full draft, outline, or rough notes — and write the piece in the author's voice accordingly.";
       if (draftData && draftMediaType) {
         allItems.push({ tag: "note", fileName: draftFileName || "draft.pdf", data: draftData, mediaType: draftMediaType, instructions: draftInstructions });
       } else {
@@ -419,56 +408,54 @@ export default function CreatePage() {
       }
     }
 
-    const context = allItems.length > 0 ? { items: allItems } : undefined;
-
-    const res = await fetch("/api/generate/stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...interview, context, signatureContent: selectedSig?.content ?? undefined }),
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Generation failed. Make sure your voice profile is set up.");
-      setGenerating(false);
-      return;
-    }
-
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (data.type === "stage") {
-            setCurrentStage({ step: data.step, total: data.total, label: data.label });
-          } else if (data.type === "chunk") {
-            setOutput((prev) => prev + data.text);
-          } else if (data.type === "error") {
-            setError(data.message);
-          }
-        } catch { /* ignore malformed lines */ }
-      }
-    }
-
-    if (selectedSig) {
-      setOutput((prev) => `${prev}\n\n${selectedSig.content}`);
-    }
-    setGenerating(false);
-    setCurrentStage(null);
+    return {
+      interview,
+      context: allItems.length > 0 ? { items: allItems } : undefined,
+      signatureContent: selectedSig?.content ?? undefined,
+    };
   }
 
-  async function copyOutput() {
-    await navigator.clipboard.writeText(output);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  async function createJob(): Promise<number | null> {
+    if (!intake) return null;
+    const brief = buildBrief();
+    if (!brief) return null;
+    const res = await fetch("/api/ghostwriter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contentType: brief.interview.contentType,
+        topic: brief.interview.topic,
+        brief: JSON.stringify(brief),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Failed to create job");
+    return data.id as number;
+  }
+
+  async function sendToGhostwriter() {
+    setError("");
+    setSending(true);
+    try {
+      await createJob();
+      router.push("/ghostwriter");
+    } catch {
+      setError("Failed to send to ghostwriter. Please try again.");
+      setSending(false);
+    }
+  }
+
+  async function saveForLater() {
+    setError("");
+    setSending(true);
+    try {
+      await createJob();
+      setPhase("saved");
+    } catch {
+      setError("Failed to save. Please try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -477,10 +464,10 @@ export default function CreatePage() {
     <div className="space-y-8">
 
       {/* ── Phase: describe ── */}
-      {phase === "describe" && !output && (
+      {phase === "describe" && (
         <div className="space-y-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">What do you want to write?</h1>
+            <h1 className="text-2xl font-bold text-white">Brainstorm</h1>
             <p className="text-[#555] text-sm mt-1">
               Describe your idea — rough or detailed. The more context, the fewer follow-up questions.
             </p>
@@ -518,7 +505,7 @@ export default function CreatePage() {
       )}
 
       {/* ── Phase: analyzing ── */}
-      {phase === "analyzing" && !output && (
+      {phase === "analyzing" && (
         <div className="flex items-center gap-3 py-12">
           <span className="inline-block w-1.5 h-1.5 bg-[#555] rounded-full animate-pulse" />
           <span className="text-sm text-[#555]">Analyzing your brief...</span>
@@ -526,7 +513,7 @@ export default function CreatePage() {
       )}
 
       {/* ── Phase: followup ── */}
-      {phase === "followup" && intake && !output && !generating && (
+      {phase === "followup" && intake && (
         <div className="space-y-6">
           {/* Summary + type selector + back */}
           <div className="flex items-start justify-between gap-4">
@@ -832,112 +819,52 @@ export default function CreatePage() {
           {/* Error */}
           {error && <p className="text-xs text-red-400">{error}</p>}
 
-          {/* Generate */}
-          <button
-            type="button"
-            onClick={generate}
-            disabled={!canGenerate}
-            className="w-full py-3 bg-white text-black text-sm font-medium rounded-xl hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            Generate in my voice
-          </button>
-        </div>
-      )}
-
-      {/* ── Generating: stage progress (shown instead of followup form) ── */}
-      {generating && (
-        <div className="space-y-4">
-          {/* Summary line */}
-          {intake && (
-            <p className="text-sm text-[#555]">{intake.summary}</p>
-          )}
-
-          {/* Stage dots */}
-          <div className="flex items-center gap-1.5">
-            {currentStage ? (
-              <>
-                {[1, 2, 3].map((step) => (
-                  <Fragment key={step}>
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300 ${
-                      step < currentStage.step ? "bg-white" :
-                      step === currentStage.step ? "bg-white animate-pulse" :
-                      "bg-[#333]"
-                    }`} />
-                    {step < 3 && (
-                      <div className={`w-6 h-px transition-colors duration-300 ${step < currentStage.step ? "bg-[#555]" : "bg-[#2a2a2a]"}`} />
-                    )}
-                  </Fragment>
-                ))}
-                <span className="text-xs text-[#555] ml-2">{currentStage.label}</span>
-              </>
-            ) : (
-              <span className="text-xs text-[#555]">Starting...</span>
-            )}
-          </div>
-
-          {/* Streaming text — shown when stage 3 starts */}
-          {(output || (currentStage && currentStage.step >= 3)) && (
-            <div className="bg-[#111] border border-[#1e1e1e] rounded-xl p-5">
-              {!output && (
-                <div className="flex items-center gap-2 text-[#555] text-sm">
-                  <span className="inline-block w-1.5 h-1.5 bg-[#555] rounded-full animate-pulse" />
-                  Writing...
-                </div>
-              )}
-              {output && (
-                <pre className="text-sm text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
-                  {output}
-                  <span className="inline-block w-0.5 h-4 bg-[#555] ml-0.5 animate-pulse align-middle" />
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Output (post-generation) ── */}
-      {output && !generating && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-medium text-white text-sm">Output</h2>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={copyOutput}
-                className="text-xs text-[#666] hover:text-white transition-colors border border-[#333] rounded-md px-3 py-1.5"
-              >
-                {copied ? "Copied!" : "Copy"}
-              </button>
-              <button
-                type="button"
-                onClick={() => router.push("/history")}
-                className="text-xs text-[#666] hover:text-white transition-colors"
-              >
-                View history
-              </button>
-            </div>
-          </div>
-
-          {error && <p className="text-xs text-red-400">{error}</p>}
-
-          <div className="bg-[#111] border border-[#1e1e1e] rounded-xl p-5">
-            <pre className="text-sm text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">{output}</pre>
-          </div>
-
-          <div className="flex items-center gap-4">
+          {/* Send to Ghostwriter / Save for later */}
+          <div className="flex items-center gap-3 pt-1">
             <button
               type="button"
-              onClick={generate}
-              className="text-xs text-[#555] hover:text-[#888] transition-colors"
+              onClick={sendToGhostwriter}
+              disabled={!canSend}
+              className="flex-1 py-3 bg-white text-black text-sm font-medium rounded-xl hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              Regenerate
+              {sending ? "Sending…" : "Send to Ghostwriter →"}
+            </button>
+            <button
+              type="button"
+              onClick={saveForLater}
+              disabled={!canSend}
+              className="py-3 px-5 bg-transparent text-[#888] border border-[#333] text-sm font-medium rounded-xl hover:text-white hover:border-[#555] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Save for later
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Saved confirmation ── */}
+      {phase === "saved" && (
+        <div className="bg-[#161616] border border-[#2a2a2a] rounded-xl p-8 text-center space-y-4">
+          <div className="flex items-center justify-center gap-2 text-emerald-400">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-sm font-medium">Saved to Ghostwriter</span>
+          </div>
+          <p className="text-[#555] text-sm">Your brief is queued. Head to the Ghostwriter tab when you're ready to run it.</p>
+          <div className="flex items-center justify-center gap-4">
+            <button
+              type="button"
+              onClick={() => router.push("/ghostwriter")}
+              className="bg-white text-black text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#e8e8e8] transition-colors"
+            >
+              Go to Ghostwriter
             </button>
             <button
               type="button"
               onClick={startOver}
-              className="text-xs text-[#555] hover:text-[#888] transition-colors"
+              className="text-[#555] text-sm hover:text-[#888] transition-colors"
             >
-              Start over
+              Write another
             </button>
           </div>
         </div>
