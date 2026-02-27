@@ -400,6 +400,15 @@ Be specific and factual. Reference sources inline (e.g. "According to [Source], 
 
 // ── Multi-stage pipeline ─────────────────────────────────────────────────────
 
+/** Resolves the human-readable content type label.
+ *  Custom types carry their name in interview.contentTypeLabel; system types
+ *  look up CONTENT_TYPE_LABELS. Falls back to the raw contentType string. */
+function resolveTypeLabel(interview: InterviewAnswers): string {
+  return CONTENT_TYPE_LABELS[interview.contentType]
+    ?? interview.contentTypeLabel
+    ?? interview.contentType;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractText(content: any[]): string {
   return content
@@ -425,12 +434,12 @@ export async function planContent(
 
   const guidelines = voiceProfile.contentGuidelines?.[interview.contentType];
   const guidelinesBlock = guidelines?.length
-    ? `\n**Format-specific guidelines for ${CONTENT_TYPE_LABELS[interview.contentType]}:**\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
+    ? `\n**Format-specific guidelines for ${resolveTypeLabel(interview)}:**\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
     : "";
 
   const categoryInsight = voiceProfile.categoryInsights?.[interview.contentType];
   const categoryInsightBlock = categoryInsight
-    ? `\n**How this author's voice shows up in ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType}:** ${categoryInsight}\n`
+    ? `\n**How this author's voice shows up in ${resolveTypeLabel(interview)}:** ${categoryInsight}\n`
     : "";
 
   const examplesBlock = sampleExamples?.length
@@ -447,7 +456,7 @@ export async function planContent(
       }\n`
     : "";
 
-  const userPrompt = `You are about to ghost-write a ${CONTENT_TYPE_LABELS[interview.contentType]}.
+  const userPrompt = `You are about to ghost-write a ${resolveTypeLabel(interview)}.
 
 Before writing a single word, produce a detailed structural plan.
 ${examplesBlock}
@@ -513,12 +522,12 @@ export async function draftContent(
 
   const guidelines = voiceProfile.contentGuidelines?.[interview.contentType];
   const guidelinesBlock = guidelines?.length
-    ? `\n## Format-Specific Guidelines (${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
+    ? `\n## Format-Specific Guidelines (${resolveTypeLabel(interview)})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
     : "";
 
   const categoryInsight = voiceProfile.categoryInsights?.[interview.contentType];
   const categoryInsightBlock = categoryInsight
-    ? `\n## How This Author Writes ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType}\n${categoryInsight}\n`
+    ? `\n## How This Author Writes ${resolveTypeLabel(interview)}\n${categoryInsight}\n`
     : "";
 
   const examplesSection = sampleExamples?.length
@@ -533,7 +542,7 @@ export async function draftContent(
     ? `Target length: ${interview.wordCountTarget}. `
     : "";
 
-  const systemPrompt = `You are a ghost-writer. Write ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
+  const systemPrompt = `You are a ghost-writer. Write ${resolveTypeLabel(interview)} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
 
 ## Author Voice Profile
 
@@ -566,7 +575,7 @@ ${favoriteWords?.length
 
 ## Output Rules
 - Write ONLY the piece. Nothing else.
-- ${wordCountLine}${WORD_GUIDANCE[interview.contentType] ?? ""}`;
+- ${wordCountLine}${WORD_GUIDANCE[interview.contentType] ?? `This is a custom format ("${resolveTypeLabel(interview)}"). Use the provided writing examples as your primary guide for length, structure, and conventions. If no examples are available, write a well-structured piece that feels natural for this format.`}`;
 
   const userPrompt = `Follow this structural plan:
 
@@ -617,7 +626,7 @@ export async function compareAndSelectBestDraft(
 ): Promise<string> {
   const { draft: draftBudget } = getStageBudgets(interview.contentType);
 
-  const userPrompt = `You are evaluating ${drafts.length} ghost-written versions of a ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType} to select and deliver the single best piece.
+  const userPrompt = `You are evaluating ${drafts.length} ghost-written versions of a ${resolveTypeLabel(interview)} to select and deliver the single best piece.
 
 **Author Voice Profile:**
 ${voiceProfile.rawSummary}

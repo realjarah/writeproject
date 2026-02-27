@@ -67,6 +67,8 @@ export interface GenerationContext {
 
 export interface InterviewAnswers {
   contentType: string;
+  /** Human-readable label for custom content types (e.g. "Technical Memo"). Undefined for system types. */
+  contentTypeLabel?: string;
   topic: string;
   angle: string;
   keyPoints: string;

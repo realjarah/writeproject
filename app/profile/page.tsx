@@ -130,16 +130,34 @@ export default function ProfilePage() {
   );
 }
 
+// ── Custom type row type ──────────────────────────────────────────────────────
+
+interface CustomType {
+  id: number;
+  name: string;
+  description: string;
+  slug: string;
+  sampleCount: number;
+}
+
 // ── Train tab (voice samples) ─────────────────────────────────────────────────
 
 function TrainTab() {
   const [samples, setSamples] = useState<Sample[]>([]);
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
 
+  // Custom content types
+  const [customTypes, setCustomTypes]             = useState<CustomType[]>([]);
+  const [showNewTypeForm, setShowNewTypeForm]     = useState(false);
+  const [newTypeName, setNewTypeName]             = useState("");
+  const [newTypeDesc, setNewTypeDesc]             = useState("");
+  const [creatingType, setCreatingType]           = useState(false);
+  const [deletingTypeId, setDeletingTypeId]       = useState<number | null>(null);
+
   // Form state
   const [title, setTitle]           = useState("");
   const [content, setContent]       = useState("");
-  const [category, setCategory]     = useState<SampleCategory>("blog");
+  const [category, setCategory]     = useState<string>("blog");
   const [autoDetected, setAutoDetected] = useState(true);
   const [adding, setAdding]         = useState(false);
   const [showForm, setShowForm]     = useState(false);
@@ -158,6 +176,11 @@ function TrainTab() {
   const [analyzing, setAnalyzing]     = useState(false);
   const [analyzeError, setAnalyzeError] = useState("");
 
+  async function loadCustomTypes() {
+    const res = await fetch("/api/custom-types");
+    if (res.ok) setCustomTypes(await res.json());
+  }
+
   const load = useCallback(async () => {
     const [samplesRes, profileRes] = await Promise.all([
       fetch("/api/voice"),
@@ -168,13 +191,48 @@ function TrainTab() {
     setProfile(p);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadCustomTypes(); }, [load]);
 
   useEffect(() => {
     if (autoDetected && content.trim().length > 20) {
       setCategory(detectCategory(content));
     }
   }, [content, autoDetected]);
+
+  async function createCustomType() {
+    if (!newTypeName.trim() || creatingType) return;
+    setCreatingType(true);
+    try {
+      const res = await fetch("/api/custom-types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newTypeName.trim(), description: newTypeDesc.trim() }),
+      });
+      if (!res.ok) return;
+      const created: CustomType = await res.json();
+      setCustomTypes((prev) => [...prev, created]);
+      setCategory(created.slug);
+      setAutoDetected(false);
+      setNewTypeName("");
+      setNewTypeDesc("");
+      setShowNewTypeForm(false);
+    } finally {
+      setCreatingType(false);
+    }
+  }
+
+  async function deleteCustomType(id: number) {
+    setDeletingTypeId(id);
+    try {
+      await fetch(`/api/custom-types/${id}`, { method: "DELETE" });
+      setCustomTypes((prev) => prev.filter((t) => t.id !== id));
+      // If the deleted type was selected, fall back to blog
+      if (category === `custom_${id}`) setCategory("blog");
+      await load(); // sample counts changed
+    } finally {
+      setDeletingTypeId(null);
+    }
+  }
 
   function resetForm() {
     setTitle(""); setContent(""); setCategory("blog");
@@ -201,7 +259,7 @@ function TrainTab() {
     }
   }
 
-  async function saveDirect(text: string, sampleTitle: string, sampleCategory: SampleCategory) {
+  async function saveDirect(text: string, sampleTitle: string, sampleCategory: string) {
     await fetch("/api/voice", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -457,7 +515,7 @@ function TrainTab() {
                       {group.types.map((type) => (
                         <button
                           key={type}
-                          onClick={() => { setCategory(type as SampleCategory); setAutoDetected(false); }}
+                          onClick={() => { setCategory(type); setAutoDetected(false); }}
                           className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all${category !== type ? " border-black/[0.1] dark:border-white/[0.1] text-black/40 dark:text-white/30" : ""}`}
                           style={
                             category === type
@@ -471,6 +529,59 @@ function TrainTab() {
                     </div>
                   </div>
                 ))}
+
+                {/* Custom types */}
+                <div>
+                  <div className="text-[10px] text-black/35 dark:text-white/25 uppercase tracking-wider mb-1.5">My Custom Types</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {customTypes.map((ct) => (
+                      <button
+                        key={ct.slug}
+                        onClick={() => { setCategory(ct.slug); setAutoDetected(false); }}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all${category !== ct.slug ? " border-black/[0.1] dark:border-white/[0.1] text-black/40 dark:text-white/30" : ""}`}
+                        style={
+                          category === ct.slug
+                            ? { backgroundColor: "#22d3ee22", borderColor: "#22d3ee", color: "#22d3ee" }
+                            : undefined
+                        }
+                      >
+                        {ct.name}
+                      </button>
+                    ))}
+
+                    {/* Inline new type form */}
+                    {showNewTypeForm ? (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <input
+                          type="text"
+                          value={newTypeName}
+                          onChange={(e) => setNewTypeName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") createCustomType(); if (e.key === "Escape") setShowNewTypeForm(false); }}
+                          placeholder="Type name…"
+                          autoFocus
+                          className="bg-black/[0.05] dark:bg-[#111] border border-black/[0.12] dark:border-white/[0.12] rounded-md px-2 py-0.5 text-[11px] text-black/85 dark:text-white/80 focus:outline-none focus:border-[#22d3ee] w-28"
+                        />
+                        <button
+                          type="button"
+                          onClick={createCustomType}
+                          disabled={creatingType || !newTypeName.trim()}
+                          className="text-[11px] px-2 py-0.5 rounded-md bg-[#22d3ee]/20 border border-[#22d3ee]/40 text-[#22d3ee] hover:bg-[#22d3ee]/30 transition-colors disabled:opacity-40"
+                        >
+                          {creatingType ? "…" : "Create"}
+                        </button>
+                        <button type="button" onClick={() => { setShowNewTypeForm(false); setNewTypeName(""); }} className="text-[11px] text-black/30 dark:text-white/25 hover:text-black/55 dark:hover:text-white/55">✕</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowNewTypeForm(true)}
+                        className="px-2.5 py-1 rounded-md text-[11px] border border-dashed border-black/[0.12] dark:border-white/[0.12] text-black/30 dark:text-white/25 hover:border-[#22d3ee]/50 hover:text-[#22d3ee] transition-colors"
+                      >
+                        + New type
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -599,7 +710,77 @@ function TrainTab() {
               </div>
             ))}
 
-            {/* Untrained types — collapsed hint */}
+            {/* Custom types with samples */}
+            {customTypes.filter((ct) => (typeStats[ct.slug]?.words ?? 0) > 0).length > 0 && (
+              <div className="space-y-3">
+                <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#22d3ee99" }}>
+                  My Custom Types
+                </div>
+                {customTypes
+                  .filter((ct) => (typeStats[ct.slug]?.words ?? 0) > 0)
+                  .map((ct) => {
+                    const stats = typeStats[ct.slug] ?? { count: 0, words: 0 };
+                    const pct   = masteryPct(stats.words, stats.count);
+                    const color = masteryColor(pct);
+                    return (
+                      <div key={ct.slug} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-black/60 dark:text-white/50">{ct.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => deleteCustomType(ct.id)}
+                              disabled={deletingTypeId === ct.id}
+                              className="text-[10px] text-black/20 dark:text-white/15 hover:text-red-400 transition-colors disabled:opacity-40"
+                              title="Delete custom type and its samples"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <span className="text-[10px] text-black/35 dark:text-white/25">
+                            {fmtWords(stats.words)} words · {stats.count} {stats.count === 1 ? "sample" : "samples"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-black/[0.04] dark:bg-white/[0.04] rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: color }} />
+                          </div>
+                          <span className="text-[10px] w-8 text-right shrink-0 tabular-nums" style={{ color }}>{pct}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+            {/* Custom types without samples — prompt to add examples */}
+            {customTypes.filter((ct) => (typeStats[ct.slug]?.words ?? 0) === 0).length > 0 && (
+              <div className="border-t border-black/[0.06] dark:border-white/[0.05] pt-4 space-y-2">
+                <p className="text-[10px] text-black/30 dark:text-white/20 uppercase tracking-widest font-bold">
+                  Custom types — no examples yet
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {customTypes
+                    .filter((ct) => (typeStats[ct.slug]?.words ?? 0) === 0)
+                    .map((ct) => (
+                      <div key={ct.slug} className="flex items-center gap-1 text-[10px] bg-[#22d3ee]/[0.05] border border-[#22d3ee]/20 text-[#22d3ee]/60 rounded-md px-2 py-0.5">
+                        <span>{ct.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => deleteCustomType(ct.id)}
+                          disabled={deletingTypeId === ct.id}
+                          className="text-[#22d3ee]/40 hover:text-red-400 transition-colors disabled:opacity-40 ml-0.5"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                </div>
+                <p className="text-[11px] text-black/25 dark:text-white/20">Add samples tagged with these types to train the ghost on them.</p>
+              </div>
+            )}
+
+            {/* Untrained system types — collapsed hint */}
             {untrainedGroups.length > 0 && (
               <div className="border-t border-black/[0.06] dark:border-white/[0.05] pt-4 space-y-1.5">
                 <p className="text-[10px] text-black/30 dark:text-white/20 uppercase tracking-widest font-bold">
@@ -631,9 +812,15 @@ function TrainTab() {
                 <div className="flex items-center gap-2 mb-0.5">
                   <span
                     className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                    style={{ color: groupColor(s.category), backgroundColor: groupColor(s.category) + "22" }}
+                    style={
+                      s.category.startsWith("custom_")
+                        ? { color: "#22d3ee", backgroundColor: "#22d3ee22" }
+                        : { color: groupColor(s.category), backgroundColor: groupColor(s.category) + "22" }
+                    }
                   >
-                    {CONTENT_TYPE_LABELS[s.category] ?? s.category}
+                    {CONTENT_TYPE_LABELS[s.category]
+                      ?? customTypes.find((ct) => ct.slug === s.category)?.name
+                      ?? s.category}
                   </span>
                   <span className="text-xs text-black/40 dark:text-white/30">{s.wordCount.toLocaleString()} words</span>
                 </div>

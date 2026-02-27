@@ -8,6 +8,15 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model CustomContentType {
+  id          Int      @id @default(autoincrement())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String   @default("")
+  createdAt   DateTime @default(now())
+}
+
 model FavoriteWord {
   id         Int      @id @default(autoincrement())
   userId     String
@@ -30,7 +39,8 @@ model User {
   signatures       Signature[]
   ghostwriterJobs  GhostwriterJob[]
   generatedContent GeneratedContent[]
-  favoriteWords    FavoriteWord[]
+  favoriteWords      FavoriteWord[]
+  customContentTypes CustomContentType[]
 }
 
 model VoiceSample {

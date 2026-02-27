@@ -160,6 +160,9 @@ export default function CreatePage() {
   const [researching, setResearching] = useState(false);
   const [researchError, setResearchError] = useState("");
 
+  // Custom content types
+  const [customTypes, setCustomTypes] = useState<{ id: number; name: string; slug: string; sampleCount: number }[]>([]);
+
   // Signatures
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [selectedSigId, setSelectedSigId] = useState<number | null>(null);
@@ -195,6 +198,10 @@ export default function CreatePage() {
         const def = sigs.find((s) => s.isDefault);
         if (def) setSelectedSigId(def.id);
       });
+    fetch("/api/custom-types")
+      .then((r) => r.json())
+      .then(setCustomTypes)
+      .catch(() => {});
   }, []);
 
   const selectedSig = signatures.find((s) => s.id === selectedSigId) ?? null;
@@ -442,8 +449,13 @@ export default function CreatePage() {
 
   function buildBrief() {
     if (!intake) return null;
+    const resolvedType = overrideType ?? intake.contentType ?? "blog";
+    const customType = resolvedType.startsWith("custom_")
+      ? customTypes.find((ct) => ct.slug === resolvedType)
+      : undefined;
     const interview = {
-      contentType: overrideType ?? intake.contentType ?? "blog",
+      contentType:      resolvedType,
+      contentTypeLabel: customType?.name || undefined,
       topic:       intake.topic      ?? answers.topic      ?? "",
       angle:       intake.angle      ?? answers.angle      ?? "",
       keyPoints:   intake.keyPoints  ?? answers.keyPoints  ?? "",
@@ -649,6 +661,15 @@ export default function CreatePage() {
                     ))}
                   </optgroup>
                 ))}
+                {customTypes.length > 0 && (
+                  <optgroup label="My Custom Types">
+                    {customTypes.map((ct) => (
+                      <option key={ct.slug} value={ct.slug}>
+                        {ct.name}{ct.sampleCount === 0 ? " (no examples yet)" : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               {intake.topic && (
                 <span className="text-sm text-black/[0.35] dark:text-white/[0.35]">
