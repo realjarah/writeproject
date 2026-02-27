@@ -463,6 +463,11 @@ export async function planContent(
     ? `\n**Format-specific guidelines for ${CONTENT_TYPE_LABELS[interview.contentType]}:**\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
     : "";
 
+  const categoryInsight = voiceProfile.categoryInsights?.[interview.contentType];
+  const categoryInsightBlock = categoryInsight
+    ? `\n**How this author's voice shows up in ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType}:** ${categoryInsight}\n`
+    : "";
+
   // Cap each sample at 1000 words to stay within a reasonable token budget
   const capWords = (text: string, max: number) => {
     const ws = text.split(/\s+/);
@@ -488,7 +493,7 @@ ${examplesBlock}
 - Tone notes: ${interview.toneNotes || "none"}${interview.wordCountTarget ? `\n- Target length: ${interview.wordCountTarget}` : ""}
 ${contextBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
-${guidelinesBlock}
+${categoryInsightBlock}${guidelinesBlock}
 **Plan requirements:**
 - The exact opening move — what's the hook? Be specific.
 - How the argument builds and where the emotional beats land
@@ -544,6 +549,11 @@ export async function draftContent(
     ? `\n## Format-Specific Guidelines (${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
     : "";
 
+  const categoryInsight = voiceProfile.categoryInsights?.[interview.contentType];
+  const categoryInsightBlock = categoryInsight
+    ? `\n## How This Author Writes ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType}\n${categoryInsight}\n`
+    : "";
+
   const capWords = (text: string, max: number) => {
     const ws = text.split(/\s+/);
     return ws.length > max ? ws.slice(0, max).join(" ") + "…" : text;
@@ -570,7 +580,7 @@ export async function draftContent(
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid:**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${examplesSection}${guidelinesBlock}
+${examplesSection}${categoryInsightBlock}${guidelinesBlock}
 ## Output Rules
 - Write ONLY the piece. Nothing else.
 - ${WORD_GUIDANCE[interview.contentType] ?? ""}`;
