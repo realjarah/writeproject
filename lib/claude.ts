@@ -726,6 +726,124 @@ Also maintain this specific author's voice throughout:
   });
 }
 
+// ── Self-review ───────────────────────────────────────────────────────────────
+
+/**
+ * Re-read the draft as the author, check voice fidelity and brief adherence,
+ * and make targeted surgical improvements. Optionally applies the user's own
+ * editing habits captured during onboarding.
+ */
+export async function selfReviewDraft(
+  draft: string,
+  voiceProfile: VoiceAnalysis,
+  interview: InterviewAnswers,
+  editingPreferences?: string
+): Promise<string> {
+  const editingBlock = editingPreferences?.trim()
+    ? `\n## Author's Editing Habits\nWhen this author re-reads their own writing, they typically: ${editingPreferences.trim()}\nApply these same editorial instincts to this draft.\n`
+    : "";
+
+  const systemPrompt = `You are the author's internal editor — the voice in their head that re-reads a draft and makes it better. You know their style intimately.
+
+Author's voice: ${voiceProfile.rawSummary}
+Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}
+${editingBlock}
+Your job:
+1. Re-read the draft as if you were the author
+2. Check: Does this sound like me? Did it cover what I wanted? Is anything weak, vague, or off-brand?
+3. Check: Are there any remaining AI-isms — hollow hedges, filler transitions, generic conclusions, over-structured formatting?
+4. Make targeted fixes — tighten sentences, sharpen the argument, fix anything that sounds off-voice or like AI
+5. Do NOT rewrite from scratch. Make surgical improvements only.
+6. If the draft is already strong, return it with minimal changes.
+
+Output ONLY the improved draft. No commentary, no preamble, no list of changes.`;
+
+  const userPrompt = `Original brief:
+- Topic: ${interview.topic}
+- Angle: ${interview.angle}
+- Key points: ${interview.keyPoints}
+- Audience: ${interview.targetAudience || "the author's usual audience"}
+
+Draft to review:
+
+${draft}`;
+
+  const { humanize: budget } = getStageBudgets(interview.contentType);
+
+  const res = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: budget.maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  return extractText(res.content) || draft;
+}
+
+// ── Research assessment ───────────────────────────────────────────────────────
+
+/**
+ * Quick assessment (via Haiku) of whether the plan requires web research
+ * before drafting. Returns targeted search queries if research is needed.
+ */
+export async function assessResearchNeeds(
+  plan: string,
+  interview: InterviewAnswers,
+  context?: GenerationContext
+): Promise<{ needed: boolean; queries: string[] }> {
+  const contextSummary = context?.items.length
+    ? `The writer has provided ${context.items.length} context item(s): ${context.items
+        .map((item) => {
+          if (item.url) return `URL: ${item.url}`;
+          if (item.fileName) return `File: ${item.fileName}`;
+          if (item.text) return `Text note (${item.tag})`;
+          return `${item.tag} item`;
+        })
+        .join(", ")}`
+    : "No supporting context has been provided.";
+
+  const res = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 1024,
+    system: `You assess whether a ghostwriter needs to do web research before writing. Return ONLY valid JSON — no prose, no code fences.
+
+Return: { "needed": boolean, "queries": ["search query 1", ...] }
+
+Rules:
+- needed=true ONLY if the plan references specific facts, statistics, recent events, studies, or data points that aren't already covered by the provided context
+- needed=false for opinion pieces, personal essays, creative writing, or when sufficient context is provided
+- needed=false for emails, captions, social posts, text messages, and other short-form content
+- If needed, suggest 1-3 focused, specific search queries that would fill the knowledge gaps
+- Keep queries targeted — "SaaS churn rate benchmarks 2025" not "SaaS industry trends"`,
+    messages: [
+      {
+        role: "user",
+        content: `Content type: ${resolveTypeLabel(interview)}
+Topic: ${interview.topic}
+Angle: ${interview.angle}
+
+Plan:
+${plan}
+
+Available context: ${contextSummary}
+
+Does this plan need web research before drafting?`,
+      },
+    ],
+  });
+
+  const text = extractText(res.content);
+  try {
+    const clean = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```\s*$/, "")
+      .trim();
+    return JSON.parse(clean);
+  } catch {
+    return { needed: false, queries: [] };
+  }
+}
+
 // ── Targeted revision ─────────────────────────────────────────────────────────
 
 /**

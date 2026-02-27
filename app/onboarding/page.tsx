@@ -57,6 +57,11 @@ const INDIVIDUAL_QUESTIONS: Question[] = [
     placeholder: "e.g. a LinkedIn influencer post, a corporate memo, a TED talk script",
   },
   {
+    id: "editing",
+    prompt: "When you re-read your own writing, what do you usually change?",
+    placeholder: "e.g. I always cut my first paragraph, I add more concrete examples, I soften my conclusions, I tighten wordy sentences…",
+  },
+  {
     id: "extra",
     prompt: "Anything else you want your ghostwriter to know about you?",
     placeholder: "e.g. I swear a lot in private but keep it clean in writing, I hate small talk but love tangents, I always write like I'm explaining things to a 12-year-old…",
@@ -93,6 +98,11 @@ const BRAND_QUESTIONS: Question[] = [
     id: "philosophy",
     prompt: "When it comes to content, we firmly believe…",
     placeholder: "e.g. most brand writing is cowardly — we'd rather be wrong and specific than safe and vague",
+  },
+  {
+    id: "editing",
+    prompt: "When your team reviews a draft, what feedback comes up most often?",
+    placeholder: "e.g. too formal, needs more examples, cut the fluff, make the CTA clearer, always too long…",
   },
   {
     id: "pov",
