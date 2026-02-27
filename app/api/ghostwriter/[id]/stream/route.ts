@@ -62,17 +62,40 @@ export async function GET(
 
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);
 
-  // Load samples — type-matching first
-  const [typeSpecific, others, favoriteWordsRows] = await Promise.all([
+  // Load samples, favorite words, and user onboarding profile
+  const [typeSpecific, others, favoriteWordsRows, userRow] = await Promise.all([
     prisma.voiceSample.findMany({ where: { userId, category: job.contentType }, orderBy: { wordCount: "desc" } }),
     prisma.voiceSample.findMany({ where: { userId, NOT: { category: job.contentType } }, orderBy: { wordCount: "desc" } }),
     prisma.favoriteWord.findMany({ where: { userId }, select: { word: true, definition: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { accountType: true, onboardingProfile: true } }),
   ]);
   const sampleExamples = [...typeSpecific, ...others].map((s) => ({
     content: s.content,
     category: s.category,
   }));
   const favoriteWords = favoriteWordsRows.length > 0 ? favoriteWordsRows : undefined;
+
+  // Build author context from onboarding Q&A
+  let authorContext: string | undefined;
+  if (userRow?.onboardingProfile) {
+    try {
+      const profile = JSON.parse(userRow.onboardingProfile) as {
+        answers?: { question: string; answer: string }[];
+      };
+      if (profile.answers && profile.answers.length > 0) {
+        const isBrand = userRow.accountType === "brand";
+        const header = isBrand ? "Brand context (from onboarding):" : "About the author (from onboarding):";
+        const lines = profile.answers
+          .filter((a) => a.answer?.trim())
+          .map((a) => `- ${a.question} ${a.answer}`);
+        if (lines.length > 0) {
+          authorContext = `${header}\n${lines.join("\n")}`;
+        }
+      }
+    } catch {
+      // Malformed JSON — skip silently
+    }
+  }
 
   const briefData = JSON.parse(job.brief) as {
     interview: InterviewAnswers;
@@ -97,11 +120,11 @@ export async function GET(
       try {
         // ── Step 1: Plan ───────────────────────────────────────────────────
         await setStep("planning", "Planning structure…");
-        const plan = await planContent(voiceProfile, interview, resolvedContext, sampleExamples, favoriteWords);
+        const plan = await planContent(voiceProfile, interview, resolvedContext, sampleExamples, favoriteWords, authorContext);
 
         // ── Step 2: Draft 1 — standard ────────────────────────────────────
         await setStep("drafting_1", "Writing first draft…");
-        const draft1 = await draftContent(voiceProfile, interview, plan, resolvedContext, sampleExamples, favoriteWords);
+        const draft1 = await draftContent(voiceProfile, interview, plan, resolvedContext, sampleExamples, favoriteWords, authorContext);
 
         // ── Step 3: Draft 2 — narrative emphasis ──────────────────────────
         await setStep("drafting_2", "Writing second draft…");
@@ -110,7 +133,7 @@ export async function GET(
           toneNotes: [interview.toneNotes, "Prioritize narrative momentum — let the story carry the argument"]
             .filter(Boolean).join(". "),
         };
-        const draft2 = await draftContent(voiceProfile, interview2, plan, resolvedContext, sampleExamples, favoriteWords);
+        const draft2 = await draftContent(voiceProfile, interview2, plan, resolvedContext, sampleExamples, favoriteWords, authorContext);
 
         // ── Step 4: Draft 3 — bold and direct ─────────────────────────────
         await setStep("drafting_3", "Writing third draft…");
@@ -119,7 +142,7 @@ export async function GET(
           toneNotes: [interview.toneNotes, "Be bold and direct — fewer qualifications, stronger claims, sharper edges"]
             .filter(Boolean).join(". "),
         };
-        const draft3 = await draftContent(voiceProfile, interview3, plan, resolvedContext, sampleExamples, favoriteWords);
+        const draft3 = await draftContent(voiceProfile, interview3, plan, resolvedContext, sampleExamples, favoriteWords, authorContext);
 
         // Persist raw drafts
         await prisma.ghostwriterJob.update({

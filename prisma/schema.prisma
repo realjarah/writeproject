@@ -27,12 +27,14 @@ model FavoriteWord {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String?
-  passwordHash String
-  onboarded    Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  id                String   @id @default(cuid())
+  email             String   @unique
+  name              String?
+  passwordHash      String
+  onboarded         Boolean  @default(false)
+  accountType       String   @default("individual") // individual | brand
+  onboardingProfile String   @default("{}") // JSON: { answers: [{question, answer}], submittedAt }
+  createdAt         DateTime @default(now())
 
   voiceSamples     VoiceSample[]
   voiceProfile     VoiceProfile?

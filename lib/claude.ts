@@ -426,7 +426,8 @@ export async function planContent(
   interview: InterviewAnswers,
   context?: GenerationContext,
   sampleExamples?: { content: string; category: string }[],
-  favoriteWords?: { word: string; definition: string }[]
+  favoriteWords?: { word: string; definition: string }[],
+  authorContext?: string
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
@@ -456,6 +457,10 @@ export async function planContent(
       }\n`
     : "";
 
+  const authorContextBlock = authorContext?.trim()
+    ? `\n**Author Background (use as subtle context — don't reference directly):**\n${authorContext.trim()}\n`
+    : "";
+
   const userPrompt = `You are about to ghost-write a ${resolveTypeLabel(interview)}.
 
 Before writing a single word, produce a detailed structural plan.
@@ -468,7 +473,7 @@ ${examplesBlock}
 - Tone notes: ${interview.toneNotes || "none"}${interview.wordCountTarget ? `\n- Target length: ${interview.wordCountTarget}` : ""}
 ${contextBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
-${categoryInsightBlock}${guidelinesBlock}${favoriteWordsBlock}
+${authorContextBlock}${categoryInsightBlock}${guidelinesBlock}${favoriteWordsBlock}
 **Plan requirements:**
 - The exact opening move — what's the hook? Be specific.
 - How the argument builds and where the emotional beats land
@@ -514,7 +519,8 @@ export async function draftContent(
   plan: string,
   context?: GenerationContext,
   sampleExamples?: { content: string; category: string }[],
-  favoriteWords?: { word: string; definition: string }[]
+  favoriteWords?: { word: string; definition: string }[],
+  authorContext?: string
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
@@ -572,7 +578,7 @@ ${examplesSection}${categoryInsightBlock}${guidelinesBlock}
 ${favoriteWords?.length
   ? `Use these words only when they fit the context naturally. Never repeat them more than once per piece. Never force them in.\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}`
   : "None specified — use your best judgment."}
-
+${authorContext?.trim() ? `\n## Author Background (subtle context — absorb it; don't reference it explicitly)\n${authorContext.trim()}\n` : ""}
 ## Output Rules
 - Write ONLY the piece. Nothing else.
 - ${wordCountLine}${WORD_GUIDANCE[interview.contentType] ?? `This is a custom format ("${resolveTypeLabel(interview)}"). Use the provided writing examples as your primary guide for length, structure, and conventions. If no examples are available, write a well-structured piece that feels natural for this format.`}`;
