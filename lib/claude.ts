@@ -424,9 +424,86 @@ export function getStageBudgets(contentType: string): StageBudgets {
   return STAGE_BUDGETS[contentType] ?? DEFAULT_BUDGETS;
 }
 
+// ── Research ─────────────────────────────────────────────────────────────────
+
+/**
+ * Conduct web research on a topic using Claude's built-in web_search tool.
+ * Returns a structured markdown research brief for use as context in generation.
+ */
+export async function conductResearch(
+  prompt: string,
+  interviewContext?: { topic?: string; angle?: string; contentType?: string }
+): Promise<string> {
+  const typeLabelHint = interviewContext?.contentType
+    ? (CONTENT_TYPE_LABELS[interviewContext.contentType] ?? interviewContext.contentType)
+    : "piece";
+  const contextHint = interviewContext?.topic
+    ? ` Context: writing a ${typeLabelHint} about "${interviewContext.topic}"${interviewContext.angle ? ` (angle: ${interviewContext.angle})` : ""}.`
+    : "";
+
+  const systemPrompt = `You are a research assistant preparing a structured brief for a ghostwriter.${contextHint}
+
+Use the web_search tool to find relevant, current information. After researching, produce a well-structured markdown brief covering:
+- Key facts, figures, and data points with sources
+- Relevant statistics or recent studies
+- Important context, background, or history
+- Notable arguments, perspectives, or counterarguments
+- Specific examples or case studies where relevant
+- Recent developments the writer should know
+
+Be specific and factual. Reference sources inline (e.g. "According to [Source], ..."). Format clearly with headers and bullets. The ghostwriter will use this directly as context.`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const messages: any[] = [{ role: "user", content: prompt }];
+
+  // Tool loop — handles web_search tool_use/tool_result cycle
+  for (let round = 0; round < 10; round++) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any = await (anthropic.messages.create as any)({
+      model: "claude-sonnet-4-6",
+      max_tokens: 8000,
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      system: systemPrompt,
+      messages,
+    });
+
+    if (res.stop_reason !== "tool_use") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (extractText(res.content as any) || "Research could not be completed.");
+    }
+
+    // Push assistant turn, then return tool results so Claude can continue
+    messages.push({ role: "assistant", content: res.content });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const toolResults = (res.content as any[])
+      .filter((b) => b.type === "tool_use")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((b: any) => ({
+        type: "tool_result",
+        tool_use_id: b.id,
+        // web_search_20250305 embeds results in the block; pass them back as content
+        content: b.content != null ? JSON.stringify(b.content) : "Search completed.",
+      }));
+
+    if (toolResults.length === 0) break;
+    messages.push({ role: "user", content: toolResults });
+  }
+
+  // Fallback: return text from the last assistant message in the loop
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const text = extractText(Array.isArray(messages[i].content) ? messages[i].content : []);
+      if (text) return text;
+    }
+  }
+  return "Research could not be completed.";
+}
+
 // ── Multi-stage pipeline ─────────────────────────────────────────────────────
 
-function extractText(content: Anthropic.ContentBlock[]): string {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractText(content: any[]): string {
   return content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
     .map((b) => b.text)

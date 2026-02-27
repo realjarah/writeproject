@@ -31,7 +31,7 @@ interface Signature {
 }
 
 type Phase = "describe" | "analyzing" | "followup";
-type SourceType = "url" | "file" | "text";
+type SourceType = "url" | "file" | "text" | "research";
 
 const TAGS: { value: ContextItemTag; label: string; color: string }[] = [
   { value: "data",      label: "Data",      color: "#facc15" },
@@ -138,6 +138,9 @@ export default function CreatePage() {
   const [newIncludePlaceholders, setNewIncludePlaceholders] = useState(false);
   const [newInstructions, setNewInstructions] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [researchPrompt, setResearchPrompt] = useState("");
+  const [researching, setResearching] = useState(false);
+  const [researchError, setResearchError] = useState("");
 
   // Signatures
   const [signatures, setSignatures] = useState<Signature[]>([]);
@@ -296,6 +299,9 @@ export default function CreatePage() {
     setNewIsCSV(false);
     setNewIncludePlaceholders(false);
     setNewInstructions("");
+    setResearchPrompt("");
+    setResearching(false);
+    setResearchError("");
     setShowAddForm(false);
   }
 
@@ -327,9 +333,45 @@ export default function CreatePage() {
     setContextItems((prev) => prev.filter((_, idx) => idx !== i));
   }
 
+  async function runResearch() {
+    if (!researchPrompt.trim() || researching) return;
+    setResearching(true);
+    setResearchError("");
+    try {
+      const res = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: researchPrompt.trim(),
+          topic: intake?.topic ?? undefined,
+          angle: intake?.angle ?? undefined,
+          contentType: overrideType ?? intake?.contentType ?? undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Research failed");
+      // Commit as a research context item; prompt stored as instructions so
+      // the writer knows what was researched and generation gets that framing
+      setContextItems((prev) => [
+        ...prev,
+        {
+          tag: "research" as const,
+          text: data.brief,
+          instructions: researchPrompt.trim(),
+        },
+      ]);
+      resetAddForm();
+    } catch (err) {
+      setResearchError(err instanceof Error ? err.message : "Research failed. Please try again.");
+    } finally {
+      setResearching(false);
+    }
+  }
+
   const canCommit =
-    sourceType === "url"  ? !!newUrl.trim() :
-    sourceType === "file" ? !!(newFileContent || newData) :
+    sourceType === "url"      ? !!newUrl.trim() :
+    sourceType === "file"     ? !!(newFileContent || newData) :
+    sourceType === "research" ? false : // research uses its own button
     !!newText.trim();
 
   // ── Generation ───────────────────────────────────────────────────────────
@@ -561,7 +603,11 @@ export default function CreatePage() {
               {/* Existing items */}
               {contextItems.map((item, i) => {
                 const meta = tagMeta(item.tag);
-                const label = item.url ?? item.fileName ?? (item.text ? item.text.slice(0, 50) + (item.text.length > 50 ? "…" : "") : "item");
+                const label =
+                  item.url ?? item.fileName ??
+                  (item.tag === "research" && item.instructions
+                    ? item.instructions.slice(0, 60) + (item.instructions.length > 60 ? "…" : "")
+                    : item.text ? item.text.slice(0, 50) + (item.text.length > 50 ? "…" : "") : "item");
                 return (
                   <div key={i} className="flex items-center justify-between gap-3 py-2 border-b border-[#1e1e1e]">
                     <div className="flex items-center gap-2 min-w-0">
@@ -579,21 +625,24 @@ export default function CreatePage() {
               {showAddForm ? (
                 <div className="space-y-3 pt-1">
                   {/* Source type */}
-                  <div className="flex gap-1">
-                    {(["url", "file", "text"] as SourceType[]).map((t) => (
+                  <div className="flex gap-1 flex-wrap">
+                    {(["url", "file", "text", "research"] as SourceType[]).map((t) => (
                       <button
                         key={t}
                         type="button"
-                        onClick={() => setSourceType(t)}
+                        onClick={() => {
+                          setSourceType(t);
+                          if (t === "research") setNewTag("research");
+                        }}
                         className={`px-3 py-1 text-xs rounded-md transition-colors ${sourceType === t ? "bg-[#2a2a2a] text-white" : "text-[#555] hover:text-[#888]"}`}
                       >
-                        {t === "url" ? "URL" : t === "file" ? "File" : "Text"}
+                        {t === "url" ? "URL" : t === "file" ? "File" : t === "text" ? "Text" : "AI Research"}
                       </button>
                     ))}
                   </div>
 
-                  {/* Tag */}
-                  <div className="flex gap-1 flex-wrap">
+                  {/* Tag — hidden when research (auto-set) */}
+                  <div className={`flex gap-1 flex-wrap ${sourceType === "research" ? "hidden" : ""}`}>
                     {TAGS.map((t) => (
                       <button
                         key={t.value}
@@ -646,26 +695,62 @@ export default function CreatePage() {
                     />
                   )}
 
-                  <input
-                    type="text"
-                    value={newInstructions}
-                    onChange={(e) => setNewInstructions(e.target.value)}
-                    placeholder="Usage instructions (optional)"
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444]"
-                  />
+                  {sourceType === "research" && (
+                    <div className="space-y-2">
+                      <textarea
+                        value={researchPrompt}
+                        onChange={(e) => setResearchPrompt(e.target.value)}
+                        placeholder="Describe what to research — e.g. &quot;Find recent statistics on remote work productivity and key arguments for and against&quot;"
+                        rows={3}
+                        className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444] resize-none"
+                        autoFocus
+                      />
+                      {researchError && (
+                        <p className="text-xs text-red-400">{researchError}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {sourceType !== "research" && (
+                    <input
+                      type="text"
+                      value={newInstructions}
+                      onChange={(e) => setNewInstructions(e.target.value)}
+                      placeholder="Usage instructions (optional)"
+                      className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#444] focus:outline-none focus:border-[#444]"
+                    />
+                  )}
 
                   <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={commitItem}
-                      disabled={!canCommit}
-                      className="px-3 py-1.5 bg-white text-black text-xs font-medium rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      Add
-                    </button>
-                    <button type="button" onClick={resetAddForm} className="px-3 py-1.5 text-xs text-[#555] hover:text-white transition-colors">
-                      Cancel
-                    </button>
+                    {sourceType === "research" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={runResearch}
+                          disabled={!researchPrompt.trim() || researching}
+                          className="px-3 py-1.5 bg-white text-black text-xs font-medium rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          {researching ? "Researching..." : "Research →"}
+                        </button>
+                        <button type="button" onClick={resetAddForm} disabled={researching} className="px-3 py-1.5 text-xs text-[#555] hover:text-white transition-colors disabled:opacity-30">
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={commitItem}
+                          disabled={!canCommit}
+                          className="px-3 py-1.5 bg-white text-black text-xs font-medium rounded-lg hover:bg-[#e8e8e8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          Add
+                        </button>
+                        <button type="button" onClick={resetAddForm} className="px-3 py-1.5 text-xs text-[#555] hover:text-white transition-colors">
+                          Cancel
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ) : (
