@@ -51,6 +51,13 @@ interface Sample {
   createdAt: string;
 }
 
+interface PendingSample {
+  tempId: string;
+  title: string;
+  status: "processing" | "error";
+  error?: string;
+}
+
 interface VoiceProfile {
   analysis: {
     tone: string;
@@ -68,6 +75,7 @@ interface VoiceProfile {
 
 export default function VoicePage() {
   const [samples, setSamples] = useState<Sample[]>([]);
+  const [pendingSamples, setPendingSamples] = useState<PendingSample[]>([]);
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
 
   // Form state
@@ -129,42 +137,62 @@ export default function VoicePage() {
   function handleFile(file: File) {
     setFileError("");
     const inferredTitle = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
-    if (file.type === "application/pdf") {
+
+    const isPdf  = file.type === "application/pdf" || file.name.endsWith(".pdf");
+    const isDocx = file.name.endsWith(".docx") ||
+      file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+    if (!isPdf && !isDocx) {
+      // Plain text — instant, no API call
       const reader = new FileReader();
       reader.onload = async (e) => {
-        const dataUrl = e.target?.result as string;
-        const [, base64] = dataUrl.split(",");
-        setFetching(true);
-        try {
-          const res = await fetch("/api/voice/import-pdf", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ data: base64, fileName: file.name }),
-          });
-          const data = await res.json();
-          if (!res.ok || data.error) {
-            setFileError(data.error || "PDF extraction failed.");
-          } else {
-            const cat = detectCategory(data.text);
-            await saveDirect(data.text, inferredTitle, cat);
-          }
-        } catch {
-          setFileError("PDF extraction failed. Try again.");
-        } finally {
-          setFetching(false);
-        }
+        const text = (e.target?.result as string) || "";
+        if (!text.trim()) return;
+        const cat = detectCategory(text);
+        await saveDirect(text, inferredTitle, cat);
       };
-      reader.readAsDataURL(file);
+      reader.readAsText(file);
       return;
     }
+
+    // PDF or DOCX — add pending card immediately, close form, process in background
+    const tempId   = Math.random().toString(36).slice(2);
+    const endpoint = isPdf ? "/api/voice/import-pdf" : "/api/voice/import-docx";
+    setPendingSamples((prev) => [...prev, { tempId, title: inferredTitle, status: "processing" }]);
+    resetForm();
+
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const text = (e.target?.result as string) || "";
-      if (!text.trim()) return;
-      const cat = detectCategory(text);
-      await saveDirect(text, inferredTitle, cat);
+      const dataUrl = e.target?.result as string;
+      const [, base64] = dataUrl.split(",");
+      try {
+        const res  = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: base64, fileName: file.name }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          setPendingSamples((prev) =>
+            prev.map((p) => p.tempId === tempId ? { ...p, status: "error", error: data.error || "Extraction failed." } : p)
+          );
+        } else {
+          const cat = detectCategory(data.text);
+          await fetch("/api/voice", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: inferredTitle, content: data.text, category: cat }),
+          });
+          setPendingSamples((prev) => prev.filter((p) => p.tempId !== tempId));
+          load();
+        }
+      } catch {
+        setPendingSamples((prev) =>
+          prev.map((p) => p.tempId === tempId ? { ...p, status: "error", error: "Extraction failed. Try again." } : p)
+        );
+      }
     };
-    reader.readAsText(file);
+    reader.readAsDataURL(file);
   }
 
   async function handleUrl() {
@@ -327,17 +355,15 @@ export default function VoicePage() {
             <div className="space-y-2">
               <label
                 className="flex flex-col items-center justify-center gap-2 border border-dashed border-black/[0.10] dark:border-[#2a2a2a] rounded-lg p-8 cursor-pointer hover:border-black/[0.17] dark:hover:border-white/[0.17] transition-colors"
-                style={fetching ? { opacity: 0.5, pointerEvents: "none" } : {}}
               >
                 <span className="text-black/[0.35] dark:text-white/[0.35] text-sm">
-                  {fetching ? "Saving…" : "Click to upload or drag a file here"}
+                  Click to upload or drag a file here
                 </span>
-                <span className="text-[11px] text-black/[0.28] dark:text-white/[0.28]">.txt · .md · .pdf</span>
+                <span className="text-[11px] text-black/[0.28] dark:text-white/[0.28]">.txt · .md · .pdf · .docx</span>
                 <input
                   type="file"
-                  accept=".txt,.md,.markdown,.text,.pdf"
+                  accept=".txt,.md,.markdown,.text,.pdf,.docx"
                   className="hidden"
-                  disabled={fetching}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }}
                 />
               </label>
@@ -567,12 +593,43 @@ export default function VoicePage() {
       )}
 
       {/* ── Sample list ──────────────────────────────────────────────── */}
-      {samples.length === 0 ? (
+      {samples.length === 0 && pendingSamples.length === 0 ? (
         <div className="text-center py-16 text-black/[0.28] dark:text-white/[0.28] text-sm">
           No samples yet. Add some of your writing to get started.
         </div>
       ) : (
         <div className="space-y-3">
+          {/* Pending (processing/failed) uploads */}
+          {pendingSamples.map((p) => (
+            <div
+              key={p.tempId}
+              className="bg-black/[0.04] dark:bg-[#161616] border border-black/[0.09] dark:border-white/[0.07] rounded-xl p-4 flex items-start justify-between gap-4"
+            >
+              <div className="space-y-1.5 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-black/90 dark:text-white text-sm">{p.title}</span>
+                  {p.status === "processing" ? (
+                    <span className="text-[10px] animate-pulse text-black/[0.40] dark:text-white/[0.40] bg-black/[0.04] dark:bg-[#222] border border-black/[0.08] dark:border-[#333] rounded px-1.5 py-0.5">
+                      Extracting…
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-red-400">{p.error}</span>
+                  )}
+                </div>
+                <div className="text-xs text-black/[0.28] dark:text-white/[0.28]">
+                  {p.status === "processing" ? "Reading file — this may take a moment" : "Failed to process file"}
+                </div>
+              </div>
+              {p.status === "error" && (
+                <button
+                  onClick={() => setPendingSamples((prev) => prev.filter((x) => x.tempId !== p.tempId))}
+                  className="text-black/[0.28] dark:text-white/[0.28] hover:text-red-500 dark:hover:text-red-400 transition-colors text-xs shrink-0 mt-0.5"
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+          ))}
           {samples.map((s) => {
             const color = groupColor(s.category);
             const label = CONTENT_TYPE_LABELS[s.category] ?? s.category;
