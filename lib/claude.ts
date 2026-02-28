@@ -547,6 +547,9 @@ export const SKIP_SELF_REVIEW_TYPES = new Set([
   "newsletter", "press_release", "cover_letter",
   // All light types also skip self-review
   "caption", "text_message", "social",
+  // Threads are short-form and voice-critical — the self-review rewrites the
+  // humanized text and re-introduces em dashes and other AI patterns.
+  "twitter_thread",
   // NOTE: email and resume intentionally get self-review — they often reference
   // specific data (medical results, job history) that needs fabrication checking.
 ]);
@@ -1066,7 +1069,9 @@ export async function humanizeContent(
 
 This text is going to be published under a real person's name. If it reads like AI wrote it, their reputation is damaged. Treat this accordingly.
 
-Apply every single pattern from the humanizer guide above. Miss nothing. Every em dash that doesn't belong, every "furthermore", every rule-of-three, every hollow hedge, every generic conclusion, every synonym cycle, every copula avoidance ("serves as", "stands as"), every filler phrase — find it and kill it.
+Apply every single pattern from the humanizer guide above. Miss nothing. Every "furthermore", every rule-of-three, every hollow hedge, every generic conclusion, every synonym cycle, every copula avoidance ("serves as", "stands as"), every filler phrase — find it and kill it.
+
+EM DASH RULE (absolute): Replace virtually ALL em dashes (—) with commas, periods, colons, semicolons, or parentheses. At most ONE em dash may survive in the entire piece, and only if the author's punctuation habits explicitly favor them. When in doubt, remove the em dash. Do NOT introduce any new em dashes in your rewrites — this is the single most common AI tell and the one readers notice first.
 
 Do not replace AI patterns with bland, voiceless prose. That is equally unacceptable. Replace them with THIS AUTHOR'S voice. Read the profile and excerpts below. That is how the output must read — like this specific person sat down and wrote it.
 
@@ -1090,7 +1095,9 @@ ${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock
   ];
 
   const { humanize: humanizeBudget } = getStageBudgets(contentType);
-  const perPassBudget = Math.ceil(humanizeBudget.thinkingBudget / 3);
+  // Each pass gets the FULL thinking budget — the model only uses what it needs.
+  // Splitting by 3 starved each pass and let AI patterns survive.
+  const perPassBudget = humanizeBudget.thinkingBudget;
 
   // Run the humanizer 3 times. Each pass feeds its output into the next.
   // Pass 1 catches the obvious stuff. Pass 2 catches what pass 1 missed.
@@ -1100,8 +1107,8 @@ ${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock
     onPassStart?.(pass, 3);
     const isLastPass = pass === 3;
     const passLabel = pass === 1
-      ? `Humanize this ${typeLabel}. Apply every pattern from the humanizer guide. Strip every AI tell. Replace them with the author's voice from the profile above. Output the cleaned text only.`
-      : `This text has been through ${pass - 1} humanization pass${pass > 2 ? "es" : ""} and AI patterns still remain. Go through it again. Find what was missed. Be more aggressive this time — anything that could be flagged as AI-generated needs to be rewritten in the author's voice. Output the cleaned text only.`;
+      ? `Humanize this ${typeLabel}. Apply every pattern from the humanizer guide. Strip every AI tell. Replace every em dash (—) with a comma, period, or colon — do NOT write any new em dashes in your output. Replace all AI patterns with the author's voice from the profile above. Output the cleaned text only.`
+      : `This text has been through ${pass - 1} humanization pass${pass > 2 ? "es" : ""} and AI patterns may still remain. Scan line by line. Every em dash (—) must be replaced with a comma, period, colon, or semicolon — zero new em dashes allowed. Every "furthermore", "moreover", "additionally", every hollow hedge, every filler phrase, every rule-of-three — if it survived, kill it now. Do NOT introduce any new AI patterns in your rewrites. Output the cleaned text only.`;
 
     if (isLastPass) {
       // Stream the final pass back to the client
@@ -1196,7 +1203,17 @@ export async function selfReviewDraft(
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
   const betaHeaders = getBetaHeaders(binaryBlocks);
 
-  const systemPrompt = `You are this author's last line of defense before publication. Read the draft as them. If any sentence sounds like AI wrote it — a hollow hedge, a filler transition, a generic conclusion, an em dash that doesn't belong, a "furthermore" or "additionally" opening a paragraph — fix it. No AI pattern survives this stage.
+  const systemPrompt = `You are this author's last line of defense before publication. This text has already been through 3 passes of AI pattern removal (humanization). Your job is to check voice fidelity, brief adherence, and fabrication — NOT to rewrite prose. Surgical fixes only.
+
+CRITICAL — DO NOT RE-INTRODUCE AI PATTERNS:
+This text was carefully humanized. Any of the following in YOUR edits is a failure:
+- Em dashes (—) — use commas, periods, colons, or semicolons instead. ZERO new em dashes.
+- "Furthermore," / "Moreover," / "Additionally," / "In addition," as paragraph openers
+- Hollow hedges: "It's worth noting," "One might argue," "It's important to note"
+- Copula avoidance: "serves as," "stands as," "represents a," "marks a"
+- Filler verbs: "delve," "underscore," "leverage," "utilize," "foster," "navigate"
+- Rule-of-three groupings, synonym cycling, generic positive conclusions
+If you need to rewrite a sentence, use the author's voice from the profile below. Not generic prose. Not AI prose. THIS author's voice.
 
 ## Author Voice Profile
 **Voice:** ${voiceProfile.rawSummary}
@@ -1207,11 +1224,11 @@ export async function selfReviewDraft(
 ${samplesBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
 Your review must check:
 1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
-2. AI contamination — hunt for hollow hedges, filler transitions, generic conclusions, over-structured formatting, em dash overuse, synonym cycling, rule-of-three groupings, copula avoidance ("serves as", "stands as"). Destroy any you find.
+2. AI contamination — if any AI patterns survived the humanizer, destroy them. But do NOT introduce new ones in your fixes.
 3. Brief adherence — did it cover the topic, angle, and key points? Is anything missing or weak?
 4. Context usage — if supporting context was provided, did the draft use it? Are specifics woven in naturally?
-5. Fabrication check — look for specific numbers, statistics, percentages, study citations, named sources, dates, or data points. Cross-reference them against the supporting context. If a claim appears in the draft but NOT in the context, it was invented. Replace it with placeholder language the author can fill in (e.g., "your recent results," "[specific figure]"). This applies to every content type — fabricated data is fabricated data whether it's in an essay, a blog, or an email.
-6. Fix everything you find. Surgical fixes only — do not rewrite from scratch.
+5. Fabrication check — look for specific numbers, statistics, percentages, study citations, named sources, dates, or data points. Cross-reference them against the supporting context. If a claim appears in the draft but NOT in the context, it was invented. Replace it with placeholder language the author can fill in (e.g., "your recent results," "[specific figure]"). This applies to every content type.
+6. Fix everything you find. Surgical fixes only — do not rewrite from scratch. Preserve the humanized phrasing wherever possible.
 
 Output ONLY the improved draft. Nothing else.`;
 
