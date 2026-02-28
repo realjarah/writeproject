@@ -70,16 +70,16 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "humanizing", label: `Polishing your ${typeLabel}` },
       ];
     case "standard": {
-      const steps = [
+      const steps: { key: string; label: string }[] = [
         { key: "planning", label: `Planning your ${typeLabel}` },
         { key: "drafting", label: `Writing your ${typeLabel}` },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
       ];
       if (includeReview) steps.push({ key: "reviewing", label: "Re-reading as you" });
+      steps.push({ key: "humanizing", label: `Polishing your ${typeLabel}` });
       return steps;
     }
     case "deep": {
-      const steps = [
+      const steps: { key: string; label: string }[] = [
         { key: "planning", label: `Planning your ${typeLabel}` },
         { key: "researching", label: "Researching your topic" },
         { key: "drafting_1", label: "Writing first draft" },
@@ -87,9 +87,9 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "drafting_2", label: "Writing second draft" },
         { key: "comparing", label: "Comparing drafts against your voice" },
         { key: "checking", label: "Checking word count & structure" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
       ];
       if (includeReview) steps.push({ key: "reviewing", label: "Re-reading as you" });
+      steps.push({ key: "humanizing", label: `Polishing your ${typeLabel}` });
       return steps;
     }
   }
@@ -122,6 +122,22 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
         "Preparing draft approach…",
       ],
     },
+    "drafting->reviewing": {
+      baseMs: 8000, jitterMs: 7000,
+      messages: [
+        "Reading draft back…",
+        "Checking voice fidelity…",
+        "Verifying brief coverage…",
+      ],
+    },
+    "reviewing->humanizing": {
+      baseMs: 8000, jitterMs: 7000,
+      messages: [
+        "Reviewed and refined…",
+        "Checking tone against your voice…",
+        "Preparing final polish…",
+      ],
+    },
     "drafting->humanizing": {
       baseMs: 8000, jitterMs: 7000,
       messages: [
@@ -148,6 +164,22 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
         "Identifying areas for variation…",
         "Mapping alternative direction to your voice…",
         "Setting up second draft…",
+      ],
+    },
+    "checking->reviewing": {
+      baseMs: 10000, jitterMs: 8000,
+      messages: [
+        "Reading draft back…",
+        "Checking voice fidelity…",
+        "Verifying brief coverage…",
+      ],
+    },
+    "reviewing->humanizing": {
+      baseMs: 10000, jitterMs: 8000,
+      messages: [
+        "Reviewed and refined…",
+        "Checking tone against your voice…",
+        "Preparing final polish…",
       ],
     },
     "checking->humanizing": {
@@ -478,15 +510,43 @@ export async function GET(
           if (isAborted()) { controller.close(); return; }
         }
 
-        // ── Humanize (streams chunks to client) ──────────────────────────
-        // Pace before Opus humanize call
-        const humanizeTransition = tier === "deep" ? "checking->humanizing" : "drafting->humanizing";
+        // ── Self-review (runs BEFORE humanizer) ─────────────────────────
+        // Self-review checks voice fidelity, brief adherence, and fabrication.
+        // It runs on the raw draft so it can catch content issues before the
+        // humanizer does its final AI-pattern cleanup pass.
+        let reviewedDraft = selected;
+        if (!SKIP_SELF_REVIEW_TYPES.has(interview.contentType)) {
+          const reviewTransition = tier === "deep" ? "checking->reviewing" : "drafting->reviewing";
+          await paceTransition(tier, reviewTransition, "reviewing", send, isAborted);
+          if (isAborted()) { controller.close(); return; }
+
+          await setStep("reviewing", "Re-reading as you…");
+          try {
+            const reviewed = await selfReviewDraft(
+              selected, voiceProfile, interview, editingPrefs,
+              enrichedContext, sampleExamples, favoriteWords, authorContext
+            );
+            if (reviewed && reviewed.trim()) {
+              reviewedDraft = reviewed;
+            }
+          } catch { /* self-review failed — keep draft as-is */ }
+          if (isAborted()) { controller.close(); return; }
+        }
+
+        // ── Humanize (ALWAYS last — streams final output to client) ─────
+        // The humanizer is the final gate. Nothing runs after it.
+        // Whatever AI patterns the drafter or self-review introduced, the
+        // humanizer kills them here.
+        const didReview = reviewedDraft !== selected;
+        const humanizeTransition = didReview
+          ? "reviewing->humanizing"
+          : tier === "deep" ? "checking->humanizing" : "drafting->humanizing";
         await paceTransition(tier, humanizeTransition, "humanizing", send, isAborted);
         if (isAborted()) { controller.close(); return; }
 
         await setStep("humanizing", `Polishing your ${typeLabel}…`);
         const humanizedStream = await humanizeContent(
-          selected, voiceProfile, HUMANIZER, interview.contentType,
+          reviewedDraft, voiceProfile, HUMANIZER, interview.contentType,
           sampleExamples, favoriteWords, authorContext,
           (pass, total) => {
             const labels = [
@@ -509,23 +569,6 @@ export async function GET(
           send({ type: "chunk", text: chunk });
         }
         if (isAborted()) { controller.close(); return; }
-
-        // ── Self-review (only for types where it adds value) ────────────
-        // Skipped for light tier and business-medium types (blog, newsletter,
-        // email, etc.) where the humanizer already handles AI-pattern removal
-        if (!SKIP_SELF_REVIEW_TYPES.has(interview.contentType)) {
-          await setStep("reviewing", "Re-reading as you…");
-          try {
-            const reviewed = await selfReviewDraft(
-              finalContent, voiceProfile, interview, editingPrefs,
-              enrichedContext, sampleExamples, favoriteWords, authorContext
-            );
-            if (reviewed && reviewed.trim()) {
-              finalContent = reviewed;
-            }
-          } catch { /* self-review failed — keep humanized version */ }
-          if (isAborted()) { controller.close(); return; }
-        }
 
         // ── Done ─────────────────────────────────────────────────────────
         const dbContent = signatureContent

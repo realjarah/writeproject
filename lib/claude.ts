@@ -542,14 +542,11 @@ export const LIGHT_TYPES = new Set([
   "caption", "text_message", "social",
 ]);
 
-/** Content types where self-review is skipped (humanizer already catches AI patterns) */
+/** Content types where self-review is skipped (not needed for short/medium-form) */
 export const SKIP_SELF_REVIEW_TYPES = new Set([
   "newsletter", "press_release", "cover_letter",
   // All light types also skip self-review
   "caption", "text_message", "social",
-  // Threads are short-form and voice-critical — the self-review rewrites the
-  // humanized text and re-introduces em dashes and other AI patterns.
-  "twitter_thread",
   // NOTE: email and resume intentionally get self-review — they often reference
   // specific data (medical results, job history) that needs fabrication checking.
 ]);
