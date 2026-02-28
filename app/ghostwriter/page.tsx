@@ -3,6 +3,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
+import {
+  downloadTxt as dlTxt,
+  downloadMarkdown,
+  downloadDocx,
+  downloadHtml,
+  printAsPdf as printPdf,
+} from "@/lib/export-utils";
+import { extractTemplateBrief, defaultTemplateName } from "@/lib/template-utils";
 
 interface Job {
   id: number;
@@ -19,20 +27,28 @@ interface Job {
   updatedAt: string;
 }
 
-const STEPS = [
-  { key: "planning",    label: "Planning structure" },
-  { key: "drafting_1",  label: "Writing first draft" },
-  { key: "drafting_2",  label: "Writing second draft" },
-  { key: "drafting_3",  label: "Writing third draft" },
-  { key: "comparing",   label: "Comparing drafts against your voice" },
-  { key: "checking",    label: "Checking word count & structure" },
-  { key: "humanizing",  label: "Final polish" },
+interface PipelineStep {
+  key: string;
+  label: string;
+}
+
+// Default steps used as fallback when no pipeline event has been received
+// (e.g. for jobs already in progress before this update)
+const DEFAULT_STEPS: PipelineStep[] = [
+  { key: "planning",    label: "Planning…" },
+  { key: "drafting",    label: "Writing…" },
+  { key: "humanizing",  label: "Polishing…" },
 ];
 
-const ACTIVE_STATUSES = new Set(STEPS.map((s) => s.key));
+// Superset of all possible active step keys across all pipeline tiers
+const ALL_ACTIVE_STATUSES = new Set([
+  "planning", "researching",
+  "drafting", "drafting_1", "proposing", "drafting_2",
+  "comparing", "checking", "humanizing", "reviewing",
+]);
 
-function stepIndex(status: string) {
-  return STEPS.findIndex((s) => s.key === status);
+function getStepIndex(steps: PipelineStep[], status: string) {
+  return steps.findIndex((s) => s.key === status);
 }
 
 function timeAgo(iso: string) {
@@ -46,9 +62,9 @@ function timeAgo(iso: string) {
 /** Sort: done first → processing → queued → error */
 function sortJobs(jobs: Job[]) {
   const rank = (j: Job) => {
-    if (j.status === "done")           return 0;
-    if (ACTIVE_STATUSES.has(j.status)) return 1;
-    if (j.status === "queued")         return 2;
+    if (j.status === "done")                  return 0;
+    if (ALL_ACTIVE_STATUSES.has(j.status))    return 1;
+    if (j.status === "queued")                return 2;
     return 3; // error
   };
   return [...jobs].sort(
@@ -94,37 +110,6 @@ function renderMarkdown(md: string): string {
   return html;
 }
 
-function downloadTxt(topic: string, draft: string) {
-  const blob = new Blob([draft], { type: "text/plain" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = `${topic.slice(0, 60).replace(/[^a-z0-9]+/gi, "-")}.txt`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function printAsPdf(topic: string, draft: string) {
-  const win = window.open("", "_blank", "width=800,height=900");
-  if (!win) return;
-  win.document.write(`<!DOCTYPE html><html><head>
-<meta charset="utf-8">
-<title>${topic.replace(/</g, "&lt;")}</title>
-<style>
-  body{font-family:Georgia,serif;font-size:15px;line-height:1.75;max-width:680px;margin:48px auto;color:#111}
-  h1{font-size:2em;margin-bottom:.4em}h2{font-size:1.4em}h3{font-size:1.2em}
-  p{margin:0 0 1em}ul{margin:0 0 1em;padding-left:1.4em}li{margin-bottom:.3em}
-  code{font-family:monospace;background:#f2f2f2;padding:0 .3em}
-  hr{border:none;border-top:1px solid #ccc;margin:1.5em 0}
-  strong{font-weight:700}em{font-style:italic}
-  @media print{body{margin:0}}
-</style>
-</head><body>${renderMarkdown(draft)}</body></html>`);
-  win.document.close();
-  win.focus();
-  win.print();
-}
-
 export default function GhostwriterPage() {
   const [jobs,    setJobs]    = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,7 +124,32 @@ export default function GhostwriterPage() {
   const [revisingId,   setRevisingId]   = useState<number | null>(null);
   const [liveRevision, setLiveRevision] = useState<string>("");
 
+  // Download dropdown
+  const [downloadDropdownId, setDownloadDropdownId] = useState<number | null>(null);
+  // Save as template
+  const [saveTemplateId,  setSaveTemplateId]  = useState<number | null>(null);
+  const [templateName,    setTemplateName]    = useState("");
+  const [savingTemplate,  setSavingTemplate]  = useState(false);
+  const [savedTemplateId, setSavedTemplateId] = useState<number | null>(null);
+
+  // Per-job pipeline steps (sent by the server at pipeline start)
+  const [jobSteps, setJobSteps] = useState<Record<number, PipelineStep[]>>({});
+  // Accumulated streaming content during humanization
+  const [liveContent, setLiveContent] = useState<string>("");
+
   const abortRef = useRef<AbortController | null>(null);
+
+  // Close download dropdown on outside click
+  useEffect(() => {
+    if (downloadDropdownId === null) return;
+    function handleClick(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest("[data-download-dropdown]")) {
+        setDownloadDropdownId(null);
+      }
+    }
+    document.addEventListener("click", handleClick, { capture: true });
+    return () => document.removeEventListener("click", handleClick, { capture: true });
+  }, [downloadDropdownId]);
 
   const loadJobs = useCallback(async () => {
     const res  = await fetch("/api/ghostwriter");
@@ -161,6 +171,7 @@ export default function GhostwriterPage() {
     if (activeJobId !== null) return;
     setActiveJobId(id);
     setLiveStep("planning");
+    setLiveContent("");
     abortRef.current = new AbortController();
 
     try {
@@ -184,13 +195,26 @@ export default function GhostwriterPage() {
           if (!line.startsWith("data: ")) continue;
           try {
             const msg = JSON.parse(line.slice(6));
-            if (msg.type === "step") {
+            if (msg.type === "pipeline") {
+              // Server sent the step list for this job's pipeline tier
+              setJobSteps((prev) => ({ ...prev, [id]: msg.steps }));
+            } else if (msg.type === "step") {
               setLiveStep(msg.step);
               setJobs((prev) => prev.map((j) => j.id === id ? { ...j, status: msg.step, stepLabel: msg.label } : j));
+              // Reset live content when moving past humanizing (e.g. to reviewing)
+              if (msg.step === "reviewing") {
+                setLiveContent("");
+              }
+            } else if (msg.type === "chunk") {
+              // Stream humanized content live
+              setLiveContent((prev) => prev + msg.text);
+              setExpandedId(id);
             } else if (msg.type === "done") {
+              setLiveContent("");
               setJobs((prev) => prev.map((j) => j.id === id ? { ...j, status: "done", stepLabel: "Done", finalDraft: msg.finalDraft } : j));
               setExpandedId(id);
             } else if (msg.type === "error") {
+              setLiveContent("");
               setJobs((prev) => prev.map((j) => j.id === id ? { ...j, status: "error", errorMsg: msg.message } : j));
             }
           } catch { /* malformed */ }
@@ -203,6 +227,7 @@ export default function GhostwriterPage() {
     } finally {
       setActiveJobId(null);
       setLiveStep("");
+      setLiveContent("");
       setJobs((prev) => {
         const next = prev.find((j) => j.status === "queued");
         if (next) setTimeout(() => startJob(next.id), 400);
@@ -327,14 +352,19 @@ export default function GhostwriterPage() {
               const isDone       = job.status === "done";
               const isError      = job.status === "error";
               const isQueued     = job.status === "queued";
-              const isProcessing = ACTIVE_STATUSES.has(job.status);
+              const isProcessing = ALL_ACTIVE_STATUSES.has(job.status);
               const isRevising   = revisingId === job.id;
+              const isStreaming   = isActive && liveContent.length > 0;
               const pos          = queuePos[job.id];
-              const currentStepIdx = stepIndex(isActive ? liveStep : job.status);
+
+              // Use per-job steps from server, or fall back to default
+              const currentSteps = jobSteps[job.id] ?? DEFAULT_STEPS;
+              const currentStepIdx = getStepIndex(currentSteps, isActive ? liveStep : job.status);
+
               const isExpanded   = expandedId === job.id;
               const isMarkdown   = markdownId === job.id;
               const feedback     = feedbackMap[job.id] ?? "";
-              const displayDraft = isRevising ? liveRevision : job.finalDraft;
+              const displayDraft = isRevising ? liveRevision : (isStreaming ? liveContent : job.finalDraft);
 
               return (
                 <div
@@ -370,7 +400,7 @@ export default function GhostwriterPage() {
                         {(isActive || isProcessing) && !isDone && !isError && (
                           <span className="flex items-center gap-1.5 text-[11px] text-black/[0.55] dark:text-white/[0.55]">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" />
-                            {isActive ? (STEPS[currentStepIdx]?.label ?? "Processing…") : job.stepLabel}
+                            {isActive ? (currentSteps[currentStepIdx]?.label ?? "Processing…") : job.stepLabel}
                           </span>
                         )}
                         {isRevising && (
@@ -402,19 +432,51 @@ export default function GhostwriterPage() {
                           >
                             {copiedId === job.id ? "Copied!" : "Copy"}
                           </button>
+
+                          {/* Download dropdown */}
+                          <div className="relative" data-download-dropdown>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDownloadDropdownId(downloadDropdownId === job.id ? null : job.id); }}
+                              className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors flex items-center gap-1"
+                            >
+                              Download
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                            {downloadDropdownId === job.id && (
+                              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1a1a1a] border border-black/[0.12] dark:border-white/[0.12] rounded-lg shadow-lg py-1 z-50 min-w-[140px]">
+                                {[
+                                  { label: "Text (.txt)",   action: () => dlTxt(job.title || job.topic, job.finalDraft) },
+                                  { label: "Markdown (.md)", action: () => downloadMarkdown(job.title || job.topic, job.finalDraft) },
+                                  { label: "Word (.docx)",  action: () => downloadDocx(job.title || job.topic, job.finalDraft) },
+                                  { label: "PDF (print)",   action: () => printPdf(job.title || job.topic, job.finalDraft, renderMarkdown) },
+                                  { label: "HTML (.html)",  action: () => downloadHtml(job.title || job.topic, job.finalDraft, renderMarkdown) },
+                                ].map((opt) => (
+                                  <button
+                                    key={opt.label}
+                                    onClick={() => { opt.action(); setDownloadDropdownId(null); }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-black/[0.60] dark:text-white/[0.60] hover:bg-black/[0.05] dark:hover:bg-white/[0.07] hover:text-black/90 dark:hover:text-white transition-colors"
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
                           <button
-                            onClick={() => downloadTxt(job.title || job.topic, job.finalDraft)}
-                            className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
-                            title="Download as TXT"
+                            onClick={async () => {
+                              const res = await fetch(`/api/ghostwriter/${job.id}`);
+                              const fullJob = await res.json();
+                              if (!fullJob.brief) return;
+                              const tBrief = extractTemplateBrief(fullJob.brief);
+                              setTemplateName(defaultTemplateName(tBrief));
+                              setSaveTemplateId(job.id);
+                            }}
+                            className="text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/90 dark:hover:text-white border border-black/[0.10] dark:border-[#2a2a2a] hover:border-black/[0.21] dark:hover:border-white/[0.22] rounded-md px-3 py-1.5 transition-colors"
                           >
-                            TXT
-                          </button>
-                          <button
-                            onClick={() => printAsPdf(job.title || job.topic, job.finalDraft)}
-                            className="text-xs text-black/[0.40] dark:text-white/[0.40] hover:text-black/90 dark:hover:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-3 py-1.5 transition-colors"
-                            title="Print / Save as PDF"
-                          >
-                            PDF
+                            {savedTemplateId === job.id ? "Saved!" : "Template"}
                           </button>
                           <button
                             onClick={() => archiveJob(job.id)}
@@ -441,11 +503,57 @@ export default function GhostwriterPage() {
                     </div>
                   </div>
 
-                  {/* Progress steps */}
+                  {/* Save as template form */}
+                  {saveTemplateId === job.id && (
+                    <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-3 flex items-center gap-3">
+                      <input
+                        type="text"
+                        value={templateName}
+                        onChange={(e) => setTemplateName(e.target.value)}
+                        placeholder="Template name"
+                        className="flex-1 bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-1.5 text-xs text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === "Escape") setSaveTemplateId(null); }}
+                      />
+                      <button
+                        onClick={async () => {
+                          setSavingTemplate(true);
+                          const res = await fetch(`/api/ghostwriter/${job.id}`);
+                          const fullJob = await res.json();
+                          const tBrief = extractTemplateBrief(fullJob.brief);
+                          await fetch("/api/templates", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              name: templateName.trim() || defaultTemplateName(tBrief),
+                              contentType: tBrief.interview.contentType,
+                              brief: JSON.stringify(tBrief),
+                            }),
+                          });
+                          setSavingTemplate(false);
+                          setSaveTemplateId(null);
+                          setSavedTemplateId(job.id);
+                          setTimeout(() => setSavedTemplateId(null), 2000);
+                        }}
+                        disabled={savingTemplate || !templateName.trim()}
+                        className="text-xs bg-black/[0.88] text-white dark:bg-white dark:text-black font-medium px-3 py-1.5 rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-40"
+                      >
+                        {savingTemplate ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        onClick={() => setSaveTemplateId(null)}
+                        className="text-xs text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Progress steps (dynamic per-job) */}
                   {(isActive || (isProcessing && !isDone)) && (
                     <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-4 space-y-2.5">
-                      {STEPS.map((s, i) => {
-                        const idx    = isActive ? stepIndex(liveStep) : currentStepIdx;
+                      {currentSteps.map((s, i) => {
+                        const idx    = isActive ? getStepIndex(currentSteps, liveStep) : currentStepIdx;
                         const done   = i < idx;
                         const active = i === idx;
                         return (
@@ -463,7 +571,7 @@ export default function GhostwriterPage() {
                               <span className="w-3.5 h-3.5 rounded-full border border-black/[0.12] dark:border-white/[0.12] shrink-0" />
                             )}
                             <span className={`text-xs ${done ? "text-black/[0.35] dark:text-white/[0.35]" : active ? "text-black/90 dark:text-white" : "text-black/[0.22] dark:text-white/[0.22]"}`}>
-                              {s.label}
+                              {active ? (job.stepLabel || s.label) : s.label}
                             </span>
                           </div>
                         );
@@ -478,46 +586,55 @@ export default function GhostwriterPage() {
                     </div>
                   )}
 
-                  {/* Expanded: draft + feedback */}
-                  {isDone && isExpanded && (() => {
+                  {/* Expanded: draft + feedback — show when done OR when streaming live content */}
+                  {((isDone && isExpanded) || isStreaming) && (() => {
                     const isThread = job.contentType === "twitter_thread";
-                    // threadView: null = plain, "thread" = thread cards, "rendered" = markdown
-                    const viewMode = isThread
-                      ? (isMarkdown ? "thread" : "plain")
-                      : (isMarkdown ? "rendered" : "plain");
+                    const viewMode = isStreaming
+                      ? "plain" // always plain while streaming
+                      : isThread
+                        ? (isMarkdown ? "thread" : "plain")
+                        : (isMarkdown ? "rendered" : "plain");
                     return (
                     <div className="border-t border-black/[0.06] dark:border-white/[0.05]">
-                      {/* View toggle */}
-                      <div className="px-5 pt-4 pb-2">
-                        <div className="inline-flex items-center gap-0.5 bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-lg p-0.5">
-                          <button
-                            onClick={() => setMarkdownId(null)}
-                            className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${!isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
-                          >
-                            Plain
-                          </button>
-                          {isThread ? (
+                      {/* View toggle (only when done, not while streaming) */}
+                      {isDone && (
+                        <div className="px-5 pt-4 pb-2">
+                          <div className="inline-flex items-center gap-0.5 bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-lg p-0.5">
                             <button
-                              onClick={() => setMarkdownId(job.id)}
-                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
+                              onClick={() => setMarkdownId(null)}
+                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${!isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
                             >
-                              Thread view
+                              Plain
                             </button>
-                          ) : (
-                            <button
-                              onClick={() => setMarkdownId(job.id)}
-                              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
-                            >
-                              Rendered
-                            </button>
-                          )}
+                            {isThread ? (
+                              <button
+                                onClick={() => setMarkdownId(job.id)}
+                                className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
+                              >
+                                Thread view
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setMarkdownId(job.id)}
+                                className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${isMarkdown ? "bg-black/[0.08] dark:bg-[#222] text-black/90 dark:text-white" : "text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"}`}
+                              >
+                                Rendered
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      )}
+
+                      {/* Streaming indicator */}
+                      {isStreaming && (
+                        <div className="px-5 pt-3 pb-1">
+                          <span className="text-[11px] text-black/[0.35] dark:text-white/[0.35]">Writing live…</span>
+                        </div>
+                      )}
 
                       {/* Draft */}
                       <div className="px-5 pb-5">
                         {viewMode === "thread" ? (
-                          // Thread card view — each tweet as a card with char count
                           <div className="space-y-2">
                             {parseTweets(displayDraft).map((tweet, idx, arr) => {
                               const len = tweet.length;
@@ -545,40 +662,42 @@ export default function GhostwriterPage() {
                           />
                         ) : (
                           <pre className="text-sm text-black/[0.75] dark:text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
-                            {displayDraft || (isRevising ? "Writing…" : "")}
+                            {displayDraft || (isRevising ? "Writing…" : isStreaming ? "Starting…" : "")}
                           </pre>
                         )}
                       </div>
 
-                      {/* Feedback */}
-                      <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-4 space-y-3">
-                        <p className="text-[11px] text-black/[0.35] dark:text-white/[0.35] font-medium uppercase tracking-widest">Refine this draft</p>
-                        <textarea
-                          value={feedback}
-                          onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [job.id]: e.target.value }))}
-                          placeholder='Describe what to change — e.g. "Make the intro punchier" or "Remove the third bullet and add a closing question"'
-                          rows={3}
-                          disabled={isRevising}
-                          className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] focus:border-black/[0.22] dark:focus:border-white/[0.22] rounded-lg px-3 py-2.5 text-sm text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] resize-none focus:outline-none transition-colors disabled:opacity-50"
-                        />
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => applyFeedback(job)}
-                            disabled={!feedback.trim() || isRevising}
-                            className="bg-white text-black text-xs font-medium px-4 py-2 rounded-lg hover:bg-black/[0.08] dark:hover:bg-white/90 transition-colors disabled:opacity-40"
-                          >
-                            {isRevising ? "Applying…" : "Apply edits"}
-                          </button>
-                          {feedback.trim() && !isRevising && (
+                      {/* Feedback (only when done, not while streaming) */}
+                      {isDone && (
+                        <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-4 space-y-3">
+                          <p className="text-[11px] text-black/[0.35] dark:text-white/[0.35] font-medium uppercase tracking-widest">Refine this draft</p>
+                          <textarea
+                            value={feedback}
+                            onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [job.id]: e.target.value }))}
+                            placeholder='Describe what to change — e.g. "Make the intro punchier" or "Remove the third bullet and add a closing question"'
+                            rows={3}
+                            disabled={isRevising}
+                            className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] focus:border-black/[0.22] dark:focus:border-white/[0.22] rounded-lg px-3 py-2.5 text-sm text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] resize-none focus:outline-none transition-colors disabled:opacity-50"
+                          />
+                          <div className="flex items-center gap-3">
                             <button
-                              onClick={() => setFeedbackMap((prev) => { const n = { ...prev }; delete n[job.id]; return n; })}
-                              className="text-black/[0.35] dark:text-white/[0.35] text-xs hover:text-black/55 dark:hover:text-white/55 transition-colors"
+                              onClick={() => applyFeedback(job)}
+                              disabled={!feedback.trim() || isRevising}
+                              className="bg-white text-black text-xs font-medium px-4 py-2 rounded-lg hover:bg-black/[0.08] dark:hover:bg-white/90 transition-colors disabled:opacity-40"
                             >
-                              Clear
+                              {isRevising ? "Applying…" : "Apply edits"}
                             </button>
-                          )}
+                            {feedback.trim() && !isRevising && (
+                              <button
+                                onClick={() => setFeedbackMap((prev) => { const n = { ...prev }; delete n[job.id]; return n; })}
+                                className="text-black/[0.35] dark:text-white/[0.35] text-xs hover:text-black/55 dark:hover:text-white/55 transition-colors"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                     );
                   })()}

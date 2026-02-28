@@ -43,6 +43,7 @@ model User {
   generatedContent GeneratedContent[]
   favoriteWords      FavoriteWord[]
   customContentTypes CustomContentType[]
+  templates          Template[]
 }
 
 model VoiceSample {
@@ -53,6 +54,7 @@ model VoiceSample {
   content   String
   wordCount Int      @default(0)
   category  String   @default("other")
+  notes     String   @default("") // User notes: what they liked about this sample, why it's good
   createdAt DateTime @default(now())
 }
 
@@ -84,6 +86,17 @@ model Signature {
   isDefault Boolean  @default(false)
   isSystem  Boolean  @default(false)  // locked — cannot be edited or deleted
   createdAt DateTime @default(now())
+}
+
+model Template {
+  id          Int      @id @default(autoincrement())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  contentType String
+  brief       String   // JSON: template brief (interview fields + context items + signatureId)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model GhostwriterJob {

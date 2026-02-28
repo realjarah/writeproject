@@ -3,9 +3,13 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/session";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 
-const anthropic = new Anthropic();
+let _gemini: GoogleGenAI;
+function getGemini() {
+  if (!_gemini) _gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  return _gemini;
+}
 
 export async function GET() {
   const userId = await getUserId();
@@ -27,22 +31,15 @@ export async function POST(req: NextRequest) {
 
   const trimmed = word.trim();
 
-  // Generate a writer-focused definition with Claude Haiku
+  // Generate a writer-focused definition with Gemini Flash
   let definition = "";
   try {
-    const res = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 200,
-      messages: [{
-        role: "user",
-        content: `Define the word or phrase "${trimmed}" in 1–2 sentences from a writer's perspective — capture its precise meaning, connotation, texture, and when a writer might reach for it. Be specific and evocative, not dictionary-flat. Return only the definition, no intro.`,
-      }],
+    const result = await getGemini().models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `Define the word or phrase "${trimmed}" in 1–2 sentences from a writer's perspective — capture its precise meaning, connotation, texture, and when a writer might reach for it. Be specific and evocative, not dictionary-flat. Return only the definition, no intro.`,
+      config: { maxOutputTokens: 200 },
     });
-    definition = res.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("")
-      .trim();
+    definition = (result.text ?? "").trim();
   } catch { /* definition stays empty */ }
 
   const created = await prisma.favoriteWord.create({

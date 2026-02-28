@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { type ContextItem, type ContextItemTag, CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "@/lib/content-types";
+import { extractTemplateBrief, defaultTemplateName, type TemplateBrief } from "@/lib/template-utils";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,27 @@ interface QueuedJob {
   summaryText: string;
   status: string;
   createdAt: string;
+}
+
+interface SavedBrief {
+  id: number;
+  contentType: string;
+  topic: string;
+  title: string;
+  summaryText: string;
+  brief: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Template {
+  id: number;
+  name: string;
+  contentType: string;
+  brief: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 function timeAgoCreate(iso: string) {
@@ -182,6 +204,18 @@ export default function CreatePage() {
   // Saved (queued) briefs visible on this page
   const [queuedJobs, setQueuedJobs] = useState<QueuedJob[]>([]);
 
+  // Saved ideas (draft status — not yet sent to ghostwriter)
+  const [savedBriefs, setSavedBriefs] = useState<SavedBrief[]>([]);
+  const [editingBriefId, setEditingBriefId] = useState<number | null>(null);
+
+  // Templates
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
+  const [editTemplateName, setEditTemplateName] = useState("");
+
   function loadQueuedJobs() {
     fetch("/api/ghostwriter")
       .then((r) => r.json())
@@ -189,8 +223,16 @@ export default function CreatePage() {
       .catch(() => {});
   }
 
+  function loadSavedBriefs() {
+    fetch("/api/ghostwriter?status=draft")
+      .then((r) => r.json())
+      .then((briefs: SavedBrief[]) => setSavedBriefs(briefs))
+      .catch(() => {});
+  }
+
   useEffect(() => {
     loadQueuedJobs();
+    loadSavedBriefs();
     fetch("/api/signatures")
       .then((r) => r.json())
       .then((sigs: Signature[]) => {
@@ -201,6 +243,10 @@ export default function CreatePage() {
     fetch("/api/custom-types")
       .then((r) => r.json())
       .then(setCustomTypes)
+      .catch(() => {});
+    fetch("/api/templates")
+      .then((r) => r.json())
+      .then((t: Template[]) => setTemplates(t))
       .catch(() => {});
   }, []);
 
@@ -466,7 +512,7 @@ export default function CreatePage() {
     };
 
     const allItems: ContextItem[] = [];
-    if (description.trim().length > 80) {
+    if (description.trim()) {
       allItems.push({
         tag: "note",
         text: description.trim(),
@@ -528,9 +574,41 @@ export default function CreatePage() {
     setError("");
     setSending(true);
     try {
-      await createJob();
-      loadQueuedJobs();
-      setPhase("saved");
+      if (!intake) return;
+      const brief = buildBrief();
+      if (!brief) return;
+      const isEditing = editingBriefId !== null;
+      if (isEditing) {
+        // Update existing saved brief
+        await fetch(`/api/ghostwriter/${editingBriefId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contentType: brief.interview.contentType,
+            topic: brief.interview.topic,
+            title: titleInput.trim(),
+            summaryText: intake.summary ?? "",
+            brief: JSON.stringify(brief),
+          }),
+        });
+      } else {
+        // Create new saved brief with draft status
+        await fetch("/api/ghostwriter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contentType: brief.interview.contentType,
+            topic: brief.interview.topic,
+            title: titleInput.trim(),
+            summaryText: intake.summary ?? "",
+            brief: JSON.stringify(brief),
+            status: "draft",
+          }),
+        });
+      }
+      setEditingBriefId(null);
+      loadSavedBriefs();
+      startOver();
     } catch {
       setError("Failed to save. Please try again.");
     } finally {
@@ -543,6 +621,138 @@ export default function CreatePage() {
     setQueuedJobs((prev) => prev.filter((j) => j.id !== id));
   }
 
+  async function deleteSavedBrief(id: number) {
+    await fetch(`/api/ghostwriter/${id}`, { method: "DELETE" });
+    setSavedBriefs((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  async function sendSavedBrief(id: number) {
+    await fetch(`/api/ghostwriter/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "queued" }),
+    });
+    setSavedBriefs((prev) => prev.filter((b) => b.id !== id));
+    router.push("/ghostwriter");
+  }
+
+  function editSavedBrief(brief: SavedBrief) {
+    try {
+      const parsed = JSON.parse(brief.brief) as {
+        interview: Record<string, string | undefined>;
+        context?: { items: ContextItem[] };
+        signatureContent?: string;
+      };
+      const iv = parsed.interview;
+
+      // Reconstruct the intake
+      const syntheticIntake: IntakeResult = {
+        contentType: iv.contentType ?? "blog",
+        topic: iv.topic ?? null,
+        angle: iv.angle ?? null,
+        keyPoints: iv.keyPoints ?? null,
+        targetAudience: iv.targetAudience ?? null,
+        toneNotes: iv.toneNotes ?? null,
+        summary: brief.summaryText,
+        questions: [],
+      };
+
+      setIntake(syntheticIntake);
+      setAnswers({});
+      setOverrideType(iv.contentType ?? null);
+      setDescription(brief.summaryText || iv.topic || "");
+      setTitleInput(iv.title ?? brief.title ?? "");
+      setWordCountTarget(iv.wordCountTarget ?? "");
+
+      // Restore context items (skip the first "note" which is the description)
+      const items = parsed.context?.items ?? [];
+      const contextOnly = items.filter(
+        (it) => !(it.tag === "note" && it.instructions?.includes("Author's original brief"))
+      );
+      setContextItems(contextOnly);
+      if (contextOnly.length > 0) setContextOpen(true);
+
+      // Restore signature
+      if (parsed.signatureContent) {
+        const matchingSig = signatures.find((s) => s.content === parsed.signatureContent);
+        if (matchingSig) setSelectedSigId(matchingSig.id);
+      }
+
+      setEditingBriefId(brief.id);
+      setPhase("followup");
+    } catch {
+      setError("Failed to load saved brief.");
+    }
+  }
+
+  // ── Templates ──────────────────────────────────────────────────────────
+
+  function applyTemplate(template: Template) {
+    const tBrief: TemplateBrief = JSON.parse(template.brief);
+    const interview = tBrief.interview;
+
+    // Build questions for fields the template doesn't provide
+    const questions: IntakeQuestion[] = [
+      { id: "topic", label: "What's the topic?", placeholder: "The specific subject for this piece" },
+    ];
+    if (!interview.angle) {
+      questions.push({ id: "angle", label: "Angle or perspective", placeholder: "What's your unique take?" });
+    }
+    if (!interview.keyPoints) {
+      questions.push({ id: "keyPoints", label: "Key points to cover", placeholder: "Main ideas, arguments, or sections" });
+    }
+
+    const syntheticIntake: IntakeResult = {
+      contentType: interview.contentType,
+      topic: null,
+      angle: interview.angle ?? null,
+      keyPoints: interview.keyPoints ?? null,
+      targetAudience: interview.targetAudience ?? null,
+      toneNotes: interview.toneNotes ?? null,
+      summary: `Template: ${template.name}`,
+      questions,
+    };
+
+    setIntake(syntheticIntake);
+    setAnswers({});
+    setOverrideType(interview.contentType);
+    setPhase("followup");
+    setDescription("");
+    setError("");
+    if (interview.wordCountTarget) setWordCountTarget(interview.wordCountTarget);
+    if (tBrief.context?.items?.length) {
+      setContextItems(tBrief.context.items);
+      setContextOpen(true);
+    } else {
+      setContextItems([]);
+    }
+    if (tBrief.signatureId) {
+      setSelectedSigId(tBrief.signatureId);
+    }
+  }
+
+  async function deleteTemplate(id: number) {
+    await fetch("/api/templates", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  async function renameTemplate() {
+    if (!editingTemplateId || !editTemplateName.trim()) return;
+    await fetch("/api/templates", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: editingTemplateId, name: editTemplateName.trim() }),
+    });
+    setTemplates((prev) =>
+      prev.map((t) => t.id === editingTemplateId ? { ...t, name: editTemplateName.trim() } : t),
+    );
+    setEditingTemplateId(null);
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -550,77 +760,155 @@ export default function CreatePage() {
 
       {/* ── Phase: describe ── */}
       {phase === "describe" && (
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold text-black/90 dark:text-white">Brainstorm</h1>
-            <p className="text-black/[0.35] dark:text-white/[0.35] text-sm mt-1">
-              Describe your idea — rough or detailed. The more context, the fewer follow-up questions.
-            </p>
-          </div>
-
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && description.trim().length >= 5) {
-                e.preventDefault();
-                analyze();
-              }
-            }}
-            placeholder={
-              "A LinkedIn post about why most \"AI productivity\" articles miss the point — they measure output, not thinking. My angle: the real gain is in deciding faster, not writing faster. Key points: the cognitive offload argument, a specific example from our team, why this matters for knowledge workers."
-            }
-            className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-xl px-4 py-3.5 text-sm text-black/90 dark:text-white placeholder-black/[0.25] dark:placeholder-white/[0.22] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22] resize-none"
-            rows={9}
-            autoFocus
-          />
-
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-black/[0.23] dark:text-white/[0.23]">⌘↵ to continue</span>
-            <button
-              type="button"
-              onClick={analyze}
-              disabled={description.trim().length < 5}
-              className="px-5 py-2.5 bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              Continue →
-            </button>
-          </div>
-
-          {/* Saved briefs */}
-          {queuedJobs.length > 0 && (
-            <div className="space-y-2 pt-2">
-              <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28] uppercase tracking-widest font-semibold">Saved briefs</p>
-              {queuedJobs.map((job) => (
-                <div key={job.id} className="flex items-start justify-between gap-3 bg-black/[0.04] dark:bg-[#111] border border-black/[0.06] dark:border-white/[0.05] rounded-xl px-4 py-3">
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-medium text-black/[0.28] dark:text-white/[0.28] bg-black/[0.06] dark:bg-[#1a1a1a] border border-black/[0.09] dark:border-white/[0.07] rounded px-1.5 py-0.5 shrink-0">
-                        {CONTENT_TYPE_LABELS[job.contentType] ?? job.contentType}
-                      </span>
-                      <span className="text-xs font-medium text-black/[0.70] dark:text-white/[0.70] truncate">
-                        {job.title || job.topic}
-                      </span>
-                      <span className="text-[11px] text-black/[0.22] dark:text-white/[0.22] shrink-0">{timeAgoCreate(job.createdAt)}</span>
+        <div className="space-y-8">
+          {/* Compact input with gradient glow */}
+          <div className="relative">
+            <div className="absolute -inset-[1px] rounded-2xl bg-gradient-to-br from-white/[0.15] via-white/[0.05] to-white/[0.12] dark:from-white/[0.08] dark:via-white/[0.02] dark:to-white/[0.06] pointer-events-none" />
+            <div className="absolute -inset-[1px] rounded-2xl opacity-50 blur-sm bg-gradient-to-r from-blue-500/[0.08] via-purple-500/[0.06] to-blue-500/[0.08] dark:from-blue-400/[0.10] dark:via-purple-400/[0.08] dark:to-blue-400/[0.10] pointer-events-none animate-pulse" style={{ animationDuration: "4s" }} />
+            <div className="relative bg-white dark:bg-[#0e0e0e] rounded-2xl p-5 space-y-3">
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && description.trim().length >= 5) {
+                    e.preventDefault();
+                    analyze();
+                  }
+                }}
+                placeholder="What do you want to write?"
+                className="w-full bg-transparent text-sm text-black/90 dark:text-white placeholder-black/[0.30] dark:placeholder-white/[0.25] focus:outline-none resize-none"
+                rows={description.trim() ? 5 : 2}
+                autoFocus
+              />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {templates.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      {templates.slice(0, 3).map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => applyTemplate(t)}
+                          className="text-[10px] px-2 py-0.5 rounded-md border border-black/[0.07] dark:border-white/[0.06] text-black/[0.35] dark:text-white/[0.30] hover:text-black/90 dark:hover:text-white hover:border-black/[0.15] dark:hover:border-white/[0.15] transition-colors"
+                        >
+                          {t.name}
+                        </button>
+                      ))}
+                      {templates.length > 3 && (
+                        <span className="text-[10px] text-black/[0.22] dark:text-white/[0.22]">+{templates.length - 3}</span>
+                      )}
                     </div>
-                    {job.summaryText && (
-                      <p className="text-[11px] text-black/[0.35] dark:text-white/[0.35] truncate">{job.summaryText}</p>
-                    )}
+                  )}
+                  <span className="text-[10px] text-black/[0.18] dark:text-white/[0.18]">⌘↵</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={analyze}
+                  disabled={description.trim().length < 5}
+                  className="px-4 py-1.5 bg-black/[0.88] text-white dark:bg-white dark:text-black text-xs font-medium rounded-lg hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+                >
+                  Continue →
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Saved ideas mosaic ── */}
+          {savedBriefs.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28] uppercase tracking-widest font-semibold">
+                Saved ideas
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {savedBriefs.map((brief) => (
+                  <div
+                    key={brief.id}
+                    className="group relative bg-black/[0.03] dark:bg-[#111] border border-black/[0.07] dark:border-white/[0.06] rounded-xl p-4 hover:border-black/[0.14] dark:hover:border-white/[0.12] transition-colors"
+                  >
+                    <div className="space-y-2 min-h-[72px]">
+                      <span className="text-[10px] font-medium text-black/[0.28] dark:text-white/[0.28] bg-black/[0.05] dark:bg-white/[0.05] rounded px-1.5 py-0.5">
+                        {CONTENT_TYPE_LABELS[brief.contentType] ?? brief.contentType}
+                      </span>
+                      <p className="text-sm font-medium text-black/[0.80] dark:text-white/[0.80] line-clamp-2 leading-snug">
+                        {brief.title || brief.topic || "Untitled"}
+                      </p>
+                      {brief.summaryText && (
+                        <p className="text-[11px] text-black/[0.35] dark:text-white/[0.35] line-clamp-2 leading-relaxed">
+                          {brief.summaryText}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-black/[0.05] dark:border-white/[0.04]">
+                      <span className="text-[10px] text-black/[0.22] dark:text-white/[0.22]">
+                        {timeAgoCreate(brief.updatedAt || brief.createdAt)}
+                      </span>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => editSavedBrief(brief)}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-black/[0.30] dark:text-white/[0.30] hover:text-black/90 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
+                          title="Edit"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteSavedBrief(brief.id)}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-black/[0.30] dark:text-white/[0.30] hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/[0.06] transition-colors"
+                          title="Delete"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => sendSavedBrief(brief.id)}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-black/[0.30] dark:text-white/[0.30] hover:text-black/90 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors"
+                          title="Send to Ghostwriter"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-2-3.5l6-4.5-6-4.5v9z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0 pt-0.5">
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Queued jobs (already sent to ghostwriter) */}
+          {queuedJobs.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[11px] text-black/[0.28] dark:text-white/[0.28] uppercase tracking-widest font-semibold">Queued</p>
+              {queuedJobs.map((job) => (
+                <div key={job.id} className="flex items-center justify-between gap-3 bg-black/[0.03] dark:bg-[#111] border border-black/[0.06] dark:border-white/[0.05] rounded-xl px-4 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[10px] font-medium text-black/[0.28] dark:text-white/[0.28] bg-black/[0.05] dark:bg-white/[0.05] rounded px-1.5 py-0.5 shrink-0">
+                      {CONTENT_TYPE_LABELS[job.contentType] ?? job.contentType}
+                    </span>
+                    <span className="text-xs text-black/[0.55] dark:text-white/[0.55] truncate">
+                      {job.title || job.topic}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => { window.location.href = "/ghostwriter"; }}
-                      className="text-[11px] text-black/90 dark:text-white border border-black/[0.12] dark:border-white/[0.12] rounded-md px-2.5 py-1 hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors"
+                      onClick={() => router.push("/ghostwriter")}
+                      className="text-[10px] text-black/[0.55] dark:text-white/[0.55] hover:text-black/90 dark:hover:text-white transition-colors"
                     >
-                      Open in Ghostwriter
+                      Open →
                     </button>
                     <button
                       type="button"
                       onClick={() => deleteQueuedJob(job.id)}
-                      className="text-black/[0.28] dark:text-white/[0.28] hover:text-red-500 dark:hover:text-red-400 transition-colors text-[11px]"
+                      className="text-[10px] text-black/[0.22] dark:text-white/[0.22] hover:text-red-500 dark:hover:text-red-400 transition-colors"
                     >
-                      Delete
+                      ✕
                     </button>
                   </div>
                 </div>
@@ -1018,24 +1306,88 @@ export default function CreatePage() {
           {/* Error */}
           {error && <p className="text-xs text-red-400">{error}</p>}
 
-          {/* Send to Ghostwriter / Save for later */}
-          <div className="flex items-center gap-3 pt-1">
-            <button
-              type="button"
-              onClick={sendToGhostwriter}
-              disabled={!canSend}
-              className="flex-1 py-3 bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              {sending ? "Sending…" : "Send to Ghostwriter →"}
-            </button>
-            <button
-              type="button"
-              onClick={saveForLater}
-              disabled={!canSend}
-              className="py-3 px-5 bg-transparent text-black/[0.55] dark:text-white/[0.55] border border-black/[0.12] dark:border-white/[0.12] text-sm font-medium rounded-xl hover:text-black/90 dark:hover:text-white hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              Save for later
-            </button>
+          {/* Send to Ghostwriter / Save for later / Save as Template */}
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={sendToGhostwriter}
+                disabled={!canSend}
+                className="flex-1 py-3 bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {sending ? "Sending…" : "Send to Ghostwriter →"}
+              </button>
+              <button
+                type="button"
+                onClick={saveForLater}
+                disabled={!canSend}
+                className="py-3 px-5 bg-transparent text-black/[0.55] dark:text-white/[0.55] border border-black/[0.12] dark:border-white/[0.12] text-sm font-medium rounded-xl hover:text-black/90 dark:hover:text-white hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Save for later
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const brief = buildBrief();
+                  if (!brief) return;
+                  const tBrief = extractTemplateBrief(JSON.stringify(brief), selectedSigId);
+                  setNewTemplateName(defaultTemplateName(tBrief));
+                  setShowSaveTemplate(true);
+                }}
+                disabled={!intake}
+                className="py-3 px-5 bg-transparent text-black/[0.40] dark:text-white/[0.40] border border-black/[0.09] dark:border-white/[0.07] text-sm rounded-xl hover:text-black/90 dark:hover:text-white hover:border-black/[0.21] dark:hover:border-white/[0.22] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Save as Template
+              </button>
+            </div>
+            {showSaveTemplate && (
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  placeholder="Template name"
+                  className="flex-1 bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === "Escape") setShowSaveTemplate(false); }}
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSavingTemplate(true);
+                    const brief = buildBrief();
+                    if (!brief) { setSavingTemplate(false); return; }
+                    const tBrief = extractTemplateBrief(JSON.stringify(brief), selectedSigId);
+                    const res = await fetch("/api/templates", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        name: newTemplateName.trim() || defaultTemplateName(tBrief),
+                        contentType: tBrief.interview.contentType,
+                        brief: JSON.stringify(tBrief),
+                      }),
+                    });
+                    if (res.ok) {
+                      const created = await res.json();
+                      setTemplates((prev) => [created, ...prev]);
+                    }
+                    setSavingTemplate(false);
+                    setShowSaveTemplate(false);
+                  }}
+                  disabled={savingTemplate || !newTemplateName.trim()}
+                  className="bg-black/[0.88] text-white dark:bg-white dark:text-black text-sm font-medium px-4 py-2 rounded-xl hover:bg-black/75 dark:hover:bg-white/90 transition-colors disabled:opacity-40"
+                >
+                  {savingTemplate ? "Saving..." : "Save Template"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSaveTemplate(false)}
+                  className="text-sm text-black/[0.35] dark:text-white/[0.35] hover:text-black/55 dark:hover:text-white/55"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

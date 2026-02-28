@@ -58,6 +58,8 @@ export interface ContextItem {
   // Binary files (images, PDFs) — base64-encoded, no data: prefix
   data?: string;
   mediaType?: string;
+  // Files API — set after uploadContextFiles resolves binary items
+  fileId?: string;
   instructions?: string;
 }
 
@@ -91,9 +93,13 @@ export interface VoiceAnalysis {
   categoryInsights?: Record<string, string>;
   // Per-format guidelines generated on demand
   contentGuidelines?: Record<string, string[]>;
+  // Broad topic insights — how the author approaches recurring subject areas
+  // (e.g. "health & fitness", "AI & technology") regardless of format
+  topicInsights?: Record<string, string>;
 }
 
 export interface LabeledSample {
   content: string;
   category: string;
+  notes?: string;
 }

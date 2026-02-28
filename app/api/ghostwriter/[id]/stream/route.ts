@@ -11,17 +11,23 @@ import {
   draftContent,
   humanizeContent,
   compareAndSelectBestDraft,
+  proposeDraftVariation,
+  conductResearch,
+  assessResearchNeeds,
+  selfReviewDraft,
+  LIGHT_TYPES,
   InterviewAnswers,
   VoiceAnalysis,
   GenerationContext,
+  ContextItem,
+  ContextItemTag,
 } from "@/lib/claude";
 import { resolveContext } from "@/lib/resolve-context";
+import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
 
 const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
 
 // Approximate word count range per content type (min, max).
-// Upper bounds are intentionally generous for long-form types —
-// a wordCountTarget in the interview overrides these entirely.
 const WORD_RANGES: Record<string, [number, number]> = {
   blog: [600, 1400], essay: [500, 2000], newsletter: [200, 1000],
   whitepaper: [1500, 10000], email: [50, 400], report: [500, 4000],
@@ -33,6 +39,177 @@ const WORD_RANGES: Record<string, [number, number]> = {
 
 function wordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+// ── Adaptive pipeline tiers ─────────────────────────────────────────────────
+
+const DEEP_TYPES = new Set([
+  "essay", "report", "whitepaper", "research", "technical", "proposal", "case_study",
+]);
+
+type PipelineTier = "light" | "standard" | "deep";
+
+function getPipelineTier(contentType: string): PipelineTier {
+  if (LIGHT_TYPES.has(contentType)) return "light";
+  if (DEEP_TYPES.has(contentType)) return "deep";
+  return "standard";
+}
+
+function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { key: string; label: string }[] {
+  const typeLabel = CONTENT_TYPE_LABELS[interview.contentType]
+    ?? interview.contentTypeLabel
+    ?? interview.contentType;
+
+  switch (tier) {
+    case "light":
+      return [
+        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "drafting", label: `Writing your ${typeLabel}` },
+        { key: "reviewing", label: "Re-reading as you" },
+        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+      ];
+    case "standard":
+      return [
+        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "drafting", label: `Writing your ${typeLabel}` },
+        { key: "reviewing", label: "Re-reading as you" },
+        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+      ];
+    case "deep":
+      return [
+        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "researching", label: "Researching your topic" },
+        { key: "drafting_1", label: "Writing first draft" },
+        { key: "proposing", label: "Studying draft — proposing variation" },
+        { key: "drafting_2", label: "Writing second draft" },
+        { key: "comparing", label: "Comparing drafts against your voice" },
+        { key: "checking", label: "Checking word count & structure" },
+        { key: "reviewing", label: "Re-reading as you" },
+        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+      ];
+  }
+}
+
+// ── Inter-stage delays (rate-limit spacing + agentic UX) ─────────────────────
+
+interface TransitionConfig {
+  baseMs: number;
+  jitterMs: number;
+  messages: string[];
+}
+
+const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> = {
+  light: {
+    "drafting->reviewing": {
+      baseMs: 6000, jitterMs: 5000,
+      messages: [
+        "Reading draft back…",
+        "Checking voice fidelity…",
+      ],
+    },
+    "reviewing->humanizing": {
+      baseMs: 6000, jitterMs: 5000,
+      messages: [
+        "Reviewed and refined…",
+        "Preparing final polish…",
+      ],
+    },
+  },
+  standard: {
+    "planning->drafting": {
+      baseMs: 8000, jitterMs: 7000,
+      messages: [
+        "Reviewing your voice patterns…",
+        "Mapping structure to your style…",
+        "Preparing draft approach…",
+      ],
+    },
+    "research->drafting": {
+      baseMs: 8000, jitterMs: 7000,
+      messages: [
+        "Synthesizing research findings…",
+        "Mapping structure to your style…",
+        "Preparing draft approach…",
+      ],
+    },
+    "drafting->reviewing": {
+      baseMs: 8000, jitterMs: 7000,
+      messages: [
+        "Reading draft back…",
+        "Checking voice fidelity…",
+        "Verifying brief coverage…",
+      ],
+    },
+    "reviewing->humanizing": {
+      baseMs: 8000, jitterMs: 7000,
+      messages: [
+        "Reviewed and refined…",
+        "Checking tone against your voice…",
+        "Preparing final polish…",
+      ],
+    },
+  },
+  deep: {
+    "research->drafting_1": {
+      baseMs: 12000, jitterMs: 8000,
+      messages: [
+        "Reviewing your voice patterns…",
+        "Cross-referencing brief with style notes…",
+        "Synthesizing research findings…",
+        "Preparing draft approach…",
+      ],
+    },
+    "proposing->drafting_2": {
+      baseMs: 14000, jitterMs: 8000,
+      messages: [
+        "Analyzing first draft structure…",
+        "Identifying areas for variation…",
+        "Mapping alternative direction to your voice…",
+        "Setting up second draft…",
+      ],
+    },
+    "checking->reviewing": {
+      baseMs: 10000, jitterMs: 8000,
+      messages: [
+        "Reading draft back…",
+        "Checking voice fidelity…",
+        "Verifying brief coverage…",
+      ],
+    },
+    "reviewing->humanizing": {
+      baseMs: 10000, jitterMs: 8000,
+      messages: [
+        "Reviewed and refined…",
+        "Checking tone against your voice…",
+        "Preparing final polish…",
+      ],
+    },
+  },
+};
+
+/**
+ * Deliberate delay between pipeline stages. Sends cycling sub-step messages
+ * via SSE so the UI feels agentic. Uses send() directly (not setStep) to
+ * avoid writing transient labels to the database.
+ */
+async function paceTransition(
+  tier: PipelineTier,
+  transitionKey: string,
+  nextStepKey: string,
+  send: (data: object) => void,
+  isAborted: () => boolean,
+): Promise<void> {
+  const config = TRANSITION_DELAYS[tier]?.[transitionKey];
+  if (!config) return;
+
+  const totalMs = config.baseMs + Math.floor(Math.random() * config.jitterMs);
+  const perMsg = Math.floor(totalMs / config.messages.length);
+
+  for (let i = 0; i < config.messages.length; i++) {
+    if (isAborted()) return;
+    send({ type: "step", step: nextStepKey, label: config.messages[i] });
+    await new Promise((r) => setTimeout(r, perMsg));
+  }
 }
 
 export async function GET(
@@ -75,8 +252,9 @@ export async function GET(
   }));
   const favoriteWords = favoriteWordsRows.length > 0 ? favoriteWordsRows : undefined;
 
-  // Build author context from onboarding Q&A
+  // Build author context and extract editing preferences from onboarding Q&A
   let authorContext: string | undefined;
+  let editingPrefs: string | undefined;
   if (userRow?.onboardingProfile) {
     try {
       const profile = JSON.parse(userRow.onboardingProfile) as {
@@ -85,9 +263,19 @@ export async function GET(
       if (profile.answers && profile.answers.length > 0) {
         const isBrand = userRow.accountType === "brand";
         const header = isBrand ? "Brand context (from onboarding):" : "About the author (from onboarding):";
-        const lines = profile.answers
-          .filter((a) => a.answer?.trim())
-          .map((a) => `- ${a.question} ${a.answer}`);
+        const contextAnswers = profile.answers.filter((a) => a.answer?.trim());
+
+        // Extract editing preferences from the editing question
+        const editingAnswer = contextAnswers.find((a) =>
+          a.question.toLowerCase().includes("re-read") ||
+          a.question.toLowerCase().includes("reviews a draft") ||
+          a.question.toLowerCase().includes("usually change")
+        );
+        if (editingAnswer?.answer?.trim()) {
+          editingPrefs = editingAnswer.answer.trim();
+        }
+
+        const lines = contextAnswers.map((a) => `- ${a.question} ${a.answer}`);
         if (lines.length > 0) {
           authorContext = `${header}\n${lines.join("\n")}`;
         }
@@ -103,89 +291,259 @@ export async function GET(
     signatureContent?: string;
   };
   const { interview, context: rawContext, signatureContent } = briefData;
-  const resolvedContext = rawContext ? await resolveContext(rawContext) : undefined;
 
+  // Validate interview has required fields (angle/keyPoints can be empty strings)
+  if (!interview?.contentType || interview?.topic == null) {
+    await prisma.ghostwriterJob.update({
+      where: { id: jobId },
+      data: { status: "error", errorMsg: "Malformed brief — missing required interview fields." },
+    });
+    return new Response(
+      JSON.stringify({ error: "Malformed brief data." }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  // Normalize context: ensure items is a valid array, filter out malformed items
+  let normalizedContext: GenerationContext | undefined;
+  if (rawContext && Array.isArray(rawContext.items) && rawContext.items.length > 0) {
+    const validTags = new Set(["data", "example", "research", "reference", "note"]);
+    const validItems = rawContext.items.filter((item: ContextItem) => {
+      if (!item.tag || !validTags.has(item.tag)) {
+        console.warn(`[stream] Dropping context item with invalid tag: ${JSON.stringify(item.tag)}`);
+        return false;
+      }
+      // Must have at least one content source
+      const hasContent = item.url || item.text !== undefined || item.data || item.fileName;
+      if (!hasContent) {
+        console.warn(`[stream] Dropping context item with no content source (tag: ${item.tag})`);
+        return false;
+      }
+      return true;
+    });
+    normalizedContext = validItems.length > 0 ? { items: validItems } : undefined;
+  }
+  let resolvedContext = normalizedContext ? await resolveContext(normalizedContext) : undefined;
+
+  // Binary context (PDFs, images) stays as base64 in context items.
+  // Each provider handles its own format: Grok uses OpenAI-style image blocks,
+  // Anthropic uses inline base64 blocks. No upfront file upload needed.
+
+  const tier = getPipelineTier(interview.contentType);
+  const pipelineSteps = getPipelineSteps(tier, interview);
+  const typeLabel = CONTENT_TYPE_LABELS[interview.contentType]
+    ?? interview.contentTypeLabel
+    ?? interview.contentType;
   const encoder = new TextEncoder();
+  const abortController = new AbortController();
 
   const sseStream = new ReadableStream({
     async start(controller) {
-      const send = (data: object) =>
+      const send = (data: object) => {
+        if (abortController.signal.aborted) return;
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      };
 
       const setStep = async (status: string, label: string) => {
+        if (abortController.signal.aborted) return;
         await prisma.ghostwriterJob.update({ where: { id: jobId }, data: { status, stepLabel: label } });
         send({ type: "step", step: status, label });
       };
 
+      const isAborted = () => abortController.signal.aborted;
+
       try {
-        // ── Step 1: Plan ───────────────────────────────────────────────────
-        await setStep("planning", "Planning structure…");
-        const plan = await planContent(voiceProfile, interview, resolvedContext, sampleExamples, favoriteWords, authorContext);
+        // Send pipeline configuration to client
+        send({ type: "pipeline", steps: pipelineSteps, tier });
 
-        // ── Step 2: Draft 1 — standard ────────────────────────────────────
-        await setStep("drafting_1", "Writing first draft…");
-        const draft1 = await draftContent(voiceProfile, interview, plan, resolvedContext, sampleExamples, favoriteWords, authorContext);
+        // ── Plan ─────────────────────────────────────────────────────────
+        await setStep("planning", `Planning your ${typeLabel}…`);
+        const plan = await planContent(
+          voiceProfile, interview, resolvedContext, sampleExamples, favoriteWords, authorContext
+        );
+        if (isAborted()) { controller.close(); return; }
 
-        // ── Step 3: Draft 2 — narrative emphasis ──────────────────────────
-        await setStep("drafting_2", "Writing second draft…");
-        const interview2: InterviewAnswers = {
-          ...interview,
-          toneNotes: [interview.toneNotes, "Prioritize narrative momentum — let the story carry the argument"]
-            .filter(Boolean).join(". "),
-        };
-        const draft2 = await draftContent(voiceProfile, interview2, plan, resolvedContext, sampleExamples, favoriteWords, authorContext);
+        // ── Research (all tiers except light) ─────────────────────────────
+        // Research is gated by TOPIC NEEDS, not content format. A blog about
+        // cancer studies needs research just as much as a whitepaper does.
+        // assessResearchNeeds (Haiku) makes the call — we just give it the chance.
+        let enrichedContext = resolvedContext;
+        if (tier !== "light") {
+          try {
+            const assessment = await assessResearchNeeds(plan, interview, resolvedContext);
+            if (!isAborted() && assessment.needed && assessment.queries.length > 0) {
+              // Inject "researching" step into the pipeline UI if it wasn't
+              // already there (deep tier has it; standard doesn't by default)
+              if (tier !== "deep") {
+                const updatedSteps = [
+                  pipelineSteps[0], // planning
+                  { key: "researching", label: "Researching your topic" },
+                  ...pipelineSteps.slice(1),
+                ];
+                send({ type: "pipeline", steps: updatedSteps, tier });
+              }
+              await setStep("researching", "Researching your topic…");
+              const researchResults: string[] = [];
+              for (const query of assessment.queries.slice(0, 3)) {
+                if (isAborted()) break;
+                await setStep("researching", `Researching: ${query.slice(0, 60)}…`);
+                try {
+                  const result = await conductResearch(query, {
+                    topic: interview.topic,
+                    angle: interview.angle,
+                    contentType: interview.contentType,
+                  });
+                  if (result && result !== "Research could not be completed.") {
+                    researchResults.push(result);
+                  }
+                } catch { /* skip failed queries */ }
+              }
+              if (researchResults.length > 0) {
+                const researchItems: ContextItem[] = researchResults.map((r) => ({
+                  tag: "research" as ContextItemTag,
+                  text: r,
+                  instructions: "Use this research to support factual claims and add specificity.",
+                }));
+                enrichedContext = {
+                  items: [...(resolvedContext?.items ?? []), ...researchItems],
+                };
+              }
+            }
+          } catch { /* research assessment failed — continue without research */ }
+          if (isAborted()) { controller.close(); return; }
+        }
 
-        // ── Step 4: Draft 3 — bold and direct ─────────────────────────────
-        await setStep("drafting_3", "Writing third draft…");
-        const interview3: InterviewAnswers = {
-          ...interview,
-          toneNotes: [interview.toneNotes, "Be bold and direct — fewer qualifications, stronger claims, sharper edges"]
-            .filter(Boolean).join(". "),
-        };
-        const draft3 = await draftContent(voiceProfile, interview3, plan, resolvedContext, sampleExamples, favoriteWords, authorContext);
+        // ── Drafting ─────────────────────────────────────────────────────
+        let selected: string;
 
-        // Persist raw drafts
-        await prisma.ghostwriterJob.update({
-          where: { id: jobId },
-          data: { drafts: JSON.stringify([draft1, draft2, draft3]) },
-        });
+        if (tier === "deep") {
+          // Pace before first Opus draft (research used Haiku/Sonnet, different rate pool)
+          await paceTransition(tier, "research->drafting_1", "drafting_1", send, isAborted);
+          if (isAborted()) { controller.close(); return; }
 
-        // ── Step 5: Compare ───────────────────────────────────────────────
-        await setStep("comparing", "Comparing drafts against your voice…");
-        const selected = await compareAndSelectBestDraft([draft1, draft2, draft3], voiceProfile, interview);
+          // Draft 1 (full samples) → study it → propose 1 variation → draft 2 (fingerprint only)
+          await setStep("drafting_1", "Writing first draft…");
+          const draft1 = await draftContent(
+            voiceProfile, interview, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
+          );
+          if (isAborted()) { controller.close(); return; }
 
-        // ── Step 6: Quality check ─────────────────────────────────────────
-        // MUST stay immediately before humanizing — never reorder.
-        await setStep("checking", "Checking word count & structure…");
-        const wc = wordCount(selected);
+          // Propose variation: Sonnet reads draft 1 + voice profile and suggests
+          // 1 alternative creative direction specific to this author
+          await setStep("proposing", "Studying draft — proposing variation…");
+          const variation = await proposeDraftVariation(
+            draft1, voiceProfile, interview, plan
+          );
+          if (isAborted()) { controller.close(); return; }
 
-        // wordCountTarget from the brief always beats WORD_RANGES.
-        let minW: number, maxW: number;
-        const targetStr = interview.wordCountTarget;
-        if (targetStr) {
-          const targetNum = parseInt(String(targetStr).replace(/[^\d]/g, ""), 10);
-          if (!isNaN(targetNum) && targetNum > 0) {
-            minW = Math.floor(targetNum * 0.7);
-            maxW = Math.ceil(targetNum * 1.3);
+          // Pace before second Opus draft
+          await paceTransition(tier, "proposing->drafting_2", "drafting_2", send, isAborted);
+          if (isAborted()) { controller.close(); return; }
+
+          // Draft 2 uses condensed voice fingerprint (isFollowup=true) + reduced thinking budget
+          await setStep("drafting_2", "Writing second draft…");
+          const interview2: InterviewAnswers = {
+            ...interview,
+            toneNotes: [interview.toneNotes, variation.direction]
+              .filter(Boolean).join(". "),
+          };
+          const draft2 = await draftContent(
+            voiceProfile, interview2, plan, enrichedContext, sampleExamples, favoriteWords, authorContext, true
+          );
+          if (isAborted()) { controller.close(); return; }
+
+          // Persist raw drafts
+          await prisma.ghostwriterJob.update({
+            where: { id: jobId },
+            data: { drafts: JSON.stringify([draft1, draft2]) },
+          });
+
+          // Compare & select best (Sonnet — analytical, not creative)
+          await setStep("comparing", "Comparing drafts against your voice…");
+          selected = await compareAndSelectBestDraft([draft1, draft2], voiceProfile, interview);
+          if (isAborted()) { controller.close(); return; }
+
+          // Word count quality check
+          await setStep("checking", "Checking word count & structure…");
+          const wc = wordCount(selected);
+          let minW: number, maxW: number;
+          const targetStr = interview.wordCountTarget;
+          if (targetStr) {
+            const targetNum = parseInt(String(targetStr).replace(/[^\d]/g, ""), 10);
+            if (!isNaN(targetNum) && targetNum > 0) {
+              minW = Math.floor(targetNum * 0.7);
+              maxW = Math.ceil(targetNum * 1.3);
+            } else {
+              [minW, maxW] = WORD_RANGES[interview.contentType] ?? [300, 2000];
+            }
           } else {
             [minW, maxW] = WORD_RANGES[interview.contentType] ?? [300, 2000];
           }
+
+          let countNote = "";
+          if (wc < minW * 0.7) {
+            countNote = `[Polishing note: draft is ${wc} words; target is ${minW}–${maxW}. Expand thin sections — add substance, not padding.]`;
+          } else if (wc > maxW * 1.4) {
+            countNote = `[Polishing note: draft is ${wc} words; target is ${minW}–${maxW}. Tighten by cutting redundancy, not ideas.]`;
+          }
+
+          if (countNote) selected = `${selected}\n\n${countNote}`;
         } else {
-          [minW, maxW] = WORD_RANGES[interview.contentType] ?? [300, 2000];
+          // Light and standard: single draft
+          // Pace before Opus draft call — use correct transition key based on
+          // whether research ran (enrichedContext differs from resolvedContext)
+          const didResearch = enrichedContext !== resolvedContext;
+          const draftTransition = didResearch ? "research->drafting" : "planning->drafting";
+          await paceTransition(tier, draftTransition, "drafting", send, isAborted);
+          if (isAborted()) { controller.close(); return; }
+
+          await setStep("drafting", `Writing your ${typeLabel}…`);
+          selected = await draftContent(
+            voiceProfile, interview, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
+          );
+          if (isAborted()) { controller.close(); return; }
         }
 
-        let countNote = "";
-        if (wc < minW * 0.7) {
-          countNote = `[Polishing note: draft is ${wc} words; target is ${minW}–${maxW}. Expand thin sections — add substance, not padding.]`;
-        } else if (wc > maxW * 1.4) {
-          countNote = `[Polishing note: draft is ${wc} words; target is ${minW}–${maxW}. Tighten by cutting redundancy, not ideas.]`;
-        }
+        // ── Self-review (runs BEFORE humanizer — every type) ────────────
+        // Self-review checks voice fidelity, brief adherence, and fabrication.
+        // It runs on the raw draft so it can catch content issues before the
+        // humanizer does its final AI-pattern cleanup pass.
+        const reviewTransition = tier === "deep" ? "checking->reviewing" : "drafting->reviewing";
+        await paceTransition(tier, reviewTransition, "reviewing", send, isAborted);
+        if (isAborted()) { controller.close(); return; }
 
-        // ── Step 7: Humanize ──────────────────────────────────────────────
-        await setStep("humanizing", "Final polish…");
-        const inputForHumanize = countNote ? `${selected}\n\n${countNote}` : selected;
+        await setStep("reviewing", "Re-reading as you…");
+        let reviewedDraft = selected;
+        try {
+          const reviewed = await selfReviewDraft(
+            selected, voiceProfile, interview, editingPrefs,
+            enrichedContext, sampleExamples, favoriteWords, authorContext
+          );
+          if (reviewed && reviewed.trim()) {
+            reviewedDraft = reviewed;
+          }
+        } catch { /* self-review failed — keep draft as-is */ }
+        if (isAborted()) { controller.close(); return; }
+
+        // ── Humanize (ALWAYS last — streams final output to client) ─────
+        // The humanizer is the final gate. Nothing runs after it.
+        // Whatever AI patterns the drafter or self-review introduced, the
+        // humanizer kills them here.
+        await paceTransition(tier, "reviewing->humanizing", "humanizing", send, isAborted);
+        if (isAborted()) { controller.close(); return; }
+
+        await setStep("humanizing", `Polishing your ${typeLabel}…`);
         const humanizedStream = await humanizeContent(
-          inputForHumanize, voiceProfile, HUMANIZER, interview.contentType
+          reviewedDraft, voiceProfile, HUMANIZER, interview.contentType,
+          sampleExamples, favoriteWords, authorContext,
+          (pass, total) => {
+            const labels = [
+              `Humanizing — pass ${pass} of ${total}…`,
+              `Catching remaining AI patterns — pass ${pass} of ${total}…`,
+              `Final polish — pass ${pass} of ${total}…`,
+            ];
+            send({ type: "step", step: "humanizing", label: labels[pass - 1] ?? labels[0] });
+          }
         );
 
         let finalContent = "";
@@ -194,14 +552,17 @@ export async function GET(
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          finalContent += dec.decode(value, { stream: true });
+          const chunk = dec.decode(value, { stream: true });
+          finalContent += chunk;
+          send({ type: "chunk", text: chunk });
         }
+        if (isAborted()) { controller.close(); return; }
 
+        // ── Done ─────────────────────────────────────────────────────────
         const dbContent = signatureContent
           ? `${finalContent}\n\n${signatureContent}`
           : finalContent;
 
-        // Save completed job
         await prisma.ghostwriterJob.update({
           where: { id: jobId },
           data: { status: "done", stepLabel: "Done", finalDraft: dbContent },
@@ -222,15 +583,21 @@ export async function GET(
 
         send({ type: "done", finalDraft: dbContent });
       } catch (err) {
+        if (isAborted()) { controller.close(); return; }
         console.error("Ghostwriter pipeline error:", err);
         const msg = err instanceof Error ? err.message : "Unknown error";
         await prisma.ghostwriterJob
           .update({ where: { id: jobId }, data: { status: "error", errorMsg: msg } })
           .catch(console.error);
         send({ type: "error", message: "Ghostwriting failed. Please try again." });
+      } finally {
+        // No file cleanup needed — binary content is inline base64, not uploaded.
       }
 
       controller.close();
+    },
+    cancel() {
+      abortController.abort();
     },
   });
 

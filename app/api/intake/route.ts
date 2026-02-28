@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 
-const anthropic = new Anthropic();
+let _gemini: GoogleGenAI;
+function getGemini() {
+  if (!_gemini) _gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  return _gemini;
+}
 
 export async function POST(req: NextRequest) {
   const { description } = await req.json();
@@ -9,10 +13,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Description required" }, { status: 400 });
   }
 
-  const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
-    system: `You analyze content briefs and extract structured fields. Return ONLY valid JSON — no prose, no code fences.
+  const systemInstruction = `You analyze content briefs and extract structured fields. Return ONLY valid JSON — no prose, no code fences.
 
 Required output shape:
 {
@@ -73,23 +74,23 @@ questions rules:
 - Required for resume/cover_letter: topic (role/industry targeting) if absent; angle not required
 - Never required: targetAudience, toneNotes
 - Make labels SPECIFIC to the topic (not generic — e.g. "What's your argument about remote work?" not "What's your angle?")
-- Max 3 questions. If all required fields present, return questions: []`,
-    messages: [{
-      role: "user",
-      content: `Brief: """${description}"""`,
-    }],
+- Max 3 questions. If all required fields present, return questions: []`;
+
+  const result = await getGemini().models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: `Brief: """${description}"""`,
+    config: {
+      systemInstruction,
+      maxOutputTokens: 1024,
+    },
   });
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
+  const text = (result.text ?? "").trim();
 
   try {
     const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    const result = JSON.parse(clean);
-    return Response.json(result);
+    const parsed = JSON.parse(clean);
+    return Response.json(parsed);
   } catch {
     return Response.json({ error: "Parse failed", raw: text }, { status: 500 });
   }

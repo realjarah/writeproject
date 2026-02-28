@@ -402,6 +402,34 @@ function TrainTab() {
         <p className="text-xs text-red-400">{analyzeError}</p>
       )}
 
+      {/* Voice calibrating banner — shown during first analysis or re-analysis */}
+      {analyzing && (
+        <div className="bg-violet-500/[0.04] dark:bg-violet-400/[0.04] border border-violet-400/[0.15] dark:border-violet-400/[0.12] rounded-xl px-5 py-4">
+          <div className="flex items-center gap-4">
+            <div className="relative w-10 h-10 shrink-0">
+              <div className="absolute inset-0 rounded-full border-2 border-violet-400/20" />
+              <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-violet-400 animate-spin" />
+              <div className="absolute inset-2 rounded-full border-2 border-transparent border-b-violet-300 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <svg className="w-3.5 h-3.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                </svg>
+              </div>
+            </div>
+            <div className="flex-1">
+              <p className="text-[14px] font-semibold text-violet-600 dark:text-violet-300 tracking-tight">
+                {profile ? "Updating your voice" : "Voice calibrating"}
+              </p>
+              <p className="text-[12px] text-violet-500/60 dark:text-violet-300/50 mt-0.5">
+                {profile
+                  ? "Re-analyzing your samples to refine your voice profile…"
+                  : "Analyzing your writing samples and building your custom voice profile…"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Readiness */}
       {samples.length > 0 && (
         <ReadinessBar
