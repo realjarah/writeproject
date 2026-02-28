@@ -260,8 +260,8 @@ export async function GET(
   };
   const { interview, context: rawContext, signatureContent } = briefData;
 
-  // Validate interview has required fields
-  if (!interview?.contentType || !interview?.topic || !interview?.angle || !interview?.keyPoints) {
+  // Validate interview has required fields (angle/keyPoints can be empty strings)
+  if (!interview?.contentType || interview?.topic == null) {
     await prisma.ghostwriterJob.update({
       where: { id: jobId },
       data: { status: "error", errorMsg: "Malformed brief — missing required interview fields." },
