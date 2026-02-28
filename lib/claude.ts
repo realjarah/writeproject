@@ -535,20 +535,11 @@ export function getStageBudgets(contentType: string): StageBudgets {
 
 // ── Pipeline tier sets ───────────────────────────────────────────────────────
 
-/** Content types that use the lightweight pipeline (Sonnet for planning, no self-review).
+/** Content types that use the lightweight pipeline (Gemini for planning).
  *  Only truly short-form content — threads, emails, and resumes are voice-critical
  *  enough to warrant the full pipeline. */
 export const LIGHT_TYPES = new Set([
   "caption", "text_message", "social",
-]);
-
-/** Content types where self-review is skipped (not needed for short/medium-form) */
-export const SKIP_SELF_REVIEW_TYPES = new Set([
-  "newsletter", "press_release", "cover_letter",
-  // All light types also skip self-review
-  "caption", "text_message", "social",
-  // NOTE: email and resume intentionally get self-review — they often reference
-  // specific data (medical results, job history) that needs fabrication checking.
 ]);
 
 // ── Voice fingerprint (condensed samples for follow-up calls) ────────────────
