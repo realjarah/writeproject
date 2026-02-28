@@ -467,7 +467,15 @@ export async function GET(
         await setStep("humanizing", `Polishing your ${typeLabel}…`);
         const humanizedStream = await humanizeContent(
           selected, voiceProfile, HUMANIZER, interview.contentType,
-          sampleExamples, favoriteWords, authorContext
+          sampleExamples, favoriteWords, authorContext,
+          (pass, total) => {
+            const labels = [
+              `Humanizing — pass ${pass} of ${total}…`,
+              `Catching remaining AI patterns — pass ${pass} of ${total}…`,
+              `Final polish — pass ${pass} of ${total}…`,
+            ];
+            send({ type: "step", step: "humanizing", label: labels[pass - 1] ?? labels[0] });
+          }
         );
 
         let finalContent = "";

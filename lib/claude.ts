@@ -1011,39 +1011,35 @@ export async function humanizeContent(
   contentType: string = "blog",
   sampleExamples?: { content: string; category: string }[],
   favoriteWords?: { word: string; definition: string }[],
-  authorContext?: string
+  authorContext?: string,
+  onPassStart?: (pass: number, total: number) => void
 ): Promise<ReadableStream<Uint8Array>> {
-  // Build voice context so the humanizer knows what the author sounds like —
-  // without this, it strips AI patterns but replaces them with generic prose
   const typeLabel = CONTENT_TYPE_LABELS[contentType] ?? contentType;
 
+  // Voice context so the humanizer replaces AI patterns with the author's
+  // actual voice instead of generic prose
   const guidelines = voiceProfile.contentGuidelines?.[contentType];
   const guidelinesBlock = guidelines?.length
     ? `\n## Format-Specific Guidelines (${typeLabel})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
     : "";
-
   const categoryInsight = voiceProfile.categoryInsights?.[contentType];
   const categoryInsightBlock = categoryInsight
     ? `\n## How This Author Writes ${typeLabel}\n${categoryInsight}\n`
     : "";
-
   const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
-
-  // Use condensed fingerprint (excerpts) — the humanizer needs to hear the
-  // author's voice to know what to replace AI patterns WITH
   const fingerprintBlock = sampleExamples?.length
     ? buildVoiceFingerprint(sampleExamples)
     : "";
-
   const favoriteWordsBlock = favoriteWords?.length
     ? `\n## Author's Favorite Words (use naturally when they fit — never force)\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}\n`
     : "";
-
   const authorContextBlock = authorContext?.trim()
     ? `\n## Author Background\n${authorContext.trim()}\n`
     : "";
 
-  // Use structured system prompt with cache_control on the stable humanizer instructions
+  // System prompt: humanizer.md instructions + author voice profile
+  // Same prompt is used for all 3 passes — the instructions don't change,
+  // just the input text gets cleaner each time
   const systemPrompt = [
     {
       type: "text",
@@ -1054,50 +1050,11 @@ export async function humanizeContent(
       type: "text",
       text: `---
 
-# MANDATORY INSTRUCTIONS — FOLLOW EXACTLY
+You are preparing text for final publication. Follow the humanizer guide above exactly. Identify every AI pattern, rewrite the problematic sections, and output only the final humanized text. No commentary, no process notes, no summary of changes.
 
-You are preparing text for final publication. This is a real person's reputation on the line. If AI patterns survive into the final output, you have failed.
+When you replace AI patterns, replace them with THIS AUTHOR'S voice — not with generic clean prose. Study the profile and excerpts below. The output should read like this person wrote it.
 
-## Your thinking process (use ALL of your extended thinking budget)
-
-You MUST complete every single one of these steps in your extended thinking. Do not skip any. Do not abbreviate any. Think through each one exhaustively.
-
-**Step 1 — Pattern scan.** Go through the input line by line. Flag EVERY instance of EVERY pattern from the humanizer guide above. Be paranoid. If something MIGHT be an AI pattern, flag it. Specifically hunt for:
-- Em dashes (—). Count them. If there are more than 1-2 in the entire piece, most need to go.
-- "Delve", "crucial", "vibrant", "landscape", "tapestry", "testament", "foster", "underscore", "showcase", "pivotal", "enhance", "garner", "interplay", "intricate", "enduring", "valuable", "additionally", "furthermore", "moreover"
-- Rule of three (X, Y, and Z). Break these up.
-- Opener clichés: "In today's", "In an era", "In the world of", "When it comes to"
-- Closer clichés: "At the end of the day", "In conclusion", "The future looks", "Moving forward"
-- Copula avoidance: "serves as", "stands as", "represents a"
-- Negative parallelism: "It's not just X — it's Y", "Not only X but Y"
-- Synonym cycling: using 4 different words for the same thing across consecutive sentences
-- Hollow hedging: "It's worth noting", "One might argue", "It could be said"
-- Bolded inline headers in lists
-- Generic positive conclusions with no specifics
-- Filler phrases: "In order to", "Due to the fact that", "It is important to note"
-- Vague attributions: "experts say", "studies show", "research suggests" without specific citations
-- Sycophantic/promotional language: "groundbreaking", "game-changing", "revolutionary"
-
-**Step 2 — Rewrite.** Rewrite the piece, replacing every flagged pattern. DO NOT replace AI patterns with generic "clean" prose. Replace them with THIS AUTHOR'S voice. Use their sentence structures, their vocabulary, their rhythm. Read the voice excerpts below — that is what the output should sound like. Not Wikipedia. Not a press release. Not a cleaned-up AI draft. It should sound like the human who wrote those excerpts.
-
-**Step 3 — Self-audit.** Read your rewrite and answer: "If I showed this to someone who reads AI-generated content all day, what would they flag?" Be brutally honest. Identify every remaining tell. Common ones you might miss:
-- Sentences that are all the same length
-- Paragraphs that all follow the same structure (topic sentence → evidence → conclusion)
-- Overly smooth transitions between ideas (real writing is rougher)
-- Perfect parallel structure (real writers are less symmetrical)
-- Absence of the author's personality (opinions, humor, directness, uncertainty)
-- Em dashes you left in
-- Any word from the AI vocabulary list above that you didn't catch
-
-**Step 4 — Final revision.** Fix everything from step 3. Then read it one more time. If any sentence makes you think "an AI could have written this," rewrite that sentence.
-
-## Output rules
-- Output ONLY the final humanized piece after completing ALL four steps in thinking
-- No section headers, no audit bullets, no process notes, no summary of changes, no meta-commentary
-- Just the finished text, ready to publish
-
-## Author Voice Profile — study this carefully
-
+## Author Voice Profile
 **Tone:** ${voiceProfile.tone}
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
 **Vocabulary Style:** ${voiceProfile.vocabularyStyle}
@@ -1106,44 +1063,67 @@ You MUST complete every single one of these steps in your extended thinking. Do 
 **Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
 **Recurring Patterns:**
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
-**Things to Avoid (this author NEVER does these — if any appear in the output, you failed):**
+**Things to Avoid (this author never does these):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 ${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}`,
     },
   ];
 
-  const userPrompt = `Humanize this ${typeLabel}. Your job is to make it sound like the author above actually wrote it — not like an AI wrote it and someone cleaned it up. Every em dash, every "delve", every rule-of-three, every smooth transition, every generic closer — find them all and replace them with how this author actually writes. Use your full thinking budget. Do not rush this.
-
-${draft}`;
-
   const { humanize: humanizeBudget } = getStageBudgets(contentType);
+  const perPassBudget = Math.ceil(humanizeBudget.thinkingBudget / 3);
 
-  // Always use Opus with thinking for humanization — it's the last line of
-  // defense against AI patterns, and the self-audit process in humanizer.md
-  // requires extended thinking to work through "what still makes this obviously
-  // AI generated?" Without thinking, the model can't follow its own instructions.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stream = await (anthropic.messages.stream as any)({
-    model: "claude-opus-4-6",
-    max_tokens: humanizeBudget.maxTokens,
-    thinking: { type: "enabled", budget_tokens: humanizeBudget.thinkingBudget },
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  // Run the humanizer 3 times. Each pass feeds its output into the next.
+  // Pass 1 catches the obvious stuff. Pass 2 catches what pass 1 missed.
+  // Pass 3 catches whatever is left. Same instructions every time.
+  let current = draft;
+  for (let pass = 1; pass <= 3; pass++) {
+    onPassStart?.(pass, 3);
+    const isLastPass = pass === 3;
+    const passLabel = pass === 1
+      ? `Humanize this ${typeLabel}. Follow the humanizer guide exactly. Output only the cleaned text.`
+      : `This text has already been through ${pass - 1} humanization pass${pass > 2 ? "es" : ""}. Run the humanizer guide on it again — find any remaining AI patterns that were missed. Output only the cleaned text.`;
 
-  return new ReadableStream({
-    async start(controller) {
-      for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
-        }
-      }
-      controller.close();
-    },
-  });
+    if (isLastPass) {
+      // Stream the final pass back to the client
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stream = await (anthropic.messages.stream as any)({
+        model: "claude-opus-4-6",
+        max_tokens: humanizeBudget.maxTokens,
+        thinking: { type: "enabled", budget_tokens: perPassBudget },
+        system: systemPrompt,
+        messages: [{ role: "user", content: `${passLabel}\n\n${current}` }],
+      });
+
+      return new ReadableStream({
+        async start(controller) {
+          for await (const chunk of stream) {
+            if (
+              chunk.type === "content_block_delta" &&
+              chunk.delta.type === "text_delta"
+            ) {
+              controller.enqueue(new TextEncoder().encode(chunk.delta.text));
+            }
+          }
+          controller.close();
+        },
+      });
+    }
+
+    // Non-streaming passes — collect full output
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await (anthropic.messages.create as any)({
+      model: "claude-opus-4-6",
+      max_tokens: humanizeBudget.maxTokens,
+      thinking: { type: "enabled", budget_tokens: perPassBudget },
+      system: systemPrompt,
+      messages: [{ role: "user", content: `${passLabel}\n\n${current}` }],
+    });
+
+    current = extractText(res.content);
+  }
+
+  // Unreachable — loop always returns on pass 3
+  return new ReadableStream({ start(c) { c.close(); } });
 }
 
 // ── Self-review ───────────────────────────────────────────────────────────────
