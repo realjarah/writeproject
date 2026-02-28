@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
 // Re-export shared types and constants from the client-safe module
 export type {
@@ -20,9 +22,24 @@ import type {
 } from "./content-types";
 import { CONTENT_TYPE_LABELS } from "./content-types";
 
+// ── Provider clients ─────────────────────────────────────────────────────────
+// Opus: voice analysis, humanizer, self-review (voice + quality layer)
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+// Grok: core writing engine — planning (non-light) + drafting (2M context)
+const xai = new OpenAI({
+  apiKey: process.env.XAI_API_KEY,
+  baseURL: "https://api.x.ai/v1",
+});
+
+// Gemini Flash: all interim / low-stakes calls
+const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+
+// ── Model IDs ────────────────────────────────────────────────────────────────
+const XAI_WRITING_MODEL = "grok-4-1-fast-reasoning";
+const GEMINI_FAST_MODEL = "gemini-2.5-flash";
 
 export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnalysis> {
   const samplesText = samples
@@ -39,8 +56,9 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
       ? `\nNote: samples span multiple formats (${categories.join(", ")}). Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats.\n`
       : "";
 
+  // Opus: voice analysis is the foundation — quality here determines everything downstream
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+    model: "claude-opus-4-6",
     max_tokens: 10000,
     messages: [
       {
@@ -338,6 +356,26 @@ function buildBinaryBlocks(context: GenerationContext): any[] {
   return blocks;
 }
 
+// Returns OpenAI-compatible image content parts for Grok API calls.
+// Only images are included — PDFs are handled via the text context block.
+function buildGrokImageBlocks(
+  context: GenerationContext
+): Array<{ type: "image_url"; image_url: { url: string } }> {
+  const blocks: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+  for (const item of context.items) {
+    if (!item.data || !item.mediaType) continue;
+    if (item.mediaType.startsWith("image/")) {
+      blocks.push({
+        type: "image_url",
+        image_url: { url: `data:${item.mediaType};base64,${item.data}` },
+      });
+    }
+    // PDFs: the text context block (buildContextBlock) includes their content.
+    // Grok's Files API requires a separate upload flow — not supported here yet.
+  }
+  return blocks;
+}
+
 export async function generateContent(
   voiceProfile: VoiceAnalysis,
   interview: InterviewAnswers,
@@ -547,9 +585,9 @@ export async function conductResearch(
     ? ` Context: writing a ${typeLabelHint} about "${interviewContext.topic}"${interviewContext.angle ? ` (angle: ${interviewContext.angle})` : ""}.`
     : "";
 
-  const systemPrompt = `You are a research assistant preparing a structured brief for a ghostwriter.${contextHint}
+  const systemInstruction = `You are a research assistant preparing a structured brief for a ghostwriter.${contextHint}
 
-Use the web_search tool to find relevant, current information. After researching, produce a well-structured markdown brief covering:
+Search for relevant, current information. After researching, produce a well-structured markdown brief covering:
 - Key facts, figures, and data points with sources
 - Relevant statistics or recent studies
 - Important context, background, or history
@@ -559,51 +597,18 @@ Use the web_search tool to find relevant, current information. After researching
 
 Be specific and factual. Reference sources inline (e.g. "According to [Source], ..."). Format clearly with headers and bullets. The ghostwriter will use this directly as context.`;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const messages: any[] = [{ role: "user", content: prompt }];
+  // Gemini Flash with Google Search grounding — single call, no tool loop needed
+  const result = await gemini.models.generateContent({
+    model: GEMINI_FAST_MODEL,
+    contents: prompt,
+    config: {
+      systemInstruction,
+      tools: [{ googleSearch: {} }],
+      maxOutputTokens: 8000,
+    },
+  });
 
-  // Tool loop — handles web_search tool_use/tool_result cycle
-  for (let round = 0; round < 10; round++) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res: any = await (anthropic.messages.create as any)({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8000,
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-      system: systemPrompt,
-      messages,
-    });
-
-    if (res.stop_reason !== "tool_use") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (extractText(res.content as any) || "Research could not be completed.");
-    }
-
-    // Push assistant turn, then return tool results so Claude can continue
-    messages.push({ role: "assistant", content: res.content });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const toolResults = (res.content as any[])
-      .filter((b) => b.type === "tool_use")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((b: any) => ({
-        type: "tool_result",
-        tool_use_id: b.id,
-        // web_search_20250305 embeds results in the block; pass them back as content
-        content: b.content != null ? JSON.stringify(b.content) : "Search completed.",
-      }));
-
-    if (toolResults.length === 0) break;
-    messages.push({ role: "user", content: toolResults });
-  }
-
-  // Fallback: return text from the last assistant message in the loop
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === "assistant") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const text = extractText(Array.isArray(messages[i].content) ? messages[i].content : []);
-      if (text) return text;
-    }
-  }
-  return "Research could not be completed.";
+  return result.text || "Research could not be completed.";
 }
 
 // ── Topic insights helper ────────────────────────────────────────────────────
@@ -693,10 +698,6 @@ ${examplesBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
 ${authorContextBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}`;
 
-  const systemPrompt = [
-    { type: "text", text: voicePlanBlock, cache_control: { type: "ephemeral" } },
-  ];
-
   const userPrompt = `Produce the structural plan. Do not write the piece — plan only.
 
 **Brief:**
@@ -722,34 +723,39 @@ ${contextBlock}
 
 Do not plan a generic article. Plan THIS author's article. If the plan could belong to any writer, it is wrong.`;
 
-  const messageContent =
-    binaryBlocks.length > 0
-      ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
-      : userPrompt;
-
-  const reqOptions = Object.keys(betaHeaders).length > 0
-    ? { headers: betaHeaders }
-    : {};
-
   const { plan: planBudget } = getStageBudgets(interview.contentType);
-
-  // Light tier (caption, social, text_message): Sonnet without thinking —
-  // planning a 1-4 sentence piece doesn't need Opus-level deliberation
   const isLight = LIGHT_TYPES.has(interview.contentType);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await (anthropic.messages.create as any)(
-    {
-      model: isLight ? "claude-sonnet-4-6" : "claude-opus-4-6",
-      max_tokens: planBudget.maxTokens,
-      ...(isLight ? {} : { thinking: { type: "enabled", budget_tokens: planBudget.thinkingBudget } }),
-      system: systemPrompt,
-      messages: [{ role: "user", content: messageContent }],
-    },
-    reqOptions
-  );
+  if (isLight) {
+    // Light tier: Gemini Flash — no reasoning overhead for 1-4 sentence pieces
+    const result = await gemini.models.generateContent({
+      model: GEMINI_FAST_MODEL,
+      contents: userPrompt,
+      config: {
+        systemInstruction: voicePlanBlock,
+        maxOutputTokens: planBudget.maxTokens,
+      },
+    });
+    return result.text ?? "";
+  }
 
-  return extractText(res.content);
+  // Standard / deep tier: Grok — reasoning model with 2M context
+  const grokImages = context ? buildGrokImageBlocks(context) : [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userContent: any = grokImages.length > 0
+    ? [{ type: "text", text: userPrompt }, ...grokImages]
+    : userPrompt;
+
+  const res = await xai.chat.completions.create({
+    model: XAI_WRITING_MODEL,
+    max_tokens: planBudget.maxTokens,
+    messages: [
+      { role: "system", content: voicePlanBlock },
+      { role: "user", content: userContent },
+    ],
+  });
+
+  return res.choices[0].message.content ?? "";
 }
 
 /**
@@ -853,12 +859,7 @@ ${authorContext?.trim() ? `\n## Author Background (absorb this — never referen
 - The piece. Nothing else. No preamble. No meta-commentary. No "Here's the piece:" or "I hope this captures..."
 - ${wordCountLine}${WORD_GUIDANCE[interview.contentType] ?? `This is a custom format ("${resolveTypeLabel(interview)}"). Use the provided writing examples as your primary guide for length, structure, and conventions. If no examples are available, write a well-structured piece that feels natural for this format.`}`;
 
-  // Use structured system prompt with cache_control on the voice block
-  // so the API can reuse KV cache across sequential pipeline calls
-  const systemPrompt = [
-    { type: "text", text: voiceBlock, cache_control: { type: "ephemeral" } },
-    { type: "text", text: rulesBlock },
-  ];
+  const systemText = `${voiceBlock}\n\n${rulesBlock}`;
 
   const userPrompt = `Execute this structural plan:
 
@@ -871,31 +872,26 @@ ${plan}
 ${contextBlock}
 Write the piece. Match the author's voice exactly. Every sentence must sound like them, not like you.`;
 
-  const messageContent =
-    binaryBlocks.length > 0
-      ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
-      : userPrompt;
-
-  const reqOptions = Object.keys(betaHeaders).length > 0
-    ? { headers: betaHeaders }
-    : {};
+  // Grok: core writing engine — reasoning model with 2M context
+  const grokImages = context ? buildGrokImageBlocks(context) : [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userContent: any = grokImages.length > 0
+    ? [{ type: "text", text: userPrompt }, ...grokImages]
+    : userPrompt;
 
   const budgets = getStageBudgets(interview.contentType);
   const draftBudget = isFollowup ? budgets.draftFollowup : budgets.draft;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await (anthropic.messages.create as any)(
-    {
-      model: "claude-opus-4-6",
-      max_tokens: draftBudget.maxTokens,
-      thinking: { type: "enabled", budget_tokens: draftBudget.thinkingBudget },
-      system: systemPrompt,
-      messages: [{ role: "user", content: messageContent }],
-    },
-    reqOptions
-  );
+  const res = await xai.chat.completions.create({
+    model: XAI_WRITING_MODEL,
+    max_tokens: draftBudget.maxTokens,
+    messages: [
+      { role: "system", content: systemText },
+      { role: "user", content: userContent },
+    ],
+  });
 
-  return extractText(res.content);
+  return res.choices[0].message.content ?? "";
 }
 
 /**
@@ -938,13 +934,14 @@ Produce the final version. If it contains any AI patterns, remove them before ou
 
 Output ONLY the final piece. Nothing else.`;
 
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: draftBudget.maxTokens,
-    messages: [{ role: "user", content: userPrompt }],
+  // Gemini Flash: analytical comparison, not creative generation
+  const result = await gemini.models.generateContent({
+    model: GEMINI_FAST_MODEL,
+    contents: userPrompt,
+    config: { maxOutputTokens: draftBudget.maxTokens },
   });
 
-  return extractText(res.content);
+  return result.text ?? "";
 }
 
 /**
@@ -988,15 +985,14 @@ Return ONLY valid JSON (no markdown, no prose, no code fences):
   "direction": "1-2 sentence instruction to a ghostwriter. Must be specific to this piece and this author."
 }`;
 
-  // Sonnet is sufficient for proposing a creative direction — it's reading
-  // the draft and voice profile, not generating the actual prose
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    messages: [{ role: "user", content: userPrompt }],
+  // Gemini Flash: proposing a creative direction, not generating prose
+  const result = await gemini.models.generateContent({
+    model: GEMINI_FAST_MODEL,
+    contents: userPrompt,
+    config: { maxOutputTokens: 1024 },
   });
 
-  const text = extractText(res.content);
+  const text = result.text ?? "";
   try {
     const clean = text
       .replace(/^```(?:json)?\s*/i, "")
@@ -1233,12 +1229,14 @@ ${draft}`;
     ? { headers: betaHeaders }
     : {};
 
+  // Opus: self-review is the last defense for voice fidelity + fabrication checking
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (anthropic.messages.create as any)(
     {
-      model: "claude-sonnet-4-6",
+      model: "claude-opus-4-6",
       max_tokens: budget.maxTokens,
-      system: systemPrompt,
+      thinking: { type: "enabled", budget_tokens: Math.ceil(budget.thinkingBudget / 2) },
+      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: messageContent }],
     },
     reqOptions
@@ -1250,7 +1248,7 @@ ${draft}`;
 // ── Research assessment ───────────────────────────────────────────────────────
 
 /**
- * Quick assessment (via Haiku) of whether the plan requires web research
+ * Quick assessment (via Gemini Flash) of whether the plan requires web research
  * before drafting. Returns targeted search queries if research is needed.
  */
 export async function assessResearchNeeds(
@@ -1269,10 +1267,7 @@ export async function assessResearchNeeds(
         .join(", ")}`
     : "No supporting context has been provided.";
 
-  const res = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
-    system: `You decide whether a ghostwriter needs web research before writing. The content type does NOT determine this — the TOPIC does. A blog can be pure opinion or heavily data-dependent. An email can be casual or reference medical results. Judge by what the plan actually needs.
+  const systemInstruction = `You decide whether a ghostwriter needs web research before writing. The content type does NOT determine this — the TOPIC does. A blog can be pure opinion or heavily data-dependent. An email can be casual or reference medical results. Judge by what the plan actually needs.
 
 Return ONLY valid JSON — no prose, no code fences.
 Return: { "needed": boolean, "queries": ["search query 1", ...] }
@@ -1288,11 +1283,12 @@ needed=false when:
 - The topic is the author's personal experience, feelings, or perspective
 - The content is conversational (casual emails, social banter, personal messages) with no factual claims
 
-If needed, suggest 1-3 focused, specific search queries. Keep them targeted — "SaaS churn rate benchmarks 2025" not "SaaS industry trends". Do not suggest research for things only the author would know (their own results, experiences, opinions).`,
-    messages: [
-      {
-        role: "user",
-        content: `Content type: ${resolveTypeLabel(interview)}
+If needed, suggest 1-3 focused, specific search queries. Keep them targeted — "SaaS churn rate benchmarks 2025" not "SaaS industry trends". Do not suggest research for things only the author would know (their own results, experiences, opinions).`;
+
+  // Gemini Flash: fast, cheap assessment call
+  const result = await gemini.models.generateContent({
+    model: GEMINI_FAST_MODEL,
+    contents: `Content type: ${resolveTypeLabel(interview)}
 Topic: ${interview.topic}
 Angle: ${interview.angle}
 
@@ -1302,11 +1298,13 @@ ${plan}
 Available context: ${contextSummary}
 
 Does this plan need web research before drafting?`,
-      },
-    ],
+    config: {
+      systemInstruction,
+      maxOutputTokens: 1024,
+    },
   });
 
-  const text = extractText(res.content);
+  const text = result.text ?? "";
   try {
     const clean = text
       .replace(/^```(?:json)?\s*/i, "")
@@ -1343,21 +1341,22 @@ Output the complete revised draft. Nothing else.`;
 
   const userPrompt = `Draft:\n\n${draft}\n\n---\n\nFeedback (apply these changes only):\n${feedback}\n\nRevised draft:`;
 
-  const stream = await anthropic.messages.stream({
-    model: "claude-sonnet-4-6",
-    max_tokens: budget.maxTokens,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
+  // Gemini Flash: surgical revision with streaming
+  const stream = await gemini.models.generateContentStream({
+    model: GEMINI_FAST_MODEL,
+    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+    config: {
+      systemInstruction: systemPrompt,
+      maxOutputTokens: budget.maxTokens,
+    },
   });
 
   return new ReadableStream({
     async start(controller) {
       for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
+        const text = chunk.text;
+        if (text) {
+          controller.enqueue(new TextEncoder().encode(text));
         }
       }
       controller.close();
