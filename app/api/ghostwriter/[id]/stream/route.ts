@@ -17,6 +17,8 @@ import {
   selfReviewDraft,
   uploadContextFiles,
   deleteUploadedFiles,
+  LIGHT_TYPES,
+  SKIP_SELF_REVIEW_TYPES,
   InterviewAnswers,
   VoiceAnalysis,
   GenerationContext,
@@ -43,7 +45,6 @@ function wordCount(text: string) {
 
 // ── Adaptive pipeline tiers ─────────────────────────────────────────────────
 
-const LIGHT_TYPES = new Set(["caption", "text_message", "social"]);
 const DEEP_TYPES = new Set([
   "essay", "report", "whitepaper", "research", "technical", "proposal", "case_study",
 ]);
@@ -56,7 +57,9 @@ function getPipelineTier(contentType: string): PipelineTier {
   return "standard";
 }
 
-function getPipelineSteps(tier: PipelineTier): { key: string; label: string }[] {
+function getPipelineSteps(tier: PipelineTier, contentType: string): { key: string; label: string }[] {
+  const includeReview = !SKIP_SELF_REVIEW_TYPES.has(contentType);
+
   switch (tier) {
     case "light":
       return [
@@ -64,15 +67,17 @@ function getPipelineSteps(tier: PipelineTier): { key: string; label: string }[] 
         { key: "drafting", label: "Writing draft" },
         { key: "humanizing", label: "Final polish" },
       ];
-    case "standard":
-      return [
+    case "standard": {
+      const steps = [
         { key: "planning", label: "Planning structure" },
         { key: "drafting", label: "Writing draft" },
         { key: "humanizing", label: "Final polish" },
-        { key: "reviewing", label: "Self-review as the author" },
       ];
-    case "deep":
-      return [
+      if (includeReview) steps.push({ key: "reviewing", label: "Self-review as the author" });
+      return steps;
+    }
+    case "deep": {
+      const steps = [
         { key: "planning", label: "Planning structure" },
         { key: "researching", label: "Assessing research needs" },
         { key: "drafting_1", label: "Writing first draft" },
@@ -81,8 +86,10 @@ function getPipelineSteps(tier: PipelineTier): { key: string; label: string }[] 
         { key: "comparing", label: "Comparing drafts against your voice" },
         { key: "checking", label: "Checking word count & structure" },
         { key: "humanizing", label: "Final polish" },
-        { key: "reviewing", label: "Self-review as the author" },
       ];
+      if (includeReview) steps.push({ key: "reviewing", label: "Self-review as the author" });
+      return steps;
+    }
   }
 }
 
@@ -174,7 +181,7 @@ export async function GET(
   }
 
   const tier = getPipelineTier(interview.contentType);
-  const pipelineSteps = getPipelineSteps(tier);
+  const pipelineSteps = getPipelineSteps(tier, interview.contentType);
   const encoder = new TextEncoder();
   const abortController = new AbortController();
 
@@ -335,8 +342,10 @@ export async function GET(
         }
         if (isAborted()) { controller.close(); return; }
 
-        // ── Self-review (standard and deep tiers) ────────────────────────
-        if (tier !== "light") {
+        // ── Self-review (only for types where it adds value) ────────────
+        // Skipped for light tier and business-medium types (blog, newsletter,
+        // email, etc.) where the humanizer already handles AI-pattern removal
+        if (!SKIP_SELF_REVIEW_TYPES.has(interview.contentType)) {
           await setStep("reviewing", "Self-review as the author…");
           try {
             const reviewed = await selfReviewDraft(

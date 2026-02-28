@@ -406,16 +406,16 @@ const STAGE_BUDGETS: Record<string, StageBudgets> = {
   // Standard long-form
   report:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
   essay:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
-  speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
-  script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
+  speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 12000 } },
+  script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 12000 } },
   proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
-  // Business medium
-  blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, draftFollowup: { maxTokens: 32000,  thinkingBudget: 10000 }, humanize: { maxTokens: 32000,  thinkingBudget: 16000 } },
-  newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, draftFollowup: { maxTokens: 24000,  thinkingBudget: 8000  }, humanize: { maxTokens: 24000,  thinkingBudget: 12000 } },
-  press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 8000  } },
-  resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 8000  } },
-  cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 6000  } },
-  email:         { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 4000  } },
+  // Business medium — humanize thinking trimmed (output is short, humanizer is pattern-matching not creating)
+  blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, draftFollowup: { maxTokens: 32000,  thinkingBudget: 10000 }, humanize: { maxTokens: 32000,  thinkingBudget: 10000 } },
+  newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, draftFollowup: { maxTokens: 24000,  thinkingBudget: 8000  }, humanize: { maxTokens: 24000,  thinkingBudget: 8000  } },
+  press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 5000  } },
+  resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 5000  } },
+  cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 4000  } },
+  email:         { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 3000  } },
   // Short-form
   social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,  thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,  thinkingBudget: 2000  }, humanize: { maxTokens: 4000,  thinkingBudget: 3000  } },
   twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000, thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000, thinkingBudget: 5000  }, humanize: { maxTokens: 12000, thinkingBudget: 6000  } },
@@ -433,6 +433,17 @@ const DEFAULT_BUDGETS: StageBudgets = {
 export function getStageBudgets(contentType: string): StageBudgets {
   return STAGE_BUDGETS[contentType] ?? DEFAULT_BUDGETS;
 }
+
+// ── Pipeline tier sets ───────────────────────────────────────────────────────
+
+/** Content types that use the lightweight pipeline (Sonnet for plan + humanize) */
+export const LIGHT_TYPES = new Set(["caption", "text_message", "social"]);
+
+/** Content types where self-review is skipped (humanizer already catches AI patterns) */
+export const SKIP_SELF_REVIEW_TYPES = new Set([
+  "blog", "newsletter", "press_release", "cover_letter", "email",
+  "caption", "text_message", "social",
+]);
 
 // ── Voice fingerprint (condensed samples for follow-up calls) ────────────────
 
@@ -638,12 +649,16 @@ Return ONLY the plan. Do not write the piece yet.`;
 
   const { plan: planBudget } = getStageBudgets(interview.contentType);
 
+  // Light tier (caption, social, text_message): Sonnet without thinking —
+  // planning a 1-4 sentence piece doesn't need Opus-level deliberation
+  const isLight = LIGHT_TYPES.has(interview.contentType);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (anthropic.messages.create as any)(
     {
-      model: "claude-opus-4-6",
+      model: isLight ? "claude-sonnet-4-6" : "claude-opus-4-6",
       max_tokens: planBudget.maxTokens,
-      thinking: { type: "enabled", budget_tokens: planBudget.thinkingBudget },
+      ...(isLight ? {} : { thinking: { type: "enabled", budget_tokens: planBudget.thinkingBudget } }),
       system: systemPrompt,
       messages: [{ role: "user", content: messageContent }],
     },
@@ -883,11 +898,11 @@ Return ONLY valid JSON with this exact structure (no markdown, no prose, no code
 
 The direction must be specific to this piece and this author — not generic writing advice.`;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await (anthropic.messages.create as any)({
-    model: "claude-opus-4-6",
-    max_tokens: 2000,
-    thinking: { type: "enabled", budget_tokens: 6000 },
+  // Sonnet is sufficient for proposing a creative direction — it's reading
+  // the draft and voice profile, not generating the actual prose
+  const res = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
     messages: [{ role: "user", content: userPrompt }],
   });
 
@@ -939,11 +954,15 @@ Also maintain this specific author's voice throughout:
 
   const { humanize: humanizeBudget } = getStageBudgets(contentType);
 
+  // Light tier (caption, social, text_message): Sonnet without thinking —
+  // a 1-4 sentence piece doesn't need Opus-level humanization
+  const isLight = LIGHT_TYPES.has(contentType);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stream = await (anthropic.messages.stream as any)({
-    model: "claude-opus-4-6",
+    model: isLight ? "claude-sonnet-4-6" : "claude-opus-4-6",
     max_tokens: humanizeBudget.maxTokens,
-    thinking: { type: "enabled", budget_tokens: humanizeBudget.thinkingBudget },
+    ...(isLight ? {} : { thinking: { type: "enabled", budget_tokens: humanizeBudget.thinkingBudget } }),
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
