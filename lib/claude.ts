@@ -490,18 +490,19 @@ export function getStageBudgets(contentType: string): StageBudgets {
 
 // ── Pipeline tier sets ───────────────────────────────────────────────────────
 
-/** Content types that use the lightweight pipeline (Sonnet for plan + humanize, no self-review) */
+/** Content types that use the lightweight pipeline (Sonnet for planning, no self-review).
+ *  Only truly short-form content — threads, emails, and resumes are voice-critical
+ *  enough to warrant the full pipeline. */
 export const LIGHT_TYPES = new Set([
   "caption", "text_message", "social",
-  "twitter_thread", "email", "resume",
 ]);
 
 /** Content types where self-review is skipped (humanizer already catches AI patterns) */
 export const SKIP_SELF_REVIEW_TYPES = new Set([
-  "blog", "newsletter", "press_release", "cover_letter",
+  "newsletter", "press_release", "cover_letter",
   // All light types also skip self-review
   "caption", "text_message", "social",
-  "twitter_thread", "email", "resume",
+  "email", "resume",
 ]);
 
 // ── Voice fingerprint (condensed samples for follow-up calls) ────────────────
@@ -1076,15 +1077,15 @@ ${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock
 
   const { humanize: humanizeBudget } = getStageBudgets(contentType);
 
-  // Light tier (caption, social, text_message): Sonnet without thinking —
-  // a 1-4 sentence piece doesn't need Opus-level humanization
-  const isLight = LIGHT_TYPES.has(contentType);
-
+  // Always use Opus with thinking for humanization — it's the last line of
+  // defense against AI patterns, and the self-audit process in humanizer.md
+  // requires extended thinking to work through "what still makes this obviously
+  // AI generated?" Without thinking, the model can't follow its own instructions.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stream = await (anthropic.messages.stream as any)({
-    model: isLight ? "claude-sonnet-4-6" : "claude-opus-4-6",
+    model: "claude-opus-4-6",
     max_tokens: humanizeBudget.maxTokens,
-    ...(isLight ? {} : { thinking: { type: "enabled", budget_tokens: humanizeBudget.thinkingBudget } }),
+    thinking: { type: "enabled", budget_tokens: humanizeBudget.thinkingBudget },
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
