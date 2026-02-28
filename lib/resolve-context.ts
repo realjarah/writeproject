@@ -40,6 +40,9 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
+/** Max characters per fetched URL (~50K words). Prevents a single huge page from blowing context. */
+const MAX_FETCH_CHARS = 200_000;
+
 /**
  * Attempt to fetch a URL and return its content as clean text.
  * Returns null on any failure so callers can degrade gracefully.
@@ -52,6 +55,7 @@ export async function fetchUrlAsText(url: string): Promise<string | null> {
           "Mozilla/5.0 (compatible; WriteGhost/1.0; +content-fetch)",
         Accept: "text/html,text/plain,*/*",
       },
+      redirect: "follow",
       signal: AbortSignal.timeout(12_000),
     });
     if (!res.ok) {
@@ -60,18 +64,24 @@ export async function fetchUrlAsText(url: string): Promise<string | null> {
     }
 
     const contentType = res.headers.get("content-type") ?? "";
+    let text: string;
     if (contentType.includes("text/html")) {
       const html = await res.text();
-      const text = htmlToText(html);
-      // Distinguish genuinely empty page from parse failure: an empty string
-      // after cleanup means the page had no meaningful text content. Return
-      // empty string (truthy check will fail, but it's not a fetch failure).
-      return text;
+      text = htmlToText(html);
+    } else if (contentType.includes("text/")) {
+      text = (await res.text()).trim();
+    } else {
+      return null; // binary or unknown
     }
-    if (contentType.includes("text/")) {
-      return (await res.text()).trim();
+
+    // Truncate huge pages to prevent blowing the context window
+    if (text.length > MAX_FETCH_CHARS) {
+      console.warn(`[fetchUrlAsText] Truncating ${url} from ${text.length} to ${MAX_FETCH_CHARS} chars`);
+      text = text.slice(0, MAX_FETCH_CHARS) + "\n\n[… truncated]";
     }
-    return null; // binary or unknown
+    // Distinguish genuinely empty page from parse failure: an empty string
+    // after cleanup means the page had no meaningful text content.
+    return text || null;
   } catch (err) {
     console.warn(`[fetchUrlAsText] Failed to fetch ${url}:`, err instanceof Error ? err.message : err);
     return null;
@@ -82,20 +92,26 @@ export async function fetchUrlAsText(url: string): Promise<string | null> {
  * Resolve all URL context items to fetched text before the generation pipeline.
  * Items that fail to resolve keep their original shape (url only, no fetchedText)
  * so buildContextBlock can note they were unavailable.
+ * Uses allSettled so one slow/hanging URL doesn't block the rest.
  */
 export async function resolveContext(
   context: GenerationContext
 ): Promise<GenerationContext> {
-  const items = await Promise.all(
+  const results = await Promise.allSettled(
     context.items.map(async (item): Promise<ContextItem> => {
       if (!item.url) return item;
       const text = await fetchUrlAsText(item.url);
-      // null = fetch failed entirely; empty string = page had no text content.
-      // Both cases: keep url without fetchedText so buildContextBlock can
-      // show fallback text or an appropriate message.
-      if (text === null || text === "") return item;
+      if (text === null) return item;
       return { ...item, fetchedText: text };
     })
   );
+
+  const items = results.map((result, i) => {
+    if (result.status === "fulfilled") return result.value;
+    // Rejected promise — keep original item without fetched text
+    console.warn(`[resolveContext] Failed to resolve item ${i}:`, result.reason);
+    return context.items[i];
+  });
+
   return { items };
 }

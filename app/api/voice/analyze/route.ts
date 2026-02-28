@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
@@ -13,6 +13,7 @@ export async function POST() {
   const samples = await prisma.voiceSample.findMany({
     where: { userId },
     orderBy: { createdAt: "asc" },
+    take: 100,
   });
 
   if (samples.length === 0) {
@@ -22,15 +23,24 @@ export async function POST() {
     );
   }
 
-  const analysis = await analyzeVoice(
-    samples.map((s) => ({ content: s.content, category: s.category, notes: s.notes }))
-  );
+  try {
+    const analysis = await analyzeVoice(
+      samples.map((s) => ({ content: s.content, category: s.category, notes: s.notes }))
+    );
 
-  await prisma.voiceProfile.upsert({
-    where: { userId },
-    create: { userId, analysis: JSON.stringify(analysis) },
-    update: { analysis: JSON.stringify(analysis) },
-  });
+    await prisma.voiceProfile.upsert({
+      where: { userId },
+      create: { userId, analysis: JSON.stringify(analysis) },
+      update: { analysis: JSON.stringify(analysis) },
+    });
 
-  return NextResponse.json(analysis);
+    return NextResponse.json(analysis);
+  } catch (err) {
+    console.error("[voice/analyze] Voice analysis failed:", err);
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      { error: `Voice analysis failed: ${msg}. Please try again.` },
+      { status: 500 }
+    );
+  }
 }

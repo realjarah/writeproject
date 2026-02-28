@@ -23,14 +23,14 @@ import type {
 import { CONTENT_TYPE_LABELS } from "./content-types";
 
 // ── Provider clients (lazy — Next.js evaluates modules at build time) ────────
-// Opus: voice analysis, humanizer, self-review (voice + quality layer)
+// Opus: humanizer, self-review, draft comparison (voice + quality layer)
 let _anthropic: Anthropic;
 function getAnthropic() {
   if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   return _anthropic;
 }
 
-// Grok: core writing engine — planning (non-light) + drafting (2M context)
+// Grok: voice analysis, planning (non-light), drafting (2M context)
 let _xai: OpenAI;
 function getXai() {
   if (!_xai) _xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
@@ -798,7 +798,9 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
  * Stage 2b — Compare and select the best of multiple drafts
  * Analyzes each draft against the voice profile and brief, then outputs the
  * best single piece (selected or synthesized from the strongest elements).
- * Uses Sonnet (not Opus) — this is analytical comparison, not creative generation.
+ * Uses Opus with extended thinking — this is a voice-fidelity judgment that
+ * directly determines what gets humanized. Gemini Flash was too shallow here;
+ * it couldn't reliably distinguish voice authenticity between two drafts.
  */
 export async function compareAndSelectBestDraft(
   drafts: string[],
@@ -807,14 +809,18 @@ export async function compareAndSelectBestDraft(
 ): Promise<string> {
   const { draft: draftBudget } = getStageBudgets(interview.contentType);
 
-  const userPrompt = `Select the best of these ${drafts.length} drafts. The winner must sound like this specific author wrote it — not like AI. If neither draft meets that standard, take the best elements and make it meet the standard.
+  const systemPrompt = `You are evaluating drafts written by a ghostwriter attempting to mimic a specific author's voice. Your job is to select the best draft — or synthesize the best elements — so the result is indistinguishable from the author's actual writing.
 
-**Author Voice Profile:**
+## Author Voice Profile
 ${voiceProfile.rawSummary}
 - Tone: ${voiceProfile.tone}
 - Sentence structure: ${voiceProfile.sentenceStructure}
 - Vocabulary: ${voiceProfile.vocabularyStyle}
-- Things this author NEVER does: ${voiceProfile.thingsToAvoid.join("; ")}
+- Punctuation habits: ${voiceProfile.punctuationHabits}
+- Rhetorical devices: ${voiceProfile.rhetoricalDevices}
+- Things this author NEVER does: ${voiceProfile.thingsToAvoid.join("; ")}`;
+
+  const userPrompt = `Select the best of these ${drafts.length} drafts. The winner must sound like this specific author wrote it — not like AI. If neither draft meets that standard, take the best elements and make it meet the standard.
 
 **Brief:**
 - Topic: ${interview.topic}
@@ -834,14 +840,19 @@ Produce the final version. If it contains any AI patterns, remove them before ou
 
 Output ONLY the final piece. Nothing else.`;
 
-  // Gemini Flash: analytical comparison, not creative generation
-  const result = await getGemini().models.generateContent({
-    model: GEMINI_FAST_MODEL,
-    contents: userPrompt,
-    config: { maxOutputTokens: draftBudget.maxTokens },
+  // Opus with extended thinking: this is a voice-fidelity judgment that
+  // determines what goes into the humanizer. Worth the quality investment.
+  const thinkingBudget = Math.min(Math.ceil(draftBudget.thinkingBudget / 2), 32000);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await (getAnthropic().messages.create as any)({
+    model: "claude-opus-4-6",
+    max_tokens: draftBudget.maxTokens,
+    thinking: { type: "enabled", budget_tokens: thinkingBudget },
+    system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: userPrompt }],
   });
 
-  return result.text ?? "";
+  return extractText(res.content) || "";
 }
 
 /**
@@ -900,9 +911,12 @@ Return ONLY valid JSON (no markdown, no prose, no code fences):
       .trim();
     return JSON.parse(clean);
   } catch {
-    return {
-      direction: "Restructure the piece to lead with the strongest example first, then build the argument around it. Prioritize narrative momentum.",
-    };
+    // Fallback uses the author's actual rhetorical devices instead of a
+    // generic direction that any writer could follow
+    const fallback = voiceProfile.rhetoricalDevices
+      ? `Lean harder into this author's rhetorical strengths: ${voiceProfile.rhetoricalDevices}. Restructure so the piece leads with the strongest example first.`
+      : "Restructure the piece to lead with the strongest example first, then build the argument around it.";
+    return { direction: fallback };
   }
 }
 
