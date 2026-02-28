@@ -436,13 +436,18 @@ export function getStageBudgets(contentType: string): StageBudgets {
 
 // ── Pipeline tier sets ───────────────────────────────────────────────────────
 
-/** Content types that use the lightweight pipeline (Sonnet for plan + humanize) */
-export const LIGHT_TYPES = new Set(["caption", "text_message", "social"]);
+/** Content types that use the lightweight pipeline (Sonnet for plan + humanize, no self-review) */
+export const LIGHT_TYPES = new Set([
+  "caption", "text_message", "social",
+  "twitter_thread", "email", "resume",
+]);
 
 /** Content types where self-review is skipped (humanizer already catches AI patterns) */
 export const SKIP_SELF_REVIEW_TYPES = new Set([
-  "blog", "newsletter", "press_release", "cover_letter", "email",
+  "blog", "newsletter", "press_release", "cover_letter",
+  // All light types also skip self-review
   "caption", "text_message", "social",
+  "twitter_thread", "email", "resume",
 ]);
 
 // ── Voice fingerprint (condensed samples for follow-up calls) ────────────────
