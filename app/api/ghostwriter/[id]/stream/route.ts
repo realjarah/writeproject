@@ -109,41 +109,46 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
   light: {},  // No delays — only 1 Opus call in the whole pipeline
   standard: {
     "planning->drafting": {
-      baseMs: 5000, jitterMs: 3000,
+      baseMs: 8000, jitterMs: 7000,
       messages: [
         "Reviewing your voice patterns…",
         "Mapping structure to your style…",
+        "Preparing draft approach…",
       ],
     },
     "drafting->humanizing": {
-      baseMs: 5000, jitterMs: 3000,
+      baseMs: 8000, jitterMs: 7000,
       messages: [
         "Reviewing draft for consistency…",
+        "Checking tone against your voice…",
         "Preparing final polish…",
       ],
     },
   },
   deep: {
     "research->drafting_1": {
-      baseMs: 8000, jitterMs: 4000,
+      baseMs: 12000, jitterMs: 8000,
       messages: [
         "Reviewing your voice patterns…",
         "Cross-referencing brief with style notes…",
+        "Synthesizing research findings…",
         "Preparing draft approach…",
       ],
     },
     "proposing->drafting_2": {
-      baseMs: 10000, jitterMs: 4000,
+      baseMs: 14000, jitterMs: 8000,
       messages: [
         "Analyzing first draft structure…",
         "Identifying areas for variation…",
-        "Setting up alternative direction…",
+        "Mapping alternative direction to your voice…",
+        "Setting up second draft…",
       ],
     },
     "checking->humanizing": {
-      baseMs: 6000, jitterMs: 4000,
+      baseMs: 10000, jitterMs: 8000,
       messages: [
         "Reviewing draft for consistency…",
+        "Checking tone against your voice…",
         "Preparing final polish…",
       ],
     },
