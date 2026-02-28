@@ -502,7 +502,8 @@ export const SKIP_SELF_REVIEW_TYPES = new Set([
   "newsletter", "press_release", "cover_letter",
   // All light types also skip self-review
   "caption", "text_message", "social",
-  "email", "resume",
+  // NOTE: email and resume intentionally get self-review — they often reference
+  // specific data (medical results, job history) that needs fabrication checking.
 ]);
 
 // ── Voice fingerprint (condensed samples for follow-up calls) ────────────────
@@ -713,6 +714,11 @@ ${contextBlock}
 - The closing move and what the reader leaves with
 - Structural choices that specifically play to this author's voice and the format guidelines above
 
+**Factual integrity — non-negotiable:**
+- Do NOT plan around specific facts, statistics, numbers, data points, study results, or named sources unless they appear in the supporting context above.
+- If the topic naturally involves data (medical results, financial figures, research findings, performance metrics) and no context provides that data, plan the piece to work WITHOUT specific numbers. Use framing like "reference your recent results" or "mention the key findings" — leave room for the author to fill in their own specifics.
+- A plan that invents data the author did not provide is worse than useless — it is dangerous.
+
 Do not plan a generic article. Plan THIS author's article. If the plan could belong to any writer, it is wrong.`;
 
   const messageContent =
@@ -828,6 +834,12 @@ ${examplesSection}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}
 - Em dash overuse: more than 1-2 em dashes in the entire piece is too many
 - Rule of three: do not group ideas into threes ("X, Y, and Z") unless the author demonstrably does this
 - Synonym cycling: do not use four different words for the same concept across consecutive sentences
+
+## Factual Integrity — this overrides everything else
+- NEVER fabricate, invent, or guess specific facts, statistics, numbers, percentages, data points, dates, study results, or named sources.
+- If the supporting context contains specific data, use it. If it does not, do NOT invent replacements.
+- When the topic involves specifics the author has not provided (lab results, financial figures, performance metrics, research findings), use placeholder language the author can fill in: "your recent results showed," "the numbers from your last panel," "based on what you shared with me." Do NOT insert fake numbers.
+- Fabricating data in someone's name — especially medical, legal, or financial data — is the single worst failure mode of this system. Treat it as more dangerous than any style violation above.
 
 ## Author's Favorite Words
 ${favoriteWords?.length
@@ -1052,6 +1064,8 @@ Apply every single pattern from the humanizer guide above. Miss nothing. Every e
 
 Do not replace AI patterns with bland, voiceless prose. That is equally unacceptable. Replace them with THIS AUTHOR'S voice. Read the profile and excerpts below. That is how the output must read — like this specific person sat down and wrote it.
 
+While humanizing, also watch for fabricated specifics — numbers, statistics, percentages, study citations, or data points that look suspiciously precise and were not provided as context. If you spot what appears to be an invented figure, replace it with honest placeholder language (e.g., "your recent results," "the data you mentioned," "[specific number]"). Do not let fabricated data survive into the final output.
+
 Output the final text only. No commentary. No process notes. No preamble.
 
 ## Author Voice Profile
@@ -1189,8 +1203,9 @@ Your review must check:
 1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
 2. AI contamination — hunt for hollow hedges, filler transitions, generic conclusions, over-structured formatting, em dash overuse, synonym cycling, rule-of-three groupings, copula avoidance ("serves as", "stands as"). Destroy any you find.
 3. Brief adherence — did it cover the topic, angle, and key points? Is anything missing or weak?
-4. Context usage — did the draft use the supporting context provided? Are specifics woven in naturally?
-5. Fix everything you find. Surgical fixes only — do not rewrite from scratch.
+4. Context usage — if supporting context was provided, did the draft use it? Are specifics woven in naturally?
+5. Fabrication check — this is critical. Look for specific numbers, statistics, percentages, study citations, named sources, dates, or data points. If they do NOT appear in the supporting context above, they were fabricated. Replace any fabricated specifics with honest placeholder language the author can fill in (e.g., "your recent results," "the numbers from your last check," "[specific figure]"). Fabricated data published under someone's name — especially medical, legal, or financial — is unacceptable.
+6. Fix everything you find. Surgical fixes only — do not rewrite from scratch.
 
 Output ONLY the improved draft. Nothing else.`;
 
@@ -1259,9 +1274,9 @@ export async function assessResearchNeeds(
 Return: { "needed": boolean, "queries": ["search query 1", ...] }
 
 Rules:
-- needed=true ONLY if the plan references specific facts, statistics, recent events, studies, or data points that aren't already covered by the provided context
+- needed=true if the plan references specific facts, statistics, recent events, studies, or data points that aren't already covered by the provided context
 - needed=false for opinion pieces, personal essays, creative writing, or when sufficient context is provided
-- needed=false for emails, captions, social posts, text messages, and other short-form content
+- For short-form content (emails, captions, social posts, text messages): needed=false UNLESS the topic inherently involves verifiable data (medical, financial, legal, scientific, technical specifications). An email referencing lab results, investment returns, or legal statutes still needs factual grounding.
 - If needed, suggest 1-3 focused, specific search queries that would fill the knowledge gaps
 - Keep queries targeted — "SaaS churn rate benchmarks 2025" not "SaaS industry trends"`,
     messages: [
