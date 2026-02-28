@@ -389,42 +389,73 @@ Write it now.`;
 // ── Stage budgets (scales with format complexity / output length) ─────────────
 
 interface StageBudget { maxTokens: number; thinkingBudget: number }
-interface StageBudgets { plan: StageBudget; draft: StageBudget; humanize: StageBudget }
+interface StageBudgets {
+  plan: StageBudget;
+  draft: StageBudget;
+  /** Lower budget for follow-up drafts (draft 2 in deep tier) — plan + direction already provided */
+  draftFollowup: StageBudget;
+  humanize: StageBudget;
+}
 
 const STAGE_BUDGETS: Record<string, StageBudgets> = {
-  // Academic / very long-form — push toward full context window depth
-  research:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, humanize: { maxTokens: 128000, thinkingBudget: 32000 } },
-  whitepaper:    { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, humanize: { maxTokens: 128000, thinkingBudget: 32000 } },
-  technical:     { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, humanize: { maxTokens: 100000, thinkingBudget: 32000 } },
-  case_study:    { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
+  // Academic / very long-form
+  research:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 32000 } },
+  whitepaper:    { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 32000 } },
+  technical:     { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, humanize: { maxTokens: 100000, thinkingBudget: 32000 } },
+  case_study:    { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
   // Standard long-form
-  report:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
-  essay:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
-  speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
-  script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
-  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
+  report:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
+  essay:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
+  speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
+  script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
+  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
   // Business medium
-  blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, humanize: { maxTokens: 32000,  thinkingBudget: 16000 } },
-  newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, humanize: { maxTokens: 24000,  thinkingBudget: 12000 } },
-  press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, humanize: { maxTokens: 16000,  thinkingBudget: 8000  } },
-  resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, humanize: { maxTokens: 16000,  thinkingBudget: 8000  } },
-  cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, humanize: { maxTokens: 12000,  thinkingBudget: 6000  } },
-  email:         { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, humanize: { maxTokens: 8000,   thinkingBudget: 4000  } },
+  blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, draftFollowup: { maxTokens: 32000,  thinkingBudget: 10000 }, humanize: { maxTokens: 32000,  thinkingBudget: 16000 } },
+  newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, draftFollowup: { maxTokens: 24000,  thinkingBudget: 8000  }, humanize: { maxTokens: 24000,  thinkingBudget: 12000 } },
+  press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 8000  } },
+  resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 8000  } },
+  cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 6000  } },
+  email:         { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 4000  } },
   // Short-form
-  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,  thinkingBudget: 3000  }, humanize: { maxTokens: 4000,  thinkingBudget: 3000  } },
-  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000, thinkingBudget: 8000  }, humanize: { maxTokens: 12000, thinkingBudget: 6000  } },
-  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, humanize: { maxTokens: 3000,  thinkingBudget: 2000  } },
-  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, humanize: { maxTokens: 3000,  thinkingBudget: 2000  } },
+  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,  thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,  thinkingBudget: 2000  }, humanize: { maxTokens: 4000,  thinkingBudget: 3000  } },
+  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000, thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000, thinkingBudget: 5000  }, humanize: { maxTokens: 12000, thinkingBudget: 6000  } },
+  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,  thinkingBudget: 1500  }, humanize: { maxTokens: 3000,  thinkingBudget: 2000  } },
+  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,  thinkingBudget: 1500  }, humanize: { maxTokens: 3000,  thinkingBudget: 2000  } },
 };
 
 const DEFAULT_BUDGETS: StageBudgets = {
-  plan:     { maxTokens: 16000, thinkingBudget: 10000 },
-  draft:    { maxTokens: 48000, thinkingBudget: 24000 },
-  humanize: { maxTokens: 48000, thinkingBudget: 16000 },
+  plan:          { maxTokens: 16000, thinkingBudget: 10000 },
+  draft:         { maxTokens: 48000, thinkingBudget: 24000 },
+  draftFollowup: { maxTokens: 48000, thinkingBudget: 12000 },
+  humanize:      { maxTokens: 48000, thinkingBudget: 16000 },
 };
 
 export function getStageBudgets(contentType: string): StageBudgets {
   return STAGE_BUDGETS[contentType] ?? DEFAULT_BUDGETS;
+}
+
+// ── Voice fingerprint (condensed samples for follow-up calls) ────────────────
+
+/**
+ * Build a condensed "voice fingerprint" from writing samples.
+ * Includes short representative excerpts (opening + closing of each sample)
+ * instead of full text. Used in draft calls where the plan stage already
+ * absorbed the complete samples.
+ */
+export function buildVoiceFingerprint(
+  samples: { content: string; category: string }[]
+): string {
+  if (!samples.length) return "";
+
+  const excerpts = samples.map((s, i) => {
+    const words = s.content.trim().split(/\s+/);
+    // Take first ~80 words and last ~40 words as representative excerpts
+    const opening = words.slice(0, 80).join(" ");
+    const closing = words.length > 150 ? "\n[…]\n" + words.slice(-40).join(" ") : "";
+    return `### Excerpt ${i + 1} [${s.category}]\n${opening}${closing}`;
+  });
+
+  return `\n## Voice Excerpts (representative openings/closings from the author's writing)\n${excerpts.join("\n\n")}\n`;
 }
 
 // ── Research ─────────────────────────────────────────────────────────────────
@@ -566,10 +597,19 @@ export async function planContent(
     ? `\n**Author Background (use as subtle context — don't reference directly):**\n${authorContext.trim()}\n`
     : "";
 
-  const userPrompt = `You are about to ghost-write a ${resolveTypeLabel(interview)}.
-
-Before writing a single word, produce a detailed structural plan.
+  // Build system prompt with cache_control on the stable voice + samples block
+  // so the API can reuse KV cache when subsequent pipeline calls share this prefix
+  const voicePlanBlock = `You are about to ghost-write a ${resolveTypeLabel(interview)}.
 ${examplesBlock}
+**Author voice summary:** ${voiceProfile.rawSummary}
+${authorContextBlock}${categoryInsightBlock}${guidelinesBlock}${favoriteWordsBlock}`;
+
+  const systemPrompt = [
+    { type: "text", text: voicePlanBlock, cache_control: { type: "ephemeral" } },
+  ];
+
+  const userPrompt = `Before writing a single word, produce a detailed structural plan.
+
 **Brief:**
 - Topic: ${interview.topic}
 - Angle / argument: ${interview.angle}
@@ -577,8 +617,6 @@ ${examplesBlock}
 - Audience: ${interview.targetAudience || "the author's usual audience"}
 - Tone notes: ${interview.toneNotes || "none"}${interview.wordCountTarget ? `\n- Target length: ${interview.wordCountTarget}` : ""}
 ${contextBlock}
-**Author voice summary:** ${voiceProfile.rawSummary}
-${authorContextBlock}${categoryInsightBlock}${guidelinesBlock}${favoriteWordsBlock}
 **Plan requirements:**
 - The exact opening move — what's the hook? Be specific.
 - How the argument builds and where the emotional beats land
@@ -606,6 +644,7 @@ Return ONLY the plan. Do not write the piece yet.`;
       model: "claude-opus-4-6",
       max_tokens: planBudget.maxTokens,
       thinking: { type: "enabled", budget_tokens: planBudget.thinkingBudget },
+      system: systemPrompt,
       messages: [{ role: "user", content: messageContent }],
     },
     reqOptions
@@ -617,6 +656,10 @@ Return ONLY the plan. Do not write the piece yet.`;
 /**
  * Stage 2 — Draft
  * Writes the raw first draft against the plan with full voice fidelity.
+ *
+ * @param isFollowup — If true, uses condensed voice fingerprint (excerpts) instead
+ *   of full samples, and a reduced thinking budget. Used for draft 2 in deep tier
+ *   where the plan stage already absorbed the complete samples.
  */
 export async function draftContent(
   voiceProfile: VoiceAnalysis,
@@ -625,7 +668,8 @@ export async function draftContent(
   context?: GenerationContext,
   sampleExamples?: { content: string; category: string }[],
   favoriteWords?: { word: string; definition: string }[],
-  authorContext?: string
+  authorContext?: string,
+  isFollowup?: boolean
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
@@ -641,19 +685,25 @@ export async function draftContent(
     ? `\n## How This Author Writes ${resolveTypeLabel(interview)}\n${categoryInsight}\n`
     : "";
 
+  // Full samples for first draft, condensed fingerprint for follow-up drafts
   const examplesSection = sampleExamples?.length
-    ? `\n## Author's Actual Writing Samples (absorb these — write with the exact same voice)\n${
-        sampleExamples
-          .map((s, i) => `### Example ${i + 1} [${s.category}]\n${s.content}`)
-          .join("\n\n")
-      }\n`
+    ? isFollowup
+      ? buildVoiceFingerprint(sampleExamples)
+      : `\n## Author's Actual Writing Samples (absorb these — write with the exact same voice)\n${
+          sampleExamples
+            .map((s, i) => `### Example ${i + 1} [${s.category}]\n${s.content}`)
+            .join("\n\n")
+        }\n`
     : "";
 
   const wordCountLine = interview.wordCountTarget
     ? `Target length: ${interview.wordCountTarget}. `
     : "";
 
-  const systemPrompt = `You are a ghost-writer. Write ${resolveTypeLabel(interview)} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
+  // Build system prompt as structured blocks for prompt caching.
+  // The voice profile block (stable across calls) gets cache_control so the API
+  // can reuse the KV cache from previous pipeline stages.
+  const voiceBlock = `You are a ghost-writer. Write ${resolveTypeLabel(interview)} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
 
 ## Author Voice Profile
 
@@ -667,8 +717,9 @@ export async function draftContent(
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid:**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${examplesSection}${categoryInsightBlock}${guidelinesBlock}
-## Forbidden AI Writing Patterns (never use — these are instant giveaways)
+${examplesSection}${categoryInsightBlock}${guidelinesBlock}`;
+
+  const rulesBlock = `## Forbidden AI Writing Patterns (never use — these are instant giveaways)
 - Opener clichés: "In today's fast-paced world", "In the digital age", "It goes without saying", "In an era where"
 - AI filler verbs: "delve into", "underscore", "leverage" (as metaphor), "utilize", "facilitate", "navigate" (as metaphor), "foster"
 - Hollow hedge phrases: "It's worth noting that", "It's important to note", "It's crucial to understand", "Needless to say", "One might argue"
@@ -687,6 +738,13 @@ ${authorContext?.trim() ? `\n## Author Background (subtle context — absorb it;
 ## Output Rules
 - Write ONLY the piece. Nothing else.
 - ${wordCountLine}${WORD_GUIDANCE[interview.contentType] ?? `This is a custom format ("${resolveTypeLabel(interview)}"). Use the provided writing examples as your primary guide for length, structure, and conventions. If no examples are available, write a well-structured piece that feels natural for this format.`}`;
+
+  // Use structured system prompt with cache_control on the voice block
+  // so the API can reuse KV cache across sequential pipeline calls
+  const systemPrompt = [
+    { type: "text", text: voiceBlock, cache_control: { type: "ephemeral" } },
+    { type: "text", text: rulesBlock },
+  ];
 
   const userPrompt = `Follow this structural plan:
 
@@ -708,7 +766,8 @@ Write the piece now.`;
     ? { headers: betaHeaders }
     : {};
 
-  const { draft: draftBudget } = getStageBudgets(interview.contentType);
+  const budgets = getStageBudgets(interview.contentType);
+  const draftBudget = isFollowup ? budgets.draftFollowup : budgets.draft;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (anthropic.messages.create as any)(
@@ -729,6 +788,7 @@ Write the piece now.`;
  * Stage 2b — Compare and select the best of multiple drafts
  * Analyzes each draft against the voice profile and brief, then outputs the
  * best single piece (selected or synthesized from the strongest elements).
+ * Uses Sonnet (not Opus) — this is analytical comparison, not creative generation.
  */
 export async function compareAndSelectBestDraft(
   drafts: string[],
@@ -755,7 +815,7 @@ ${voiceProfile.rawSummary}
 **The Drafts:**
 ${drafts.map((d, i) => `--- DRAFT ${i + 1} ---\n${d}`).join("\n\n")}
 
-Using extended thinking, analyze each draft for:
+Analyze each draft for:
 1. Voice authenticity — does it sound specifically like this author (not like generic AI prose)?
 2. Brief fidelity — does it faithfully cover the topic, angle, and all key points?
 3. Quality, impact, and resonance — does it have a strong hook, forward momentum, and a satisfying close?
@@ -769,11 +829,9 @@ If the selected/synthesized piece contains any AI patterns flagged above, remove
 
 Output ONLY the final piece. No preamble, no "I chose draft X", no commentary. Just the finished text.`;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await (anthropic.messages.create as any)({
-    model: "claude-opus-4-6",
+  const res = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
     max_tokens: draftBudget.maxTokens,
-    thinking: { type: "enabled", budget_tokens: draftBudget.thinkingBudget },
     messages: [{ role: "user", content: userPrompt }],
   });
 
@@ -781,17 +839,17 @@ Output ONLY the final piece. No preamble, no "I chose draft X", no commentary. J
 }
 
 /**
- * Stage 2a — Propose draft variations (deep tier only)
+ * Stage 2a — Propose a draft variation (deep tier only)
  * Reads the first draft and the author's voice profile, then proposes
- * 2 alternative creative directions this specific author might take
- * when writing the same piece. Returns toneNotes strings for drafts 2 & 3.
+ * 1 alternative creative direction this specific author might take
+ * when writing the same piece. Returns a toneNotes string for draft 2.
  */
-export async function proposeDraftVariations(
+export async function proposeDraftVariation(
   draft: string,
   voiceProfile: VoiceAnalysis,
   interview: InterviewAnswers,
   plan: string
-): Promise<{ direction2: string; direction3: string }> {
+): Promise<{ direction: string }> {
   const userPrompt = `You are a creative director who deeply understands this author's writing voice. You've just read their first draft of a ${resolveTypeLabel(interview)}.
 
 **Author Voice Profile:**
@@ -814,23 +872,22 @@ ${plan}
 **The First Draft:**
 ${draft}
 
-Based on how THIS specific author writes — their tendencies, strengths, habits, and range — propose 2 alternative creative directions for rewriting this same piece. These should be approaches this author would actually consider, rooted in their real voice patterns.
+Based on how THIS specific author writes — their tendencies, strengths, habits, and range — propose 1 alternative creative direction for rewriting this same piece. This should be an approach this author would actually consider, rooted in their real voice patterns.
 
 Think about: Would they try a different opening strategy? A different structural approach? Lean harder into a particular rhetorical device they favor? Shift the emotional register? Take a more personal or more analytical angle? Lead with story instead of argument, or vice versa?
 
 Return ONLY valid JSON with this exact structure (no markdown, no prose, no code fences):
 {
-  "direction2": "A 1-2 sentence creative direction for the second draft. Written as an instruction to a ghostwriter, e.g. 'Open with the personal anecdote about X instead of the data point. Let the argument emerge from the story rather than stating the thesis upfront. Lean into the conversational asides this author favors.'",
-  "direction3": "A 1-2 sentence creative direction for the third draft, meaningfully different from direction2."
+  "direction": "A 1-2 sentence creative direction for the second draft. Written as an instruction to a ghostwriter, e.g. 'Open with the personal anecdote about X instead of the data point. Let the argument emerge from the story rather than stating the thesis upfront. Lean into the conversational asides this author favors.'"
 }
 
-The directions must be specific to this piece and this author — not generic writing advice.`;
+The direction must be specific to this piece and this author — not generic writing advice.`;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await (anthropic.messages.create as any)({
     model: "claude-opus-4-6",
-    max_tokens: 4000,
-    thinking: { type: "enabled", budget_tokens: 8000 },
+    max_tokens: 2000,
+    thinking: { type: "enabled", budget_tokens: 6000 },
     messages: [{ role: "user", content: userPrompt }],
   });
 
@@ -842,10 +899,8 @@ The directions must be specific to this piece and this author — not generic wr
       .trim();
     return JSON.parse(clean);
   } catch {
-    // Fallback — shouldn't happen but keeps pipeline running
     return {
-      direction2: "Restructure the piece to lead with the strongest example first, then build the argument around it. Prioritize narrative momentum.",
-      direction3: "Take a more direct, opinionated stance. Cut qualifications, strengthen claims, and close with a sharper point.",
+      direction: "Restructure the piece to lead with the strongest example first, then build the argument around it. Prioritize narrative momentum.",
     };
   }
 }
@@ -861,15 +916,24 @@ export async function humanizeContent(
   humanizerInstructions: string,
   contentType: string = "blog"
 ): Promise<ReadableStream<Uint8Array>> {
-  const systemPrompt = `${humanizerInstructions}
-
----
+  // Use structured system prompt with cache_control on the stable humanizer instructions
+  const systemPrompt = [
+    {
+      type: "text",
+      text: humanizerInstructions,
+      cache_control: { type: "ephemeral" },
+    },
+    {
+      type: "text",
+      text: `---
 
 IMPORTANT OVERRIDE FOR THIS SESSION: You are preparing text for final publication. Work through the complete humanization process in your extended thinking — identify AI patterns, draft a rewrite, self-audit ("what still makes this obviously AI generated?"), revise. Then output ONLY the final humanized piece. No section headers, no audit bullets, no process notes, no summary of changes. Just the finished text.
 
 Also maintain this specific author's voice throughout:
 - Their style: ${voiceProfile.rawSummary}
-- Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}`;
+- Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}`,
+    },
+  ];
 
   const userPrompt = `Humanize the following piece:\n\n${draft}`;
 

@@ -11,7 +11,7 @@ import {
   draftContent,
   humanizeContent,
   compareAndSelectBestDraft,
-  proposeDraftVariations,
+  proposeDraftVariation,
   conductResearch,
   assessResearchNeeds,
   selfReviewDraft,
@@ -76,9 +76,8 @@ function getPipelineSteps(tier: PipelineTier): { key: string; label: string }[] 
         { key: "planning", label: "Planning structure" },
         { key: "researching", label: "Assessing research needs" },
         { key: "drafting_1", label: "Writing first draft" },
-        { key: "proposing", label: "Studying draft — proposing variations" },
+        { key: "proposing", label: "Studying draft — proposing variation" },
         { key: "drafting_2", label: "Writing second draft" },
-        { key: "drafting_3", label: "Writing third draft" },
         { key: "comparing", label: "Comparing drafts against your voice" },
         { key: "checking", label: "Checking word count & structure" },
         { key: "humanizing", label: "Final polish" },
@@ -246,52 +245,42 @@ export async function GET(
         let selected: string;
 
         if (tier === "deep") {
-          // Draft 1 → study it → propose 2 author-specific variations → draft 2 & 3
+          // Draft 1 (full samples) → study it → propose 1 variation → draft 2 (fingerprint only)
           await setStep("drafting_1", "Writing first draft…");
           const draft1 = await draftContent(
             voiceProfile, interview, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
           );
           if (isAborted()) { controller.close(); return; }
 
-          // Propose variations: Opus reads draft 1 + voice profile and suggests
-          // 2 alternative creative directions specific to this author
-          await setStep("proposing", "Studying draft — proposing variations…");
-          const variations = await proposeDraftVariations(
+          // Propose variation: Opus reads draft 1 + voice profile and suggests
+          // 1 alternative creative direction specific to this author
+          await setStep("proposing", "Studying draft — proposing variation…");
+          const variation = await proposeDraftVariation(
             draft1, voiceProfile, interview, plan
           );
           if (isAborted()) { controller.close(); return; }
 
+          // Draft 2 uses condensed voice fingerprint (isFollowup=true) + reduced thinking budget
           await setStep("drafting_2", "Writing second draft…");
           const interview2: InterviewAnswers = {
             ...interview,
-            toneNotes: [interview.toneNotes, variations.direction2]
+            toneNotes: [interview.toneNotes, variation.direction]
               .filter(Boolean).join(". "),
           };
           const draft2 = await draftContent(
-            voiceProfile, interview2, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
-          );
-          if (isAborted()) { controller.close(); return; }
-
-          await setStep("drafting_3", "Writing third draft…");
-          const interview3: InterviewAnswers = {
-            ...interview,
-            toneNotes: [interview.toneNotes, variations.direction3]
-              .filter(Boolean).join(". "),
-          };
-          const draft3 = await draftContent(
-            voiceProfile, interview3, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
+            voiceProfile, interview2, plan, enrichedContext, sampleExamples, favoriteWords, authorContext, true
           );
           if (isAborted()) { controller.close(); return; }
 
           // Persist raw drafts
           await prisma.ghostwriterJob.update({
             where: { id: jobId },
-            data: { drafts: JSON.stringify([draft1, draft2, draft3]) },
+            data: { drafts: JSON.stringify([draft1, draft2]) },
           });
 
-          // Compare & select best
+          // Compare & select best (Sonnet — analytical, not creative)
           await setStep("comparing", "Comparing drafts against your voice…");
-          selected = await compareAndSelectBestDraft([draft1, draft2, draft3], voiceProfile, interview);
+          selected = await compareAndSelectBestDraft([draft1, draft2], voiceProfile, interview);
           if (isAborted()) { controller.close(); return; }
 
           // Word count quality check
