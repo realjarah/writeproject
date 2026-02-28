@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
@@ -98,91 +98,54 @@ interface TransitionConfig {
   messages: string[];
 }
 
+// Minimal delays: just enough for rate-limit spacing between providers.
+// Previous delays (8-14s base + 8s jitter per transition) burned 46-78s on
+// deep tier and contributed to the 300s timeout killing jobs.
 const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> = {
   light: {
     "drafting->reviewing": {
-      baseMs: 6000, jitterMs: 5000,
-      messages: [
-        "Reading draft back…",
-        "Checking voice fidelity…",
-      ],
+      baseMs: 1500, jitterMs: 1000,
+      messages: ["Reviewing draft…"],
     },
     "reviewing->humanizing": {
-      baseMs: 6000, jitterMs: 5000,
-      messages: [
-        "Reviewed and refined…",
-        "Preparing final polish…",
-      ],
+      baseMs: 1500, jitterMs: 1000,
+      messages: ["Preparing final polish…"],
     },
   },
   standard: {
     "planning->drafting": {
-      baseMs: 8000, jitterMs: 7000,
-      messages: [
-        "Reviewing your voice patterns…",
-        "Mapping structure to your style…",
-        "Preparing draft approach…",
-      ],
+      baseMs: 2000, jitterMs: 1000,
+      messages: ["Mapping structure to your voice…"],
     },
     "research->drafting": {
-      baseMs: 8000, jitterMs: 7000,
-      messages: [
-        "Synthesizing research findings…",
-        "Mapping structure to your style…",
-        "Preparing draft approach…",
-      ],
+      baseMs: 2000, jitterMs: 1000,
+      messages: ["Synthesizing research…"],
     },
     "drafting->reviewing": {
-      baseMs: 8000, jitterMs: 7000,
-      messages: [
-        "Reading draft back…",
-        "Checking voice fidelity…",
-        "Verifying brief coverage…",
-      ],
+      baseMs: 2000, jitterMs: 1000,
+      messages: ["Reviewing draft…"],
     },
     "reviewing->humanizing": {
-      baseMs: 8000, jitterMs: 7000,
-      messages: [
-        "Reviewed and refined…",
-        "Checking tone against your voice…",
-        "Preparing final polish…",
-      ],
+      baseMs: 2000, jitterMs: 1000,
+      messages: ["Preparing final polish…"],
     },
   },
   deep: {
     "research->drafting_1": {
-      baseMs: 12000, jitterMs: 8000,
-      messages: [
-        "Reviewing your voice patterns…",
-        "Cross-referencing brief with style notes…",
-        "Synthesizing research findings…",
-        "Preparing draft approach…",
-      ],
+      baseMs: 2000, jitterMs: 1000,
+      messages: ["Preparing draft approach…"],
     },
     "proposing->drafting_2": {
-      baseMs: 14000, jitterMs: 8000,
-      messages: [
-        "Analyzing first draft structure…",
-        "Identifying areas for variation…",
-        "Mapping alternative direction to your voice…",
-        "Setting up second draft…",
-      ],
+      baseMs: 2000, jitterMs: 1000,
+      messages: ["Setting up second draft…"],
     },
     "checking->reviewing": {
-      baseMs: 10000, jitterMs: 8000,
-      messages: [
-        "Reading draft back…",
-        "Checking voice fidelity…",
-        "Verifying brief coverage…",
-      ],
+      baseMs: 2000, jitterMs: 1000,
+      messages: ["Reviewing draft…"],
     },
     "reviewing->humanizing": {
-      baseMs: 10000, jitterMs: 8000,
-      messages: [
-        "Reviewed and refined…",
-        "Checking tone against your voice…",
-        "Preparing final polish…",
-      ],
+      baseMs: 2000, jitterMs: 1000,
+      messages: ["Preparing final polish…"],
     },
   },
 };
@@ -536,13 +499,8 @@ export async function GET(
         const humanizedStream = await humanizeContent(
           reviewedDraft, voiceProfile, HUMANIZER, interview.contentType,
           sampleExamples, favoriteWords, authorContext,
-          (pass, total) => {
-            const labels = [
-              `Humanizing — pass ${pass} of ${total}…`,
-              `Catching remaining AI patterns — pass ${pass} of ${total}…`,
-              `Final polish — pass ${pass} of ${total}…`,
-            ];
-            send({ type: "step", step: "humanizing", label: labels[pass - 1] ?? labels[0] });
+          () => {
+            send({ type: "step", step: "humanizing", label: `Humanizing your ${typeLabel}…` });
           }
         );
 

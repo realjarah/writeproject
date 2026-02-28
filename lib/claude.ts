@@ -1006,7 +1006,9 @@ Return ONLY valid JSON (no markdown, no prose, no code fences):
 
 /**
  * Stage 3 — Humanize
- * Strips AI patterns, audits itself, and produces the final polished piece.
+ * Single-pass humanizer with boosted thinking budget and structured verification.
+ * Replaces the previous 3-pass approach which burned ~70% of pipeline time
+ * and could undo its own fixes across passes.
  * Streams the output.
  */
 export async function humanizeContent(
@@ -1042,9 +1044,7 @@ export async function humanizeContent(
     ? `\n## Author Background\n${authorContext.trim()}\n`
     : "";
 
-  // System prompt: humanizer.md instructions + author voice profile
-  // Same prompt is used for all 3 passes — the instructions don't change,
-  // just the input text gets cleaner each time
+  // System prompt: humanizer.md instructions + author voice profile + structured checklist
   const systemPrompt = [
     {
       type: "text",
@@ -1057,16 +1057,6 @@ export async function humanizeContent(
 
 This text is going to be published under a real person's name. If it reads like AI wrote it, their reputation is damaged. Treat this accordingly.
 
-Apply every single pattern from the humanizer guide above. Miss nothing. Every "furthermore", every rule-of-three, every hollow hedge, every generic conclusion, every synonym cycle, every copula avoidance ("serves as", "stands as"), every filler phrase — find it and kill it.
-
-EM DASH RULE (absolute): Replace virtually ALL em dashes (—) with commas, periods, colons, semicolons, or parentheses. At most ONE em dash may survive in the entire piece, and only if the author's punctuation habits explicitly favor them. When in doubt, remove the em dash. Do NOT introduce any new em dashes in your rewrites — this is the single most common AI tell and the one readers notice first.
-
-Do not replace AI patterns with bland, voiceless prose. That is equally unacceptable. Replace them with THIS AUTHOR'S voice. Read the profile and excerpts below. That is how the output must read — like this specific person sat down and wrote it.
-
-While humanizing, also watch for fabricated specifics — numbers, statistics, percentages, study citations, or data points that look suspiciously precise and were not provided as context. If you spot what appears to be an invented figure, replace it with honest placeholder language (e.g., "your recent results," "the data you mentioned," "[specific number]"). Do not let fabricated data survive into the final output.
-
-Output the final text only. No commentary. No process notes. No preamble.
-
 ## Author Voice Profile
 **Tone:** ${voiceProfile.tone}
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
@@ -1078,67 +1068,81 @@ Output the final text only. No commentary. No process notes. No preamble.
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in the output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}`,
+${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}
+
+## MANDATORY VERIFICATION CHECKLIST
+
+You MUST work through this checklist in your thinking before producing output.
+For each item, scan the ENTIRE draft, count occurrences, and fix every one.
+Do NOT skip items. Do NOT leave any for "later." There is no later.
+
+**PASS 1 — Find and destroy AI patterns:**
+[ ] Count em dashes (—). Replace ALL with commas, periods, colons, semicolons, or parentheses. Maximum 1 surviving em dash in the entire piece, and only if the author's punctuation habits explicitly favor them.
+[ ] Find every instance of: "furthermore", "moreover", "additionally", "in addition" used as paragraph/sentence openers. Remove or rewrite each one.
+[ ] Find every instance of: "delve", "underscore", "leverage" (metaphor), "utilize", "facilitate", "navigate" (metaphor), "foster", "garner", "showcase", "pivotal", "crucial", "landscape" (abstract), "tapestry" (abstract), "testament", "vibrant", "enhance". Replace each with plain language or the author's actual vocabulary.
+[ ] Find copula avoidance: "serves as", "stands as", "marks a", "represents a", "boasts", "features a". Replace with "is", "are", "has".
+[ ] Find hollow hedges: "It's worth noting", "It's important to note", "One might argue", "It's crucial to understand", "Needless to say". Delete or rewrite.
+[ ] Find filler phrases: "In order to", "Due to the fact that", "At this point in time", "has the ability to", "In the event that". Simplify each.
+[ ] Find rule-of-three groupings (X, Y, and Z patterns that feel forced). Break up any that aren't natural to the author.
+[ ] Find synonym cycling (same concept called by 4 different names across sentences). Pick one term and stick with it.
+[ ] Find generic conclusions: "the future looks bright", "exciting times ahead", "represents a major step", "continues to evolve". Replace with specifics or cut.
+[ ] Find negative parallelisms: "Not only X but Y", "It's not just X; it's Y". Simplify.
+[ ] Find -ing phrase padding: "highlighting...", "underscoring...", "reflecting...", "showcasing...", "contributing to...". Cut or rewrite as direct statements.
+[ ] Find collaborative artifacts: "Here's...", "I hope this helps", "Let me know", "Great question!". Delete.
+
+**PASS 2 — Verify formatting:**
+[ ] Remove emojis entirely.
+[ ] Convert title-case headings to sentence case.
+[ ] Replace curly quotes with straight quotes.
+[ ] Check for excessive boldface. Remove mechanical bolding.
+[ ] Convert inline-header vertical lists (bolded label + colon) to flowing prose where appropriate.
+
+**PASS 3 — Voice and fabrication audit:**
+[ ] Read the piece aloud mentally. Does every sentence sound like THIS author? Not "good writing." THIS author.
+[ ] Check for fabricated specifics: numbers, statistics, percentages, study citations, dates, or data points that look suspiciously precise and weren't in the provided context. Replace with honest placeholder language.
+[ ] Confirm sentence length variation matches the author's patterns.
+[ ] Confirm paragraph length matches the author's style.
+[ ] Check that the opening sounds like how this author starts pieces, not a generic hook.
+[ ] Check that the closing sounds like how this author ends pieces, not a generic wrap-up.
+
+**AFTER completing the checklist:** Output the final text only. No commentary. No process notes. No preamble. No checklist results.`,
     },
   ];
 
   const { humanize: humanizeBudget } = getStageBudgets(contentType);
-  // Each pass gets the FULL thinking budget — the model only uses what it needs.
-  // Splitting by 3 starved each pass and let AI patterns survive.
-  const perPassBudget = humanizeBudget.thinkingBudget;
+  // Single pass gets 2x the original per-pass thinking budget.
+  // One deep pass with ample thinking outperforms 3 rushed passes that
+  // can undo each other's fixes.
+  const thinkingBudget = Math.min(humanizeBudget.thinkingBudget * 2, 128000);
 
-  // Run the humanizer 3 times. Each pass feeds its output into the next.
-  // Pass 1 catches the obvious stuff. Pass 2 catches what pass 1 missed.
-  // Pass 3 catches whatever is left. Same instructions every time.
-  let current = draft;
-  for (let pass = 1; pass <= 3; pass++) {
-    onPassStart?.(pass, 3);
-    const isLastPass = pass === 3;
-    const passLabel = pass === 1
-      ? `Humanize this ${typeLabel}. Apply every pattern from the humanizer guide. Strip every AI tell. Replace every em dash (—) with a comma, period, or colon — do NOT write any new em dashes in your output. Replace all AI patterns with the author's voice from the profile above. Output the cleaned text only.`
-      : `This text has been through ${pass - 1} humanization pass${pass > 2 ? "es" : ""} and AI patterns may still remain. Scan line by line. Every em dash (—) must be replaced with a comma, period, colon, or semicolon — zero new em dashes allowed. Every "furthermore", "moreover", "additionally", every hollow hedge, every filler phrase, every rule-of-three — if it survived, kill it now. Do NOT introduce any new AI patterns in your rewrites. Output the cleaned text only.`;
+  onPassStart?.(1, 1);
 
-    if (isLastPass) {
-      // Stream the final pass back to the client
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stream = await (getAnthropic().messages.stream as any)({
-        model: "claude-opus-4-6",
-        max_tokens: humanizeBudget.maxTokens,
-        thinking: { type: "enabled", budget_tokens: perPassBudget },
-        system: systemPrompt,
-        messages: [{ role: "user", content: `${passLabel}\n\n${current}` }],
-      });
+  // Single streamed pass with structured checklist verification
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stream = await (getAnthropic().messages.stream as any)({
+    model: "claude-opus-4-6",
+    max_tokens: humanizeBudget.maxTokens,
+    thinking: { type: "enabled", budget_tokens: thinkingBudget },
+    system: systemPrompt,
+    messages: [{
+      role: "user",
+      content: `Humanize this ${typeLabel}. Work through the MANDATORY VERIFICATION CHECKLIST in your thinking. For each checklist item, scan the entire text, find every instance, and fix it. Do not skip any item. Replace all AI patterns with this author's voice from the profile above. Output the cleaned text only.\n\n${draft}`,
+    }],
+  });
 
-      return new ReadableStream({
-        async start(controller) {
-          for await (const chunk of stream) {
-            if (
-              chunk.type === "content_block_delta" &&
-              chunk.delta.type === "text_delta"
-            ) {
-              controller.enqueue(new TextEncoder().encode(chunk.delta.text));
-            }
-          }
-          controller.close();
-        },
-      });
-    }
-
-    // Non-streaming passes — collect full output
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await (getAnthropic().messages.create as any)({
-      model: "claude-opus-4-6",
-      max_tokens: humanizeBudget.maxTokens,
-      thinking: { type: "enabled", budget_tokens: perPassBudget },
-      system: systemPrompt,
-      messages: [{ role: "user", content: `${passLabel}\n\n${current}` }],
-    });
-
-    current = extractText(res.content);
-  }
-
-  // Unreachable — loop always returns on pass 3
-  return new ReadableStream({ start(c) { c.close(); } });
+  return new ReadableStream({
+    async start(controller) {
+      for await (const chunk of stream) {
+        if (
+          chunk.type === "content_block_delta" &&
+          chunk.delta.type === "text_delta"
+        ) {
+          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
+        }
+      }
+      controller.close();
+    },
+  });
 }
 
 // ── Self-review ───────────────────────────────────────────────────────────────
@@ -1191,10 +1195,10 @@ export async function selfReviewDraft(
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
   const betaHeaders = getBetaHeaders(binaryBlocks);
 
-  const systemPrompt = `You are this author's last line of defense before publication. This text has already been through 3 passes of AI pattern removal (humanization). Your job is to check voice fidelity, brief adherence, and fabrication — NOT to rewrite prose. Surgical fixes only.
+  const systemPrompt = `You are this author's editorial eye before the final humanization pass. Your job is to check voice fidelity, brief adherence, and fabrication — NOT to rewrite prose. Surgical fixes only.
 
-CRITICAL — DO NOT RE-INTRODUCE AI PATTERNS:
-This text was carefully humanized. Any of the following in YOUR edits is a failure:
+CRITICAL — DO NOT INTRODUCE AI PATTERNS:
+The humanizer runs AFTER you. Any AI patterns in YOUR edits will survive into the final output. The following in your edits is a failure:
 - Em dashes (—) — use commas, periods, colons, or semicolons instead. ZERO new em dashes.
 - "Furthermore," / "Moreover," / "Additionally," / "In addition," as paragraph openers
 - Hollow hedges: "It's worth noting," "One might argue," "It's important to note"
