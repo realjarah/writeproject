@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
-const anthropic = new Anthropic();
+let _anthropic: Anthropic;
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic();
+  return _anthropic;
+}
 const FILES_API_BETA = "files-api-2025-04-14";
 
 export async function POST(req: NextRequest) {
@@ -21,11 +25,11 @@ export async function POST(req: NextRequest) {
     const blob = new Blob([buf], { type: "application/pdf" });
     const file = new File([blob], name, { type: "application/pdf" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const uploaded = await (anthropic.beta as any).files.upload({ file });
+    const uploaded = await (getAnthropic().beta as any).files.upload({ file });
     fileId = uploaded.id;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const message = await (anthropic.messages.create as any)(
+    const message = await (getAnthropic().messages.create as any)(
       {
         model: "claude-sonnet-4-6",
         max_tokens: 8000,
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest) {
     if (fileId) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (anthropic.beta as any).files.delete(fileId);
+        await (getAnthropic().beta as any).files.delete(fileId);
       } catch {
         // Best-effort cleanup
       }

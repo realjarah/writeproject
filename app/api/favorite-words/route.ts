@@ -5,7 +5,11 @@ import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/session";
 import { GoogleGenAI } from "@google/genai";
 
-const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+let _gemini: GoogleGenAI;
+function getGemini() {
+  if (!_gemini) _gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  return _gemini;
+}
 
 export async function GET() {
   const userId = await getUserId();
@@ -30,7 +34,7 @@ export async function POST(req: NextRequest) {
   // Generate a writer-focused definition with Gemini Flash
   let definition = "";
   try {
-    const result = await gemini.models.generateContent({
+    const result = await getGemini().models.generateContent({
       model: "gemini-2.5-flash",
       contents: `Define the word or phrase "${trimmed}" in 1–2 sentences from a writer's perspective — capture its precise meaning, connotation, texture, and when a writer might reach for it. Be specific and evocative, not dictionary-flat. Return only the definition, no intro.`,
       config: { maxOutputTokens: 200 },

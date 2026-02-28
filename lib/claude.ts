@@ -22,20 +22,27 @@ import type {
 } from "./content-types";
 import { CONTENT_TYPE_LABELS } from "./content-types";
 
-// ── Provider clients ─────────────────────────────────────────────────────────
+// ── Provider clients (lazy — Next.js evaluates modules at build time) ────────
 // Opus: voice analysis, humanizer, self-review (voice + quality layer)
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+let _anthropic: Anthropic;
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
 
 // Grok: core writing engine — planning (non-light) + drafting (2M context)
-const xai = new OpenAI({
-  apiKey: process.env.XAI_API_KEY,
-  baseURL: "https://api.x.ai/v1",
-});
+let _xai: OpenAI;
+function getXai() {
+  if (!_xai) _xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
+  return _xai;
+}
 
 // Gemini Flash: all interim / low-stakes calls
-const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+let _gemini: GoogleGenAI;
+function getGemini() {
+  if (!_gemini) _gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  return _gemini;
+}
 
 // ── Model IDs ────────────────────────────────────────────────────────────────
 const XAI_WRITING_MODEL = "grok-4-1-fast-reasoning";
@@ -57,7 +64,7 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
       : "";
 
   // Opus: voice analysis is the foundation — quality here determines everything downstream
-  const message = await anthropic.messages.create({
+  const message = await getAnthropic().messages.create({
     model: "claude-opus-4-6",
     max_tokens: 10000,
     messages: [
@@ -146,7 +153,7 @@ export async function uploadFile(
   const blob = new Blob([bytes as BlobPart], { type: mediaType });
   const file = new File([blob], fileName, { type: mediaType });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const uploaded = await (anthropic.beta as any).files.upload({ file });
+  const uploaded = await (getAnthropic().beta as any).files.upload({ file });
   if (!uploaded?.id) {
     throw new Error(`Files API returned no id for ${fileName}`);
   }
@@ -192,7 +199,7 @@ export async function deleteUploadedFiles(context: GenerationContext): Promise<v
     if (!item.fileId) continue;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (anthropic.beta as any).files.delete(item.fileId);
+      await (getAnthropic().beta as any).files.delete(item.fileId);
     } catch {
       // Best-effort cleanup
     }
@@ -452,7 +459,7 @@ Write it now.`;
     ? { headers: betaHeaders }
     : {};
 
-  const stream = await anthropic.messages.stream(
+  const stream = await getAnthropic().messages.stream(
     {
       model: "claude-opus-4-6",
       max_tokens: 4096,
@@ -598,7 +605,7 @@ Search for relevant, current information. After researching, produce a well-stru
 Be specific and factual. Reference sources inline (e.g. "According to [Source], ..."). Format clearly with headers and bullets. The ghostwriter will use this directly as context.`;
 
   // Gemini Flash with Google Search grounding — single call, no tool loop needed
-  const result = await gemini.models.generateContent({
+  const result = await getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
     contents: prompt,
     config: {
@@ -728,7 +735,7 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
 
   if (isLight) {
     // Light tier: Gemini Flash — no reasoning overhead for 1-4 sentence pieces
-    const result = await gemini.models.generateContent({
+    const result = await getGemini().models.generateContent({
       model: GEMINI_FAST_MODEL,
       contents: userPrompt,
       config: {
@@ -746,7 +753,7 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
     ? [{ type: "text", text: userPrompt }, ...grokImages]
     : userPrompt;
 
-  const res = await xai.chat.completions.create({
+  const res = await getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
     max_tokens: planBudget.maxTokens,
     messages: [
@@ -882,7 +889,7 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
   const budgets = getStageBudgets(interview.contentType);
   const draftBudget = isFollowup ? budgets.draftFollowup : budgets.draft;
 
-  const res = await xai.chat.completions.create({
+  const res = await getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
     max_tokens: draftBudget.maxTokens,
     messages: [
@@ -935,7 +942,7 @@ Produce the final version. If it contains any AI patterns, remove them before ou
 Output ONLY the final piece. Nothing else.`;
 
   // Gemini Flash: analytical comparison, not creative generation
-  const result = await gemini.models.generateContent({
+  const result = await getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
     contents: userPrompt,
     config: { maxOutputTokens: draftBudget.maxTokens },
@@ -986,7 +993,7 @@ Return ONLY valid JSON (no markdown, no prose, no code fences):
 }`;
 
   // Gemini Flash: proposing a creative direction, not generating prose
-  const result = await gemini.models.generateContent({
+  const result = await getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
     contents: userPrompt,
     config: { maxOutputTokens: 1024 },
@@ -1099,7 +1106,7 @@ ${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock
     if (isLastPass) {
       // Stream the final pass back to the client
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stream = await (anthropic.messages.stream as any)({
+      const stream = await (getAnthropic().messages.stream as any)({
         model: "claude-opus-4-6",
         max_tokens: humanizeBudget.maxTokens,
         thinking: { type: "enabled", budget_tokens: perPassBudget },
@@ -1124,7 +1131,7 @@ ${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock
 
     // Non-streaming passes — collect full output
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await (anthropic.messages.create as any)({
+    const res = await (getAnthropic().messages.create as any)({
       model: "claude-opus-4-6",
       max_tokens: humanizeBudget.maxTokens,
       thinking: { type: "enabled", budget_tokens: perPassBudget },
@@ -1231,7 +1238,7 @@ ${draft}`;
 
   // Opus: self-review is the last defense for voice fidelity + fabrication checking
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await (anthropic.messages.create as any)(
+  const res = await (getAnthropic().messages.create as any)(
     {
       model: "claude-opus-4-6",
       max_tokens: budget.maxTokens,
@@ -1286,7 +1293,7 @@ needed=false when:
 If needed, suggest 1-3 focused, specific search queries. Keep them targeted — "SaaS churn rate benchmarks 2025" not "SaaS industry trends". Do not suggest research for things only the author would know (their own results, experiences, opinions).`;
 
   // Gemini Flash: fast, cheap assessment call
-  const result = await gemini.models.generateContent({
+  const result = await getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
     contents: `Content type: ${resolveTypeLabel(interview)}
 Topic: ${interview.topic}
@@ -1342,7 +1349,7 @@ Output the complete revised draft. Nothing else.`;
   const userPrompt = `Draft:\n\n${draft}\n\n---\n\nFeedback (apply these changes only):\n${feedback}\n\nRevised draft:`;
 
   // Gemini Flash: surgical revision with streaming
-  const stream = await gemini.models.generateContentStream({
+  const stream = await getGemini().models.generateContentStream({
     model: GEMINI_FAST_MODEL,
     contents: [{ role: "user", parts: [{ text: userPrompt }] }],
     config: {

@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 
-const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+let _gemini: GoogleGenAI;
+function getGemini() {
+  if (!_gemini) _gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  return _gemini;
+}
 
 export async function POST(req: NextRequest) {
   const { description } = await req.json();
@@ -72,7 +76,7 @@ questions rules:
 - Make labels SPECIFIC to the topic (not generic — e.g. "What's your argument about remote work?" not "What's your angle?")
 - Max 3 questions. If all required fields present, return questions: []`;
 
-  const result = await gemini.models.generateContent({
+  const result = await getGemini().models.generateContent({
     model: "gemini-2.5-flash",
     contents: `Brief: """${description}"""`,
     config: {

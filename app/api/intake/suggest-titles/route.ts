@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 
-const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+let _gemini: GoogleGenAI;
+function getGemini() {
+  if (!_gemini) _gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  return _gemini;
+}
 
 export async function POST(req: NextRequest) {
   const { contentType, topic, angle, keyPoints } = await req.json();
@@ -11,7 +15,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "topic required" }, { status: 400 });
   }
 
-  const result = await gemini.models.generateContent({
+  const result = await getGemini().models.generateContent({
     model: "gemini-2.5-flash",
     contents: `Content type: ${contentType}\nTopic: ${topic}\nAngle: ${angle || "not specified"}\nKey points: ${keyPoints || "not specified"}`,
     config: {
