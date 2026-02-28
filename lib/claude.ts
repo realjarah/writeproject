@@ -941,7 +941,7 @@ Output ONLY the final piece. Nothing else.`;
 
   // Opus with extended thinking: this is a voice-fidelity judgment that
   // determines what goes into the humanizer. Worth the quality investment.
-  const thinkingBudget = Math.min(Math.ceil(draftBudget.thinkingBudget / 2), 32000);
+  const thinkingBudget = Math.min(Math.ceil(draftBudget.thinkingBudget / 2), 32000, draftBudget.maxTokens - 1);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
     model: "claude-opus-4-6",
@@ -1128,7 +1128,7 @@ Do NOT skip items. Do NOT leave any for "later." There is no later.
   // Single pass gets 2x the original per-pass thinking budget.
   // One deep pass with ample thinking outperforms 3 rushed passes that
   // can undo each other's fixes.
-  const thinkingBudget = Math.min(humanizeBudget.thinkingBudget * 2, 128000);
+  const thinkingBudget = Math.min(humanizeBudget.thinkingBudget * 2, 128000, humanizeBudget.maxTokens - 1);
 
   onPassStart?.(1, 1);
 
@@ -1266,7 +1266,7 @@ ${draft}`;
     {
       model: "claude-opus-4-6",
       max_tokens: budget.maxTokens,
-      thinking: { type: "enabled", budget_tokens: Math.ceil(budget.thinkingBudget / 2) },
+      thinking: { type: "enabled", budget_tokens: Math.min(Math.ceil(budget.thinkingBudget / 2), budget.maxTokens - 1) },
       system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: messageContent }],
     },
