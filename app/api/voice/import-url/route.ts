@@ -9,13 +9,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "url required" }, { status: 400 });
   }
 
+  // Validate URL scheme — only allow http(s) to prevent SSRF / protocol abuse
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return NextResponse.json({ error: "Only http and https URLs are supported" }, { status: 400 });
+    }
+  } catch {
+    return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
+  }
+
   try {
     const res = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; WriteGhost/1.0; +content-fetch)",
         Accept: "text/html,text/plain,*/*",
       },
-      signal: AbortSignal.timeout(15_000),
+      redirect: "follow",
+      signal: AbortSignal.timeout(12_000),
     });
 
     if (!res.ok) {

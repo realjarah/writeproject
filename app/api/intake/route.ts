@@ -12,6 +12,10 @@ export async function POST(req: NextRequest) {
   if (!description?.trim()) {
     return Response.json({ error: "Description required" }, { status: 400 });
   }
+  // Cap input length to prevent abuse / accidental huge payloads
+  if (description.length > 10_000) {
+    return Response.json({ error: "Description too long (max 10,000 characters)" }, { status: 400 });
+  }
 
   const systemInstruction = `You analyze content briefs and extract structured fields. Return ONLY valid JSON — no prose, no code fences.
 
@@ -88,10 +92,30 @@ questions rules:
   const text = (result.text ?? "").trim();
 
   try {
-    const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    const parsed = JSON.parse(clean);
+    // Robust JSON extraction: find the outermost { ... } rather than relying
+    // on fragile regex to strip markdown code fences. Handles cases where the
+    // model wraps JSON in prose, code fences, or both.
+    const firstBrace = text.indexOf("{");
+    const lastBrace = text.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      throw new Error("No JSON object found in response");
+    }
+    const jsonStr = text.slice(firstBrace, lastBrace + 1);
+    const parsed = JSON.parse(jsonStr);
+
+    // Validate contentType is one of the known types
+    const validTypes = new Set([
+      "blog", "essay", "newsletter", "whitepaper", "email", "report",
+      "press_release", "proposal", "case_study", "resume", "cover_letter",
+      "research", "technical", "social", "twitter_thread", "caption",
+      "text_message", "speech", "script",
+    ]);
+    if (parsed.contentType && !validTypes.has(parsed.contentType)) {
+      parsed.contentType = "blog"; // safe default
+    }
+
     return Response.json(parsed);
   } catch {
-    return Response.json({ error: "Parse failed", raw: text }, { status: 500 });
+    return Response.json({ error: "Failed to parse brief. Please try rephrasing." }, { status: 500 });
   }
 }

@@ -10,10 +10,16 @@ function getAnthropic() {
 }
 const FILES_API_BETA = "files-api-2025-04-14";
 
+/** Max PDF size: 30MB base64 ≈ ~22MB binary */
+const MAX_PDF_BASE64_LENGTH = 30 * 1024 * 1024;
+
 export async function POST(req: NextRequest) {
   const { data, fileName } = await req.json();
   if (!data) {
     return NextResponse.json({ error: "data (base64 PDF) required" }, { status: 400 });
+  }
+  if (typeof data !== "string" || data.length > MAX_PDF_BASE64_LENGTH) {
+    return NextResponse.json({ error: "PDF too large (max ~22MB)" }, { status: 400 });
   }
 
   let fileId: string | null = null;
@@ -31,8 +37,8 @@ export async function POST(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const message = await (getAnthropic().messages.create as any)(
       {
-        model: "claude-sonnet-4-6",
-        max_tokens: 8000,
+        model: "claude-opus-4-6",
+        max_tokens: 16000,
         messages: [
           {
             role: "user",

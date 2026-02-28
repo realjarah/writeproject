@@ -48,6 +48,47 @@ function getGemini() {
 const XAI_WRITING_MODEL = "grok-4-1-fast-reasoning";
 const GEMINI_FAST_MODEL = "gemini-2.5-flash";
 
+// ── Retry helper ─────────────────────────────────────────────────────────────
+// Retries on transient failures (rate limits, network errors, 5xx).
+// Exponential backoff: 2s, 4s, 8s. Max 3 retries.
+
+function isRetryable(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    // Rate limit / overloaded / timeout / network
+    if (msg.includes("rate") || msg.includes("429") || msg.includes("503")
+        || msg.includes("overloaded") || msg.includes("timeout")
+        || msg.includes("econnreset") || msg.includes("socket hang up")
+        || msg.includes("fetch failed")) {
+      return true;
+    }
+    // OpenAI SDK / Anthropic SDK status codes
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const status = (err as any).status ?? (err as any).statusCode;
+    if (status === 429 || status === 503 || status === 502 || status === 500) return true;
+  }
+  return false;
+}
+
+async function withRetry<T>(fn: () => Promise<T>, label: string, maxRetries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxRetries && isRetryable(err)) {
+        const delayMs = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s
+        console.warn(`[retry] ${label} attempt ${attempt + 1} failed, retrying in ${delayMs}ms:`, err instanceof Error ? err.message : err);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr; // unreachable, but TypeScript needs it
+}
+
 export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnalysis> {
   const samplesText = samples
     .map((s, i) => {
@@ -98,14 +139,14 @@ Rules:
   // without truncation. High reasoning budget lets it deeply analyze patterns
   // across the full corpus. This is the foundation — everything downstream
   // depends on voice profile quality.
-  const res = await getXai().chat.completions.create({
+  const res = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
     max_tokens: 16000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-  });
+  }), "analyzeVoice");
 
   const raw = res.choices[0].message.content ?? "";
   // Strip markdown code fences if the model wraps the JSON despite instructions
@@ -498,7 +539,7 @@ Search for relevant, current information. After researching, produce a well-stru
 Be specific and factual. Reference sources inline (e.g. "According to [Source], ..."). Format clearly with headers and bullets. The ghostwriter will use this directly as context.`;
 
   // Gemini Flash with Google Search grounding — single call, no tool loop needed
-  const result = await getGemini().models.generateContent({
+  const result = await withRetry(() => getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
     contents: prompt,
     config: {
@@ -506,7 +547,7 @@ Be specific and factual. Reference sources inline (e.g. "According to [Source], 
       tools: [{ googleSearch: {} }],
       maxOutputTokens: 8000,
     },
-  });
+  }), "conductResearch");
 
   return result.text || "Research could not be completed.";
 }
@@ -628,14 +669,14 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
 
   if (isLight) {
     // Light tier: Gemini Flash — no reasoning overhead for 1-4 sentence pieces
-    const result = await getGemini().models.generateContent({
+    const result = await withRetry(() => getGemini().models.generateContent({
       model: GEMINI_FAST_MODEL,
       contents: userPrompt,
       config: {
         systemInstruction: voicePlanBlock,
         maxOutputTokens: planBudget.maxTokens,
       },
-    });
+    }), "planContent/light");
     return result.text ?? "";
   }
 
@@ -646,14 +687,14 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
     ? [{ type: "text", text: userPrompt }, ...grokImages]
     : userPrompt;
 
-  const res = await getXai().chat.completions.create({
+  const res = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
     max_tokens: planBudget.maxTokens,
     messages: [
       { role: "system", content: voicePlanBlock },
       { role: "user", content: userContent },
     ],
-  });
+  }), "planContent/grok");
 
   return res.choices[0].message.content ?? "";
 }
@@ -782,14 +823,14 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
   const budgets = getStageBudgets(interview.contentType);
   const draftBudget = isFollowup ? budgets.draftFollowup : budgets.draft;
 
-  const res = await getXai().chat.completions.create({
+  const res = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
     max_tokens: draftBudget.maxTokens,
     messages: [
       { role: "system", content: systemText },
       { role: "user", content: userContent },
     ],
-  });
+  }), "draftContent");
 
   return res.choices[0].message.content ?? "";
 }
@@ -844,13 +885,13 @@ Output ONLY the final piece. Nothing else.`;
   // determines what goes into the humanizer. Worth the quality investment.
   const thinkingBudget = Math.min(Math.ceil(draftBudget.thinkingBudget / 2), 32000);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await (getAnthropic().messages.create as any)({
+  const res = await withRetry(() => (getAnthropic().messages.create as any)({
     model: "claude-opus-4-6",
     max_tokens: draftBudget.maxTokens,
     thinking: { type: "enabled", budget_tokens: thinkingBudget },
     system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userPrompt }],
-  });
+  }), "compareAndSelectBestDraft");
 
   return extractText(res.content) || "";
 }
@@ -1035,7 +1076,7 @@ Do NOT skip items. Do NOT leave any for "later." There is no later.
 
   // Single streamed pass with structured checklist verification
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stream = await (getAnthropic().messages.stream as any)({
+  const stream = await withRetry(() => (getAnthropic().messages.stream as any)({
     model: "claude-opus-4-6",
     max_tokens: humanizeBudget.maxTokens,
     thinking: { type: "enabled", budget_tokens: thinkingBudget },
@@ -1044,7 +1085,7 @@ Do NOT skip items. Do NOT leave any for "later." There is no later.
       role: "user",
       content: `Humanize this ${typeLabel}. Work through the MANDATORY VERIFICATION CHECKLIST in your thinking. For each checklist item, scan the entire text, find every instance, and fix it. Do not skip any item. Replace all AI patterns with this author's voice from the profile above. Output the cleaned text only.\n\n${draft}`,
     }],
-  });
+  }), "humanizeContent");
 
   return new ReadableStream({
     async start(controller) {
@@ -1163,7 +1204,7 @@ ${draft}`;
 
   // Opus: self-review is the last defense for voice fidelity + fabrication checking
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await (getAnthropic().messages.create as any)(
+  const res = await withRetry(() => (getAnthropic().messages.create as any)(
     {
       model: "claude-opus-4-6",
       max_tokens: budget.maxTokens,
@@ -1172,7 +1213,7 @@ ${draft}`;
       messages: [{ role: "user", content: messageContent }],
     },
     reqOptions
-  );
+  ), "selfReviewDraft");
 
   return extractText(res.content) || draft;
 }
