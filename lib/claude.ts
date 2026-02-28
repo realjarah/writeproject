@@ -687,7 +687,7 @@ export async function planContent(
 
   // Build system prompt with cache_control on the stable voice + samples block
   // so the API can reuse KV cache when subsequent pipeline calls share this prefix
-  const voicePlanBlock = `You are about to ghost-write a ${resolveTypeLabel(interview)}.
+  const voicePlanBlock = `You are ghost-writing a ${resolveTypeLabel(interview)}. The piece must be indistinguishable from this author's own work. Study the voice profile and samples below until you can hear them in your head. Every structural decision in your plan must serve this specific author's voice.
 ${examplesBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
 ${authorContextBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}`;
@@ -696,7 +696,7 @@ ${authorContextBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlo
     { type: "text", text: voicePlanBlock, cache_control: { type: "ephemeral" } },
   ];
 
-  const userPrompt = `Before writing a single word, produce a detailed structural plan.
+  const userPrompt = `Produce the structural plan. Do not write the piece — plan only.
 
 **Brief:**
 - Topic: ${sanitizeUserInput(interview.topic)}
@@ -705,15 +705,15 @@ ${authorContextBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlo
 - Audience: ${interview.targetAudience ? sanitizeUserInput(interview.targetAudience) : "the author's usual audience"}
 - Tone notes: ${interview.toneNotes ? sanitizeUserInput(interview.toneNotes) : "none"}${interview.wordCountTarget ? `\n- Target length: ${sanitizeUserInput(interview.wordCountTarget)}` : ""}
 ${contextBlock}
-**Plan requirements:**
-- The exact opening move — what's the hook? Be specific.
+**Every plan must include:**
+- The exact opening move. Not "an engaging hook" — the specific hook. What sentence or image does the reader see first?
 - How the argument builds and where the emotional beats land
 - Section-by-section breakdown with the purpose of each beat
 - How each piece of context gets woven in naturally (if any provided)
 - The closing move and what the reader leaves with
 - Structural choices that specifically play to this author's voice and the format guidelines above
 
-Return ONLY the plan. Do not write the piece yet.`;
+Do not plan a generic article. Plan THIS author's article. If the plan could belong to any writer, it is wrong.`;
 
   const messageContent =
     binaryBlocks.length > 0
@@ -797,7 +797,9 @@ export async function draftContent(
   // Build system prompt as structured blocks for prompt caching.
   // The voice profile block (stable across calls) gets cache_control so the API
   // can reuse the KV cache from previous pipeline stages.
-  const voiceBlock = `You are a ghost-writer. Write ${resolveTypeLabel(interview)} that sounds EXACTLY like the author below. No preamble. No meta-commentary. Output only the piece.
+  const voiceBlock = `You are ghost-writing a ${resolveTypeLabel(interview)}. The output must be indistinguishable from this author's own work. Not "inspired by" their voice. Not "in the style of." Identical. If a reader who knows this author's writing can tell an AI wrote it, you have failed.
+
+Read the voice profile and writing samples below. Internalize the rhythm, the word choices, the sentence lengths, the way they open paragraphs, the way they close them. Then write as them.
 
 ## Author Voice Profile
 
@@ -809,28 +811,31 @@ export async function draftContent(
 **Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
 **Recurring Patterns:**
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
-**Things to Avoid:**
+**Things to Avoid (if ANY of these appear in your output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 ${examplesSection}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}`;
 
-  const rulesBlock = `## Forbidden AI Writing Patterns (never use — these are instant giveaways)
+  const rulesBlock = `## Forbidden — zero tolerance. Any of these in the output is an automatic failure.
 - Opener clichés: "In today's fast-paced world", "In the digital age", "It goes without saying", "In an era where"
 - AI filler verbs: "delve into", "underscore", "leverage" (as metaphor), "utilize", "facilitate", "navigate" (as metaphor), "foster"
 - Hollow hedge phrases: "It's worth noting that", "It's important to note", "It's crucial to understand", "Needless to say", "One might argue"
 - Transition clichés as paragraph openers: "Furthermore,", "Moreover,", "Additionally,", "In addition,"
-- Closing tell: "In conclusion,", "To summarize,", "To wrap up,", "As we've seen,"
+- Closing tells: "In conclusion,", "To summarize,", "To wrap up,", "As we've seen,"
 - Performative mirroring: restating the intro as if it's a fresh insight in the final paragraph
 - Qualification stacking: "However, it's worth considering that, while generally speaking, one could argue…"
 - Hollow superlatives: "It is undeniable that", "There is no doubt that", "It is clear that", "Evidently,"
 - Over-structured output: bolding every paragraph header when flowing prose is more natural for this format
+- Em dash overuse: more than 1-2 em dashes in the entire piece is too many
+- Rule of three: do not group ideas into threes ("X, Y, and Z") unless the author demonstrably does this
+- Synonym cycling: do not use four different words for the same concept across consecutive sentences
 
 ## Author's Favorite Words
 ${favoriteWords?.length
-  ? `Use these words only when they fit the context naturally. Never repeat them more than once per piece. Never force them in.\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}`
-  : "None specified — use your best judgment."}
-${authorContext?.trim() ? `\n## Author Background (subtle context — absorb it; don't reference it explicitly)\n${authorContext.trim()}\n` : ""}
-## Output Rules
-- Write ONLY the piece. Nothing else.
+  ? `Use these words only when they fit naturally. Never repeat more than once per piece. Never force them in.\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}`
+  : "None specified."}
+${authorContext?.trim() ? `\n## Author Background (absorb this — never reference it directly)\n${authorContext.trim()}\n` : ""}
+## Output
+- The piece. Nothing else. No preamble. No meta-commentary. No "Here's the piece:" or "I hope this captures..."
 - ${wordCountLine}${WORD_GUIDANCE[interview.contentType] ?? `This is a custom format ("${resolveTypeLabel(interview)}"). Use the provided writing examples as your primary guide for length, structure, and conventions. If no examples are available, write a well-structured piece that feels natural for this format.`}`;
 
   // Use structured system prompt with cache_control on the voice block
@@ -840,16 +845,16 @@ ${authorContext?.trim() ? `\n## Author Background (subtle context — absorb it;
     { type: "text", text: rulesBlock },
   ];
 
-  const userPrompt = `Follow this structural plan:
+  const userPrompt = `Execute this structural plan:
 
 ${plan}
 
-**Brief recap:**
+**Brief:**
 - Topic: ${sanitizeUserInput(interview.topic)}
 - Angle: ${sanitizeUserInput(interview.angle)}
 - Key points: ${sanitizeUserInput(interview.keyPoints)}
 ${contextBlock}
-Write the piece now.`;
+Write the piece. Match the author's voice exactly. Every sentence must sound like them, not like you.`;
 
   const messageContent =
     binaryBlocks.length > 0
@@ -891,16 +896,16 @@ export async function compareAndSelectBestDraft(
 ): Promise<string> {
   const { draft: draftBudget } = getStageBudgets(interview.contentType);
 
-  const userPrompt = `You are evaluating ${drafts.length} ghost-written versions of a ${resolveTypeLabel(interview)} to select and deliver the single best piece.
+  const userPrompt = `Select the best of these ${drafts.length} drafts. The winner must sound like this specific author wrote it — not like AI. If neither draft meets that standard, take the best elements and make it meet the standard.
 
 **Author Voice Profile:**
 ${voiceProfile.rawSummary}
 - Tone: ${voiceProfile.tone}
 - Sentence structure: ${voiceProfile.sentenceStructure}
 - Vocabulary: ${voiceProfile.vocabularyStyle}
-- Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}
+- Things this author NEVER does: ${voiceProfile.thingsToAvoid.join("; ")}
 
-**Original Brief:**
+**Brief:**
 - Topic: ${interview.topic}
 - Angle: ${interview.angle}
 - Key points: ${interview.keyPoints}
@@ -909,19 +914,14 @@ ${voiceProfile.rawSummary}
 **The Drafts:**
 ${drafts.map((d, i) => `--- DRAFT ${i + 1} ---\n${d}`).join("\n\n")}
 
-Analyze each draft for:
-1. Voice authenticity — does it sound specifically like this author (not like generic AI prose)?
-2. Brief fidelity — does it faithfully cover the topic, angle, and all key points?
-3. Quality, impact, and resonance — does it have a strong hook, forward momentum, and a satisfying close?
-4. AI-pattern detection — flag any of these if present: opener clichés ("In today's fast-paced world", "It goes without saying"), filler verbs ("delve into", "underscore", "leverage" used metaphorically, "utilize"), hollow hedges ("It's worth noting", "It's important to note"), transition clichés as openers ("Furthermore,", "Moreover,"), closing tells ("In conclusion,", "To summarize,"), or a final paragraph that simply restates the opening
+Evaluate each draft on:
+1. Voice authenticity — does it sound like this author or like AI? Be ruthless.
+2. Brief fidelity — does it cover the topic, angle, and key points?
+3. AI contamination — flag every instance: opener clichés, filler verbs ("delve", "underscore", "leverage", "utilize", "foster"), hollow hedges ("It's worth noting", "One might argue"), transition clichés ("Furthermore,", "Moreover,", "Additionally,"), closing tells ("In conclusion,"), em dash overuse, rule-of-three groupings, synonym cycling, paragraphs that restate the opening.
 
-Then produce the FINAL BEST VERSION by either:
-- Selecting the strongest draft as-is, OR
-- Synthesizing the best elements from multiple drafts into one superior piece
+Produce the final version. If it contains any AI patterns, remove them before outputting. The output must be publishable under this person's name without suspicion.
 
-If the selected/synthesized piece contains any AI patterns flagged above, remove or rewrite those sections before outputting.
-
-Output ONLY the final piece. No preamble, no "I chose draft X", no commentary. Just the finished text.`;
+Output ONLY the final piece. Nothing else.`;
 
   const res = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -944,7 +944,7 @@ export async function proposeDraftVariation(
   interview: InterviewAnswers,
   plan: string
 ): Promise<{ direction: string }> {
-  const userPrompt = `You are a creative director who deeply understands this author's writing voice. You've just read their first draft of a ${resolveTypeLabel(interview)}.
+  const userPrompt = `Propose one alternative creative direction for this ${resolveTypeLabel(interview)}. The direction must be rooted in how this specific author writes — not generic advice.
 
 **Author Voice Profile:**
 ${voiceProfile.rawSummary}
@@ -954,28 +954,24 @@ ${voiceProfile.rawSummary}
 - Rhetorical devices: ${voiceProfile.rhetoricalDevices}
 - Recurring patterns: ${voiceProfile.commonPatterns.join("; ")}
 
-**The Brief:**
+**Brief:**
 - Topic: ${interview.topic}
 - Angle: ${interview.angle}
 - Key points: ${interview.keyPoints}
 - Audience: ${interview.targetAudience || "the author's usual audience"}
 
-**The Structural Plan:**
+**Plan:**
 ${plan}
 
-**The First Draft:**
+**First Draft:**
 ${draft}
 
-Based on how THIS specific author writes — their tendencies, strengths, habits, and range — propose 1 alternative creative direction for rewriting this same piece. This should be an approach this author would actually consider, rooted in their real voice patterns.
+Based on this author's actual writing tendencies, propose a different structural or creative approach they would realistically take. Different opening strategy, different rhetorical lean, different emotional register, story-first vs argument-first — whatever fits their range.
 
-Think about: Would they try a different opening strategy? A different structural approach? Lean harder into a particular rhetorical device they favor? Shift the emotional register? Take a more personal or more analytical angle? Lead with story instead of argument, or vice versa?
-
-Return ONLY valid JSON with this exact structure (no markdown, no prose, no code fences):
+Return ONLY valid JSON (no markdown, no prose, no code fences):
 {
-  "direction": "A 1-2 sentence creative direction for the second draft. Written as an instruction to a ghostwriter, e.g. 'Open with the personal anecdote about X instead of the data point. Let the argument emerge from the story rather than stating the thesis upfront. Lean into the conversational asides this author favors.'"
-}
-
-The direction must be specific to this piece and this author — not generic writing advice.`;
+  "direction": "1-2 sentence instruction to a ghostwriter. Must be specific to this piece and this author."
+}`;
 
   // Sonnet is sufficient for proposing a creative direction — it's reading
   // the draft and voice profile, not generating the actual prose
@@ -1050,9 +1046,13 @@ export async function humanizeContent(
       type: "text",
       text: `---
 
-You are preparing text for final publication. Follow the humanizer guide above exactly. Identify every AI pattern, rewrite the problematic sections, and output only the final humanized text. No commentary, no process notes, no summary of changes.
+This text is going to be published under a real person's name. If it reads like AI wrote it, their reputation is damaged. Treat this accordingly.
 
-When you replace AI patterns, replace them with THIS AUTHOR'S voice — not with generic clean prose. Study the profile and excerpts below. The output should read like this person wrote it.
+Apply every single pattern from the humanizer guide above. Miss nothing. Every em dash that doesn't belong, every "furthermore", every rule-of-three, every hollow hedge, every generic conclusion, every synonym cycle, every copula avoidance ("serves as", "stands as"), every filler phrase — find it and kill it.
+
+Do not replace AI patterns with bland, voiceless prose. That is equally unacceptable. Replace them with THIS AUTHOR'S voice. Read the profile and excerpts below. That is how the output must read — like this specific person sat down and wrote it.
+
+Output the final text only. No commentary. No process notes. No preamble.
 
 ## Author Voice Profile
 **Tone:** ${voiceProfile.tone}
@@ -1063,7 +1063,7 @@ When you replace AI patterns, replace them with THIS AUTHOR'S voice — not with
 **Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
 **Recurring Patterns:**
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
-**Things to Avoid (this author never does these):**
+**Things to Avoid (if ANY of these appear in the output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 ${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}`,
     },
@@ -1080,8 +1080,8 @@ ${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock
     onPassStart?.(pass, 3);
     const isLastPass = pass === 3;
     const passLabel = pass === 1
-      ? `Humanize this ${typeLabel}. Follow the humanizer guide exactly. Output only the cleaned text.`
-      : `This text has already been through ${pass - 1} humanization pass${pass > 2 ? "es" : ""}. Run the humanizer guide on it again — find any remaining AI patterns that were missed. Output only the cleaned text.`;
+      ? `Humanize this ${typeLabel}. Apply every pattern from the humanizer guide. Strip every AI tell. Replace them with the author's voice from the profile above. Output the cleaned text only.`
+      : `This text has been through ${pass - 1} humanization pass${pass > 2 ? "es" : ""} and AI patterns still remain. Go through it again. Find what was missed. Be more aggressive this time — anything that could be flagged as AI-generated needs to be rewritten in the author's voice. Output the cleaned text only.`;
 
     if (isLastPass) {
       // Stream the final pass back to the client
@@ -1176,25 +1176,23 @@ export async function selfReviewDraft(
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
   const betaHeaders = getBetaHeaders(binaryBlocks);
 
-  const systemPrompt = `You are the author's internal editor — the voice in their head that re-reads a draft and makes it better. You know their style intimately.
+  const systemPrompt = `You are this author's last line of defense before publication. Read the draft as them. If any sentence sounds like AI wrote it — a hollow hedge, a filler transition, a generic conclusion, an em dash that doesn't belong, a "furthermore" or "additionally" opening a paragraph — fix it. No AI pattern survives this stage.
 
 ## Author Voice Profile
 **Voice:** ${voiceProfile.rawSummary}
 **Tone:** ${voiceProfile.tone}
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
 **Vocabulary:** ${voiceProfile.vocabularyStyle}
-**Things to Avoid:** ${voiceProfile.thingsToAvoid.join("; ")}
+**Things to Avoid (if ANY of these appear, fix them immediately):** ${voiceProfile.thingsToAvoid.join("; ")}
 ${samplesBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
-Your job:
-1. Re-read the draft as if you were the author
-2. Check: Does this sound like me? Did it cover what I wanted? Is anything weak, vague, or off-brand?
-3. Check: Are there any remaining AI-isms — hollow hedges, filler transitions, generic conclusions, over-structured formatting?
-4. Check: Did the draft properly use the supporting context provided? Are specific details, data, or references from the context woven in where relevant?
-5. Make targeted fixes — tighten sentences, sharpen the argument, fix anything that sounds off-voice or like AI
-6. Do NOT rewrite from scratch. Make surgical improvements only.
-7. If the draft is already strong, return it with minimal changes.
+Your review must check:
+1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
+2. AI contamination — hunt for hollow hedges, filler transitions, generic conclusions, over-structured formatting, em dash overuse, synonym cycling, rule-of-three groupings, copula avoidance ("serves as", "stands as"). Destroy any you find.
+3. Brief adherence — did it cover the topic, angle, and key points? Is anything missing or weak?
+4. Context usage — did the draft use the supporting context provided? Are specifics woven in naturally?
+5. Fix everything you find. Surgical fixes only — do not rewrite from scratch.
 
-Output ONLY the improved draft. No commentary, no preamble, no list of changes.`;
+Output ONLY the improved draft. Nothing else.`;
 
   const userPrompt = `Original brief:
 - Topic: ${sanitizeUserInput(interview.topic)}
@@ -1309,16 +1307,16 @@ export async function reviseDraft(
 ): Promise<ReadableStream<Uint8Array>> {
   const { humanize: budget } = getStageBudgets(contentType);
 
-  const systemPrompt = `You are a precise editor making surgical changes to a draft.
+  const systemPrompt = `Apply ONLY the changes described in the feedback. Touch nothing else. Do not rewrite, restructure, or "improve" anything the feedback does not mention. Preserve the author's voice, phrasing, and formatting exactly as-is for everything not covered.
 
-Apply ONLY the specific changes described in the feedback. Do not rewrite, restructure, or improve anything that was not mentioned. Preserve the author's entire voice, style, phrasing, and formatting for everything not covered by the feedback.
-
-Author's voice summary: ${voiceProfile.rawSummary}
+Author's voice: ${voiceProfile.rawSummary}
 Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}
 
-Output only the complete revised draft — no commentary, no explanation, no preamble.`;
+Do not introduce any AI patterns in your edits. No em dash overuse, no "furthermore", no hollow hedges, no filler transitions. If the feedback requires new text, write it in this author's voice.
 
-  const userPrompt = `Draft:\n\n${draft}\n\n---\n\nFeedback (apply these changes only):\n${feedback}\n\nOutput the revised draft now.`;
+Output the complete revised draft. Nothing else.`;
+
+  const userPrompt = `Draft:\n\n${draft}\n\n---\n\nFeedback (apply these changes only):\n${feedback}\n\nRevised draft:`;
 
   const stream = await anthropic.messages.stream({
     model: "claude-sonnet-4-6",
