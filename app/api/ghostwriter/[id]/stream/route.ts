@@ -11,6 +11,7 @@ import {
   draftContent,
   humanizeContent,
   compareAndSelectBestDraft,
+  proposeDraftVariations,
   conductResearch,
   assessResearchNeeds,
   selfReviewDraft,
@@ -73,6 +74,7 @@ function getPipelineSteps(tier: PipelineTier): { key: string; label: string }[] 
         { key: "planning", label: "Planning structure" },
         { key: "researching", label: "Assessing research needs" },
         { key: "drafting_1", label: "Writing first draft" },
+        { key: "proposing", label: "Studying draft — proposing variations" },
         { key: "drafting_2", label: "Writing second draft" },
         { key: "drafting_3", label: "Writing third draft" },
         { key: "comparing", label: "Comparing drafts against your voice" },
@@ -236,17 +238,25 @@ export async function GET(
         let selected: string;
 
         if (tier === "deep") {
-          // 3 drafts → compare → quality check
+          // Draft 1 → study it → propose 2 author-specific variations → draft 2 & 3
           await setStep("drafting_1", "Writing first draft…");
           const draft1 = await draftContent(
             voiceProfile, interview, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
           );
           if (isAborted()) { controller.close(); return; }
 
+          // Propose variations: Opus reads draft 1 + voice profile and suggests
+          // 2 alternative creative directions specific to this author
+          await setStep("proposing", "Studying draft — proposing variations…");
+          const variations = await proposeDraftVariations(
+            draft1, voiceProfile, interview, plan
+          );
+          if (isAborted()) { controller.close(); return; }
+
           await setStep("drafting_2", "Writing second draft…");
           const interview2: InterviewAnswers = {
             ...interview,
-            toneNotes: [interview.toneNotes, "Prioritize narrative momentum — let the story carry the argument"]
+            toneNotes: [interview.toneNotes, variations.direction2]
               .filter(Boolean).join(". "),
           };
           const draft2 = await draftContent(
@@ -257,7 +267,7 @@ export async function GET(
           await setStep("drafting_3", "Writing third draft…");
           const interview3: InterviewAnswers = {
             ...interview,
-            toneNotes: [interview.toneNotes, "Be bold and direct — fewer qualifications, stronger claims, sharper edges"]
+            toneNotes: [interview.toneNotes, variations.direction3]
               .filter(Boolean).join(". "),
           };
           const draft3 = await draftContent(

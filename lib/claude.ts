@@ -295,33 +295,35 @@ interface StageBudget { maxTokens: number; thinkingBudget: number }
 interface StageBudgets { plan: StageBudget; draft: StageBudget; humanize: StageBudget }
 
 const STAGE_BUDGETS: Record<string, StageBudgets> = {
-  // Academic / very long-form — full benefit of large context window
-  research:      { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 60000, thinkingBudget: 20000 }, humanize: { maxTokens: 50000, thinkingBudget: 14000 } },
-  whitepaper:    { plan: { maxTokens: 10000, thinkingBudget: 7000  }, draft: { maxTokens: 50000, thinkingBudget: 16000 }, humanize: { maxTokens: 40000, thinkingBudget: 12000 } },
-  technical:     { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 40000, thinkingBudget: 12000 }, humanize: { maxTokens: 32000, thinkingBudget: 10000 } },
-  case_study:    { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 30000, thinkingBudget: 12000 }, humanize: { maxTokens: 24000, thinkingBudget: 8000  } },
+  // Academic / very long-form — push toward full context window depth
+  research:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, humanize: { maxTokens: 128000, thinkingBudget: 32000 } },
+  whitepaper:    { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, humanize: { maxTokens: 128000, thinkingBudget: 32000 } },
+  technical:     { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, humanize: { maxTokens: 100000, thinkingBudget: 32000 } },
+  case_study:    { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
   // Standard long-form
-  report:        { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 24000, thinkingBudget: 10000 }, humanize: { maxTokens: 20000, thinkingBudget: 8000  } },
-  essay:         { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 24000, thinkingBudget: 10000 }, humanize: { maxTokens: 20000, thinkingBudget: 8000  } },
-  speech:        { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 20000, thinkingBudget: 10000 }, humanize: { maxTokens: 16000, thinkingBudget: 8000  } },
-  script:        { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 20000, thinkingBudget: 10000 }, humanize: { maxTokens: 16000, thinkingBudget: 8000  } },
-  proposal:      { plan: { maxTokens: 8000,  thinkingBudget: 5000  }, draft: { maxTokens: 20000, thinkingBudget: 10000 }, humanize: { maxTokens: 16000, thinkingBudget: 8000  } },
+  report:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
+  essay:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, humanize: { maxTokens: 64000,  thinkingBudget: 24000 } },
+  speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
+  script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
+  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, humanize: { maxTokens: 48000,  thinkingBudget: 16000 } },
   // Business medium
-  press_release: { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,  thinkingBudget: 5000  }, humanize: { maxTokens: 6000,  thinkingBudget: 4000  } },
-  resume:        { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,  thinkingBudget: 5000  }, humanize: { maxTokens: 6000,  thinkingBudget: 4000  } },
-  cover_letter:  { plan: { maxTokens: 5000,  thinkingBudget: 3000  }, draft: { maxTokens: 6000,  thinkingBudget: 4000  }, humanize: { maxTokens: 5000,  thinkingBudget: 3000  } },
-  email:         { plan: { maxTokens: 4000,  thinkingBudget: 2000  }, draft: { maxTokens: 4000,  thinkingBudget: 2000  }, humanize: { maxTokens: 4000,  thinkingBudget: 2000  } },
+  blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, humanize: { maxTokens: 32000,  thinkingBudget: 16000 } },
+  newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, humanize: { maxTokens: 24000,  thinkingBudget: 12000 } },
+  press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, humanize: { maxTokens: 16000,  thinkingBudget: 8000  } },
+  resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, humanize: { maxTokens: 16000,  thinkingBudget: 8000  } },
+  cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, humanize: { maxTokens: 12000,  thinkingBudget: 6000  } },
+  email:         { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, humanize: { maxTokens: 8000,   thinkingBudget: 4000  } },
   // Short-form
-  social:          { plan: { maxTokens: 3000,  thinkingBudget: 2000  }, draft: { maxTokens: 2000,  thinkingBudget: 1500  }, humanize: { maxTokens: 2000,  thinkingBudget: 1500  } },
-  twitter_thread:  { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 6000,  thinkingBudget: 3000  }, humanize: { maxTokens: 6000,  thinkingBudget: 3000  } },
-  caption:         { plan: { maxTokens: 2000,  thinkingBudget: 1500  }, draft: { maxTokens: 1500,  thinkingBudget: 1000  }, humanize: { maxTokens: 1500,  thinkingBudget: 1000  } },
-  text_message:    { plan: { maxTokens: 2000,  thinkingBudget: 1500  }, draft: { maxTokens: 1500,  thinkingBudget: 1000  }, humanize: { maxTokens: 1500,  thinkingBudget: 1000  } },
+  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,  thinkingBudget: 3000  }, humanize: { maxTokens: 4000,  thinkingBudget: 3000  } },
+  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000, thinkingBudget: 8000  }, humanize: { maxTokens: 12000, thinkingBudget: 6000  } },
+  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, humanize: { maxTokens: 3000,  thinkingBudget: 2000  } },
+  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, humanize: { maxTokens: 3000,  thinkingBudget: 2000  } },
 };
 
 const DEFAULT_BUDGETS: StageBudgets = {
-  plan:     { maxTokens: 8000,  thinkingBudget: 5000  },
-  draft:    { maxTokens: 20000, thinkingBudget: 10000 },
-  humanize: { maxTokens: 16000, thinkingBudget: 8000  },
+  plan:     { maxTokens: 16000, thinkingBudget: 10000 },
+  draft:    { maxTokens: 48000, thinkingBudget: 24000 },
+  humanize: { maxTokens: 48000, thinkingBudget: 16000 },
 };
 
 export function getStageBudgets(contentType: string): StageBudgets {
@@ -679,6 +681,76 @@ Output ONLY the final piece. No preamble, no "I chose draft X", no commentary. J
   });
 
   return extractText(res.content);
+}
+
+/**
+ * Stage 2a — Propose draft variations (deep tier only)
+ * Reads the first draft and the author's voice profile, then proposes
+ * 2 alternative creative directions this specific author might take
+ * when writing the same piece. Returns toneNotes strings for drafts 2 & 3.
+ */
+export async function proposeDraftVariations(
+  draft: string,
+  voiceProfile: VoiceAnalysis,
+  interview: InterviewAnswers,
+  plan: string
+): Promise<{ direction2: string; direction3: string }> {
+  const userPrompt = `You are a creative director who deeply understands this author's writing voice. You've just read their first draft of a ${resolveTypeLabel(interview)}.
+
+**Author Voice Profile:**
+${voiceProfile.rawSummary}
+- Tone: ${voiceProfile.tone}
+- Sentence structure: ${voiceProfile.sentenceStructure}
+- Vocabulary: ${voiceProfile.vocabularyStyle}
+- Rhetorical devices: ${voiceProfile.rhetoricalDevices}
+- Recurring patterns: ${voiceProfile.commonPatterns.join("; ")}
+
+**The Brief:**
+- Topic: ${interview.topic}
+- Angle: ${interview.angle}
+- Key points: ${interview.keyPoints}
+- Audience: ${interview.targetAudience || "the author's usual audience"}
+
+**The Structural Plan:**
+${plan}
+
+**The First Draft:**
+${draft}
+
+Based on how THIS specific author writes — their tendencies, strengths, habits, and range — propose 2 alternative creative directions for rewriting this same piece. These should be approaches this author would actually consider, rooted in their real voice patterns.
+
+Think about: Would they try a different opening strategy? A different structural approach? Lean harder into a particular rhetorical device they favor? Shift the emotional register? Take a more personal or more analytical angle? Lead with story instead of argument, or vice versa?
+
+Return ONLY valid JSON with this exact structure (no markdown, no prose, no code fences):
+{
+  "direction2": "A 1-2 sentence creative direction for the second draft. Written as an instruction to a ghostwriter, e.g. 'Open with the personal anecdote about X instead of the data point. Let the argument emerge from the story rather than stating the thesis upfront. Lean into the conversational asides this author favors.'",
+  "direction3": "A 1-2 sentence creative direction for the third draft, meaningfully different from direction2."
+}
+
+The directions must be specific to this piece and this author — not generic writing advice.`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await (anthropic.messages.create as any)({
+    model: "claude-opus-4-6",
+    max_tokens: 4000,
+    thinking: { type: "enabled", budget_tokens: 8000 },
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  const text = extractText(res.content);
+  try {
+    const clean = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```\s*$/, "")
+      .trim();
+    return JSON.parse(clean);
+  } catch {
+    // Fallback — shouldn't happen but keeps pipeline running
+    return {
+      direction2: "Restructure the piece to lead with the strongest example first, then build the argument around it. Prioritize narrative momentum.",
+      direction3: "Take a more direct, opinionated stance. Cut qualifications, strengthen claims, and close with a sharper point.",
+    };
+  }
 }
 
 /**
