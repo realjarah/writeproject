@@ -35,19 +35,15 @@ interface PipelineStep {
 // Default steps used as fallback when no pipeline event has been received
 // (e.g. for jobs already in progress before this update)
 const DEFAULT_STEPS: PipelineStep[] = [
-  { key: "planning",    label: "Planning structure" },
-  { key: "drafting_1",  label: "Writing first draft" },
-  { key: "drafting_2",  label: "Writing second draft" },
-  { key: "drafting_3",  label: "Writing third draft" },
-  { key: "comparing",   label: "Comparing drafts against your voice" },
-  { key: "checking",    label: "Checking word count & structure" },
-  { key: "humanizing",  label: "Final polish" },
+  { key: "planning",    label: "Planning…" },
+  { key: "drafting",    label: "Writing…" },
+  { key: "humanizing",  label: "Polishing…" },
 ];
 
 // Superset of all possible active step keys across all pipeline tiers
 const ALL_ACTIVE_STATUSES = new Set([
   "planning", "researching",
-  "drafting", "drafting_1", "drafting_2", "drafting_3",
+  "drafting", "drafting_1", "proposing", "drafting_2",
   "comparing", "checking", "humanizing", "reviewing",
 ]);
 
@@ -575,7 +571,7 @@ export default function GhostwriterPage() {
                               <span className="w-3.5 h-3.5 rounded-full border border-black/[0.12] dark:border-white/[0.12] shrink-0" />
                             )}
                             <span className={`text-xs ${done ? "text-black/[0.35] dark:text-white/[0.35]" : active ? "text-black/90 dark:text-white" : "text-black/[0.22] dark:text-white/[0.22]"}`}>
-                              {s.label}
+                              {active ? (job.stepLabel || s.label) : s.label}
                             </span>
                           </div>
                         );

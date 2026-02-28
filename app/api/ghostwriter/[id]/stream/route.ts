@@ -26,6 +26,7 @@ import {
   ContextItemTag,
 } from "@/lib/claude";
 import { resolveContext } from "@/lib/resolve-context";
+import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
 
 const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
 
@@ -57,39 +58,120 @@ function getPipelineTier(contentType: string): PipelineTier {
   return "standard";
 }
 
-function getPipelineSteps(tier: PipelineTier, contentType: string): { key: string; label: string }[] {
-  const includeReview = !SKIP_SELF_REVIEW_TYPES.has(contentType);
+function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { key: string; label: string }[] {
+  const typeLabel = CONTENT_TYPE_LABELS[interview.contentType]
+    ?? interview.contentTypeLabel
+    ?? interview.contentType;
+  const includeReview = !SKIP_SELF_REVIEW_TYPES.has(interview.contentType);
 
   switch (tier) {
     case "light":
       return [
-        { key: "planning", label: "Planning structure" },
-        { key: "drafting", label: "Writing draft" },
-        { key: "humanizing", label: "Final polish" },
+        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "drafting", label: `Writing your ${typeLabel}` },
+        { key: "humanizing", label: `Polishing your ${typeLabel}` },
       ];
     case "standard": {
       const steps = [
-        { key: "planning", label: "Planning structure" },
-        { key: "drafting", label: "Writing draft" },
-        { key: "humanizing", label: "Final polish" },
+        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "drafting", label: `Writing your ${typeLabel}` },
+        { key: "humanizing", label: `Polishing your ${typeLabel}` },
       ];
-      if (includeReview) steps.push({ key: "reviewing", label: "Self-review as the author" });
+      if (includeReview) steps.push({ key: "reviewing", label: "Re-reading as you" });
       return steps;
     }
     case "deep": {
       const steps = [
-        { key: "planning", label: "Planning structure" },
-        { key: "researching", label: "Assessing research needs" },
+        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "researching", label: "Researching your topic" },
         { key: "drafting_1", label: "Writing first draft" },
         { key: "proposing", label: "Studying draft — proposing variation" },
         { key: "drafting_2", label: "Writing second draft" },
         { key: "comparing", label: "Comparing drafts against your voice" },
         { key: "checking", label: "Checking word count & structure" },
-        { key: "humanizing", label: "Final polish" },
+        { key: "humanizing", label: `Polishing your ${typeLabel}` },
       ];
-      if (includeReview) steps.push({ key: "reviewing", label: "Self-review as the author" });
+      if (includeReview) steps.push({ key: "reviewing", label: "Re-reading as you" });
       return steps;
     }
+  }
+}
+
+// ── Inter-stage delays (rate-limit spacing + agentic UX) ─────────────────────
+
+interface TransitionConfig {
+  baseMs: number;
+  jitterMs: number;
+  messages: string[];
+}
+
+const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> = {
+  light: {},  // No delays — only 1 Opus call in the whole pipeline
+  standard: {
+    "planning->drafting": {
+      baseMs: 5000, jitterMs: 3000,
+      messages: [
+        "Reviewing your voice patterns…",
+        "Mapping structure to your style…",
+      ],
+    },
+    "drafting->humanizing": {
+      baseMs: 5000, jitterMs: 3000,
+      messages: [
+        "Reviewing draft for consistency…",
+        "Preparing final polish…",
+      ],
+    },
+  },
+  deep: {
+    "research->drafting_1": {
+      baseMs: 8000, jitterMs: 4000,
+      messages: [
+        "Reviewing your voice patterns…",
+        "Cross-referencing brief with style notes…",
+        "Preparing draft approach…",
+      ],
+    },
+    "proposing->drafting_2": {
+      baseMs: 10000, jitterMs: 4000,
+      messages: [
+        "Analyzing first draft structure…",
+        "Identifying areas for variation…",
+        "Setting up alternative direction…",
+      ],
+    },
+    "checking->humanizing": {
+      baseMs: 6000, jitterMs: 4000,
+      messages: [
+        "Reviewing draft for consistency…",
+        "Preparing final polish…",
+      ],
+    },
+  },
+};
+
+/**
+ * Deliberate delay between pipeline stages. Sends cycling sub-step messages
+ * via SSE so the UI feels agentic. Uses send() directly (not setStep) to
+ * avoid writing transient labels to the database.
+ */
+async function paceTransition(
+  tier: PipelineTier,
+  transitionKey: string,
+  nextStepKey: string,
+  send: (data: object) => void,
+  isAborted: () => boolean,
+): Promise<void> {
+  const config = TRANSITION_DELAYS[tier]?.[transitionKey];
+  if (!config) return;
+
+  const totalMs = config.baseMs + Math.floor(Math.random() * config.jitterMs);
+  const perMsg = Math.floor(totalMs / config.messages.length);
+
+  for (let i = 0; i < config.messages.length; i++) {
+    if (isAborted()) return;
+    send({ type: "step", step: nextStepKey, label: config.messages[i] });
+    await new Promise((r) => setTimeout(r, perMsg));
   }
 }
 
@@ -181,7 +263,10 @@ export async function GET(
   }
 
   const tier = getPipelineTier(interview.contentType);
-  const pipelineSteps = getPipelineSteps(tier, interview.contentType);
+  const pipelineSteps = getPipelineSteps(tier, interview);
+  const typeLabel = CONTENT_TYPE_LABELS[interview.contentType]
+    ?? interview.contentTypeLabel
+    ?? interview.contentType;
   const encoder = new TextEncoder();
   const abortController = new AbortController();
 
@@ -205,7 +290,7 @@ export async function GET(
         send({ type: "pipeline", steps: pipelineSteps, tier });
 
         // ── Plan ─────────────────────────────────────────────────────────
-        await setStep("planning", "Planning structure…");
+        await setStep("planning", `Planning your ${typeLabel}…`);
         const plan = await planContent(
           voiceProfile, interview, resolvedContext, sampleExamples, favoriteWords, authorContext
         );
@@ -214,7 +299,7 @@ export async function GET(
         // ── Research (deep tier only) ────────────────────────────────────
         let enrichedContext = resolvedContext;
         if (tier === "deep") {
-          await setStep("researching", "Assessing research needs…");
+          await setStep("researching", "Researching your topic…");
           try {
             const assessment = await assessResearchNeeds(plan, interview, resolvedContext);
             if (!isAborted() && assessment.needed && assessment.queries.length > 0) {
@@ -252,6 +337,10 @@ export async function GET(
         let selected: string;
 
         if (tier === "deep") {
+          // Pace before first Opus draft (research used Haiku/Sonnet, different rate pool)
+          await paceTransition(tier, "research->drafting_1", "drafting_1", send, isAborted);
+          if (isAborted()) { controller.close(); return; }
+
           // Draft 1 (full samples) → study it → propose 1 variation → draft 2 (fingerprint only)
           await setStep("drafting_1", "Writing first draft…");
           const draft1 = await draftContent(
@@ -259,12 +348,16 @@ export async function GET(
           );
           if (isAborted()) { controller.close(); return; }
 
-          // Propose variation: Opus reads draft 1 + voice profile and suggests
+          // Propose variation: Sonnet reads draft 1 + voice profile and suggests
           // 1 alternative creative direction specific to this author
           await setStep("proposing", "Studying draft — proposing variation…");
           const variation = await proposeDraftVariation(
             draft1, voiceProfile, interview, plan
           );
+          if (isAborted()) { controller.close(); return; }
+
+          // Pace before second Opus draft
+          await paceTransition(tier, "proposing->drafting_2", "drafting_2", send, isAborted);
           if (isAborted()) { controller.close(); return; }
 
           // Draft 2 uses condensed voice fingerprint (isFollowup=true) + reduced thinking budget
@@ -317,7 +410,11 @@ export async function GET(
           if (countNote) selected = `${selected}\n\n${countNote}`;
         } else {
           // Light and standard: single draft
-          await setStep("drafting", "Writing draft…");
+          // Pace before Opus draft call (spaces out from Opus plan call)
+          await paceTransition(tier, "planning->drafting", "drafting", send, isAborted);
+          if (isAborted()) { controller.close(); return; }
+
+          await setStep("drafting", `Writing your ${typeLabel}…`);
           selected = await draftContent(
             voiceProfile, interview, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
           );
@@ -325,7 +422,12 @@ export async function GET(
         }
 
         // ── Humanize (streams chunks to client) ──────────────────────────
-        await setStep("humanizing", "Final polish…");
+        // Pace before Opus humanize call
+        const humanizeTransition = tier === "deep" ? "checking->humanizing" : "drafting->humanizing";
+        await paceTransition(tier, humanizeTransition, "humanizing", send, isAborted);
+        if (isAborted()) { controller.close(); return; }
+
+        await setStep("humanizing", `Polishing your ${typeLabel}…`);
         const humanizedStream = await humanizeContent(
           selected, voiceProfile, HUMANIZER, interview.contentType
         );
@@ -346,7 +448,7 @@ export async function GET(
         // Skipped for light tier and business-medium types (blog, newsletter,
         // email, etc.) where the humanizer already handles AI-pattern removal
         if (!SKIP_SELF_REVIEW_TYPES.has(interview.contentType)) {
-          await setStep("reviewing", "Self-review as the author…");
+          await setStep("reviewing", "Re-reading as you…");
           try {
             const reviewed = await selfReviewDraft(
               finalContent, voiceProfile, interview, editingPrefs
