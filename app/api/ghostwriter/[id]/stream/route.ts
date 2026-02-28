@@ -466,7 +466,8 @@ export async function GET(
 
         await setStep("humanizing", `Polishing your ${typeLabel}…`);
         const humanizedStream = await humanizeContent(
-          selected, voiceProfile, HUMANIZER, interview.contentType
+          selected, voiceProfile, HUMANIZER, interview.contentType,
+          sampleExamples, favoriteWords, authorContext
         );
 
         let finalContent = "";

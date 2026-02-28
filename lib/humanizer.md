@@ -386,16 +386,6 @@ Avoiding AI patterns is only half the job. Sterile, voiceless writing is just as
 8. Prompt: "Now make it not obviously AI generated."
 9. Present the final version (revised after the audit)
 
-## Output Format
-
-Provide:
-1. Draft rewrite
-2. "What makes the below so obviously AI generated?" (brief bullets)
-3. Final rewrite
-4. A brief summary of changes made (optional, if helpful)
-
----
-
 ## Full Example
 
 **Before (AI-sounding):**

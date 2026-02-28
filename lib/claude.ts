@@ -1007,8 +1007,41 @@ export async function humanizeContent(
   draft: string,
   voiceProfile: VoiceAnalysis,
   humanizerInstructions: string,
-  contentType: string = "blog"
+  contentType: string = "blog",
+  sampleExamples?: { content: string; category: string }[],
+  favoriteWords?: { word: string; definition: string }[],
+  authorContext?: string
 ): Promise<ReadableStream<Uint8Array>> {
+  // Build voice context so the humanizer knows what the author sounds like —
+  // without this, it strips AI patterns but replaces them with generic prose
+  const typeLabel = CONTENT_TYPE_LABELS[contentType] ?? contentType;
+
+  const guidelines = voiceProfile.contentGuidelines?.[contentType];
+  const guidelinesBlock = guidelines?.length
+    ? `\n## Format-Specific Guidelines (${typeLabel})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
+    : "";
+
+  const categoryInsight = voiceProfile.categoryInsights?.[contentType];
+  const categoryInsightBlock = categoryInsight
+    ? `\n## How This Author Writes ${typeLabel}\n${categoryInsight}\n`
+    : "";
+
+  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+
+  // Use condensed fingerprint (excerpts) — the humanizer needs to hear the
+  // author's voice to know what to replace AI patterns WITH
+  const fingerprintBlock = sampleExamples?.length
+    ? buildVoiceFingerprint(sampleExamples)
+    : "";
+
+  const favoriteWordsBlock = favoriteWords?.length
+    ? `\n## Author's Favorite Words (use naturally when they fit — never force)\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}\n`
+    : "";
+
+  const authorContextBlock = authorContext?.trim()
+    ? `\n## Author Background\n${authorContext.trim()}\n`
+    : "";
+
   // Use structured system prompt with cache_control on the stable humanizer instructions
   const systemPrompt = [
     {
@@ -1022,13 +1055,24 @@ export async function humanizeContent(
 
 IMPORTANT OVERRIDE FOR THIS SESSION: You are preparing text for final publication. Work through the complete humanization process in your extended thinking — identify AI patterns, draft a rewrite, self-audit ("what still makes this obviously AI generated?"), revise. Then output ONLY the final humanized piece. No section headers, no audit bullets, no process notes, no summary of changes. Just the finished text.
 
-Also maintain this specific author's voice throughout:
-- Their style: ${voiceProfile.rawSummary}
-- Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}`,
+CRITICAL: When you remove AI patterns, replace them with THIS AUTHOR'S patterns — not with generic prose. The goal is writing that sounds like the author wrote it, not writing that sounds like nobody wrote it. Study the voice excerpts and profile below to understand how this person actually writes.
+
+## Author Voice Profile
+**Tone:** ${voiceProfile.tone}
+**Sentence Structure:** ${voiceProfile.sentenceStructure}
+**Vocabulary Style:** ${voiceProfile.vocabularyStyle}
+**Punctuation Habits:** ${voiceProfile.punctuationHabits}
+**Paragraph Style:** ${voiceProfile.paragraphStyle}
+**Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
+**Recurring Patterns:**
+${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
+**Things to Avoid (this author never does these):**
+${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
+${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}`,
     },
   ];
 
-  const userPrompt = `Humanize the following piece:\n\n${draft}`;
+  const userPrompt = `Humanize the following ${typeLabel}. Remove AI patterns and make it sound like the author wrote it — use their voice, their rhythm, their habits from the profile and excerpts above.\n\n${draft}`;
 
   const { humanize: humanizeBudget } = getStageBudgets(contentType);
 
