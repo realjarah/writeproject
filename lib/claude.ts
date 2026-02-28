@@ -41,7 +41,7 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
 
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 8000,
+    max_tokens: 10000,
     messages: [
       {
         role: "user",
@@ -63,12 +63,16 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
   "contentGuidelines": {
     "[contentType]": ["6–8 specific, actionable guidelines bridging THIS author's voice with that format's conventions. Each must be specific to this author's actual patterns—not generic writing advice. A ghostwriter must be able to apply each one immediately."]
+  },
+  "topicInsights": {
+    "[broad topic]": "How this author specifically approaches this subject area — recurring angles, framing, terminology, emotional register, and argumentative patterns they use when writing about this topic, regardless of format."
   }
 }
 
 Rules:
 - Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
-- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.`,
+- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.
+- topicInsights: Identify recurring subject areas / themes across samples. Use BROAD topic labels (e.g. "health & fitness" not "testosterone", "AI & technology" not "ChatGPT", "leadership & management" not "remote work"). Include topics that appear in 2+ samples across ANY format. For each, describe the author's specific angle, framing, and voice when writing about that subject. Omit the field entirely if no recurring topics are detected.`,
       },
     ],
   });
@@ -600,6 +604,21 @@ Be specific and factual. Reference sources inline (e.g. "According to [Source], 
   return "Research could not be completed.";
 }
 
+// ── Topic insights helper ────────────────────────────────────────────────────
+
+/**
+ * Build a prompt block containing all topic insights from the voice profile.
+ * All topics are included — the model decides which are relevant to the current piece.
+ */
+function buildTopicInsightsBlock(voiceProfile: VoiceAnalysis): string {
+  const topics = voiceProfile.topicInsights;
+  if (!topics || Object.keys(topics).length === 0) return "";
+  const lines = Object.entries(topics).map(
+    ([topic, insight]) => `- **${topic}:** ${insight}`
+  );
+  return `\n**How this author approaches familiar topics (use any that are relevant):**\n${lines.join("\n")}\n`;
+}
+
 // ── Multi-stage pipeline ─────────────────────────────────────────────────────
 
 /** Resolves the human-readable content type label.
@@ -645,6 +664,8 @@ export async function planContent(
     ? `\n**How this author's voice shows up in ${resolveTypeLabel(interview)}:** ${categoryInsight}\n`
     : "";
 
+  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+
   const examplesBlock = sampleExamples?.length
     ? `\n**Author's Actual Writing (study before planning — match this voice exactly):**\n${
         sampleExamples
@@ -668,7 +689,7 @@ export async function planContent(
   const voicePlanBlock = `You are about to ghost-write a ${resolveTypeLabel(interview)}.
 ${examplesBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
-${authorContextBlock}${categoryInsightBlock}${guidelinesBlock}${favoriteWordsBlock}`;
+${authorContextBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}`;
 
   const systemPrompt = [
     { type: "text", text: voicePlanBlock, cache_control: { type: "ephemeral" } },
@@ -755,6 +776,8 @@ export async function draftContent(
     ? `\n## How This Author Writes ${resolveTypeLabel(interview)}\n${categoryInsight}\n`
     : "";
 
+  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+
   // Full samples for first draft, condensed fingerprint for follow-up drafts
   const examplesSection = sampleExamples?.length
     ? isFollowup
@@ -787,7 +810,7 @@ export async function draftContent(
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid:**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${examplesSection}${categoryInsightBlock}${guidelinesBlock}`;
+${examplesSection}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}`;
 
   const rulesBlock = `## Forbidden AI Writing Patterns (never use — these are instant giveaways)
 - Opener clichés: "In today's fast-paced world", "In the digital age", "It goes without saying", "In an era where"
@@ -1041,52 +1064,103 @@ Also maintain this specific author's voice throughout:
 
 /**
  * Re-read the draft as the author, check voice fidelity and brief adherence,
- * and make targeted surgical improvements. Optionally applies the user's own
- * editing habits captured during onboarding.
+ * and make targeted surgical improvements. Has access to the same context as
+ * the drafting stage so it can verify the piece uses the provided material.
  */
 export async function selfReviewDraft(
   draft: string,
   voiceProfile: VoiceAnalysis,
   interview: InterviewAnswers,
-  editingPreferences?: string
+  editingPreferences?: string,
+  context?: GenerationContext,
+  sampleExamples?: { content: string; category: string }[],
+  favoriteWords?: { word: string; definition: string }[],
+  authorContext?: string
 ): Promise<string> {
   const editingBlock = editingPreferences?.trim()
     ? `\n## Author's Editing Habits\nWhen this author re-reads their own writing, they typically: ${editingPreferences.trim()}\nApply these same editorial instincts to this draft.\n`
     : "";
 
+  const guidelines = voiceProfile.contentGuidelines?.[interview.contentType];
+  const guidelinesBlock = guidelines?.length
+    ? `\n## Format-Specific Guidelines (${resolveTypeLabel(interview)})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
+    : "";
+
+  const categoryInsight = voiceProfile.categoryInsights?.[interview.contentType];
+  const categoryInsightBlock = categoryInsight
+    ? `\n## How This Author Writes ${resolveTypeLabel(interview)}\n${categoryInsight}\n`
+    : "";
+
+  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+
+  // Use condensed voice fingerprint for self-review (enough to verify voice fidelity)
+  const samplesBlock = sampleExamples?.length
+    ? buildVoiceFingerprint(sampleExamples)
+    : "";
+
+  const favoriteWordsBlock = favoriteWords?.length
+    ? `\n## Author's Favorite Words\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}\n`
+    : "";
+
+  const authorContextBlock = authorContext?.trim()
+    ? `\n## Author Background\n${authorContext.trim()}\n`
+    : "";
+
+  const contextBlock = context ? buildContextBlock(context) : "";
+  const binaryBlocks = context ? buildBinaryBlocks(context) : [];
+  const betaHeaders = getBetaHeaders(binaryBlocks);
+
   const systemPrompt = `You are the author's internal editor — the voice in their head that re-reads a draft and makes it better. You know their style intimately.
 
-Author's voice: ${voiceProfile.rawSummary}
-Things this author never does: ${voiceProfile.thingsToAvoid.join("; ")}
-${editingBlock}
+## Author Voice Profile
+**Voice:** ${voiceProfile.rawSummary}
+**Tone:** ${voiceProfile.tone}
+**Sentence Structure:** ${voiceProfile.sentenceStructure}
+**Vocabulary:** ${voiceProfile.vocabularyStyle}
+**Things to Avoid:** ${voiceProfile.thingsToAvoid.join("; ")}
+${samplesBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
 Your job:
 1. Re-read the draft as if you were the author
 2. Check: Does this sound like me? Did it cover what I wanted? Is anything weak, vague, or off-brand?
 3. Check: Are there any remaining AI-isms — hollow hedges, filler transitions, generic conclusions, over-structured formatting?
-4. Make targeted fixes — tighten sentences, sharpen the argument, fix anything that sounds off-voice or like AI
-5. Do NOT rewrite from scratch. Make surgical improvements only.
-6. If the draft is already strong, return it with minimal changes.
+4. Check: Did the draft properly use the supporting context provided? Are specific details, data, or references from the context woven in where relevant?
+5. Make targeted fixes — tighten sentences, sharpen the argument, fix anything that sounds off-voice or like AI
+6. Do NOT rewrite from scratch. Make surgical improvements only.
+7. If the draft is already strong, return it with minimal changes.
 
 Output ONLY the improved draft. No commentary, no preamble, no list of changes.`;
 
   const userPrompt = `Original brief:
-- Topic: ${interview.topic}
-- Angle: ${interview.angle}
-- Key points: ${interview.keyPoints}
-- Audience: ${interview.targetAudience || "the author's usual audience"}
-
+- Topic: ${sanitizeUserInput(interview.topic)}
+- Angle: ${sanitizeUserInput(interview.angle)}
+- Key points: ${sanitizeUserInput(interview.keyPoints)}
+- Audience: ${interview.targetAudience ? sanitizeUserInput(interview.targetAudience) : "the author's usual audience"}
+${contextBlock}
 Draft to review:
 
 ${draft}`;
 
   const { humanize: budget } = getStageBudgets(interview.contentType);
 
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: budget.maxTokens,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  const messageContent =
+    binaryBlocks.length > 0
+      ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
+      : userPrompt;
+
+  const reqOptions = Object.keys(betaHeaders).length > 0
+    ? { headers: betaHeaders }
+    : {};
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await (anthropic.messages.create as any)(
+    {
+      model: "claude-sonnet-4-6",
+      max_tokens: budget.maxTokens,
+      system: systemPrompt,
+      messages: [{ role: "user", content: messageContent }],
+    },
+    reqOptions
+  );
 
   return extractText(res.content) || draft;
 }

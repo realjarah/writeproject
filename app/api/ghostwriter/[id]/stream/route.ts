@@ -488,7 +488,8 @@ export async function GET(
           await setStep("reviewing", "Re-reading as you…");
           try {
             const reviewed = await selfReviewDraft(
-              finalContent, voiceProfile, interview, editingPrefs
+              finalContent, voiceProfile, interview, editingPrefs,
+              enrichedContext, sampleExamples, favoriteWords, authorContext
             );
             if (reviewed && reviewed.trim()) {
               finalContent = reviewed;
