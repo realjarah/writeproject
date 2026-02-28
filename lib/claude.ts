@@ -63,14 +63,9 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
       ? `\nNote: samples span multiple formats (${categories.join(", ")}). Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats.\n`
       : "";
 
-  // Opus: voice analysis is the foundation — quality here determines everything downstream
-  const message = await getAnthropic().messages.create({
-    model: "claude-opus-4-6",
-    max_tokens: 10000,
-    messages: [
-      {
-        role: "user",
-        content: `You are a writing style analyst. Analyze the following writing samples from a single author and extract a detailed voice profile that could be used to ghost-write in their exact style.
+  const systemPrompt = `You are a writing style analyst. Your job is to deeply analyze writing samples from a single author and extract a comprehensive voice profile that a ghostwriter could use to write indistinguishably as this person. Take your time. Read every sample multiple times. Notice patterns across samples, not just within them.`;
+
+  const userPrompt = `Analyze the following writing samples from a single author and extract a detailed voice profile that could be used to ghost-write in their exact style.
 ${categorySection}
 ${samplesText}
 
@@ -97,13 +92,22 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 Rules:
 - Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
 - Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.
-- topicInsights: Identify recurring subject areas / themes across samples. Use BROAD topic labels (e.g. "health & fitness" not "testosterone", "AI & technology" not "ChatGPT", "leadership & management" not "remote work"). Include topics that appear in 2+ samples across ANY format. For each, describe the author's specific angle, framing, and voice when writing about that subject. Omit the field entirely if no recurring topics are detected.`,
-      },
+- topicInsights: Identify recurring subject areas / themes across samples. Use BROAD topic labels (e.g. "health & fitness" not "testosterone", "AI & technology" not "ChatGPT", "leadership & management" not "remote work"). Include topics that appear in 2+ samples across ANY format. For each, describe the author's specific angle, framing, and voice when writing about that subject. Omit the field entirely if no recurring topics are detected.`;
+
+  // Grok 4.1 reasoning: 2M context window lets us feed ALL samples at once
+  // without truncation. High reasoning budget lets it deeply analyze patterns
+  // across the full corpus. This is the foundation — everything downstream
+  // depends on voice profile quality.
+  const res = await getXai().chat.completions.create({
+    model: XAI_WRITING_MODEL,
+    max_tokens: 16000,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
     ],
   });
 
-  const raw =
-    message.content[0].type === "text" ? message.content[0].text : "";
+  const raw = res.choices[0].message.content ?? "";
   // Strip markdown code fences if the model wraps the JSON despite instructions
   const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   return JSON.parse(text) as VoiceAnalysis;
@@ -381,108 +385,6 @@ function buildGrokImageBlocks(
     // Grok's Files API requires a separate upload flow — not supported here yet.
   }
   return blocks;
-}
-
-export async function generateContent(
-  voiceProfile: VoiceAnalysis,
-  interview: InterviewAnswers,
-  context?: GenerationContext
-): Promise<ReadableStream<Uint8Array>> {
-  const contentTypeLabels: Record<string, string> = {
-    blog: "a blog post / article",
-    social: "a social media post (e.g. Twitter/X or LinkedIn)",
-    caption: "a short caption (e.g. Instagram or TikTok)",
-  };
-
-  const wordGuidance: Record<string, string> = {
-    blog: interview.wordCountTarget
-      ? `Target length: ${interview.wordCountTarget} words.`
-      : "Aim for 600-1200 words unless the topic calls for more or less.",
-    social:
-      "Keep it punchy — typically 50-280 characters for Twitter/X, or 150-300 words for LinkedIn. Match the platform feel.",
-    caption:
-      "Short and punchy — 1 to 4 sentences max. Can include relevant hashtags if the author's samples suggest they use them.",
-  };
-
-  const systemPrompt = `You are a ghost-writer. Your ONLY job is to write ${contentTypeLabels[interview.contentType]} that sounds EXACTLY like the author described below. You must not reveal you are an AI, not add disclaimers, and not deviate from their voice under any circumstances.
-
-## Author Voice Profile
-
-**Tone:** ${voiceProfile.tone}
-
-**Sentence Structure:** ${voiceProfile.sentenceStructure}
-
-**Vocabulary Style:** ${voiceProfile.vocabularyStyle}
-
-**Punctuation Habits:** ${voiceProfile.punctuationHabits}
-
-**Paragraph Style:** ${voiceProfile.paragraphStyle}
-
-**Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
-
-**Recurring Patterns:**
-${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
-
-**Things to Avoid (not part of their voice):**
-${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-
-**Style Summary:** ${voiceProfile.rawSummary}
-
-## Output Rules
-- Write ONLY the finished piece. No preamble, no "Here's your post:", no meta-commentary.
-- ${wordGuidance[interview.contentType]}
-- Sound like a real human wrote this — their human.`;
-
-  const contextBlock = context ? buildContextBlock(context) : "";
-  const binaryBlocks = context ? buildBinaryBlocks(context) : [];
-  const betaHeaders = getBetaHeaders(binaryBlocks);
-
-  const userPrompt = `Write ${contentTypeLabels[interview.contentType]} using the following brief:
-
-**Topic:** ${sanitizeUserInput(interview.topic)}
-**Angle / Point of View:** ${sanitizeUserInput(interview.angle)}
-**Key Points to Cover:** ${sanitizeUserInput(interview.keyPoints)}
-**Sources / Data to Reference:** ${
-    interview.sourcesOrData ? sanitizeUserInput(interview.sourcesOrData) : "None provided — draw on general knowledge."
-  }
-**Target Audience:** ${interview.targetAudience ? sanitizeUserInput(interview.targetAudience) : "The author's usual audience."}
-**Extra Tone Notes:** ${interview.toneNotes ? sanitizeUserInput(interview.toneNotes) : "None."}
-${contextBlock}
-Write it now.`;
-
-  const messageContent =
-    binaryBlocks.length > 0
-      ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
-      : userPrompt;
-
-  const streamOptions = Object.keys(betaHeaders).length > 0
-    ? { headers: betaHeaders }
-    : {};
-
-  const stream = await getAnthropic().messages.stream(
-    {
-      model: "claude-opus-4-6",
-      max_tokens: 4096,
-      system: systemPrompt,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      messages: [{ role: "user", content: messageContent as any }],
-    },
-    streamOptions
-  );
-
-  return new ReadableStream({
-    async start(controller) {
-      for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
-        }
-      }
-      controller.close();
-    },
-  });
 }
 
 // ── Stage budgets (scales with format complexity / output length) ─────────────
@@ -1337,13 +1239,15 @@ Does this plan need web research before drafting?`,
 /**
  * Apply specific feedback to a finished draft.
  * Only makes the changes described — does not rewrite anything else.
+ * Returns the revised text (non-streaming) so callers can pipe it
+ * through the humanizer before presenting to the user.
  */
 export async function reviseDraft(
   draft: string,
   feedback: string,
   voiceProfile: VoiceAnalysis,
   contentType: string = "blog"
-): Promise<ReadableStream<Uint8Array>> {
+): Promise<string> {
   const { humanize: budget } = getStageBudgets(contentType);
 
   const systemPrompt = `Apply ONLY the changes described in the feedback. Touch nothing else. Do not rewrite, restructure, or "improve" anything the feedback does not mention. Preserve the author's voice, phrasing, and formatting exactly as-is for everything not covered.
@@ -1357,25 +1261,16 @@ Output the complete revised draft. Nothing else.`;
 
   const userPrompt = `Draft:\n\n${draft}\n\n---\n\nFeedback (apply these changes only):\n${feedback}\n\nRevised draft:`;
 
-  // Gemini Flash: surgical revision with streaming
-  const stream = await getGemini().models.generateContentStream({
+  // Gemini Flash: surgical revision (collected, not streamed —
+  // the output goes through the humanizer before reaching the client)
+  const result = await getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
-    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+    contents: userPrompt,
     config: {
       systemInstruction: systemPrompt,
       maxOutputTokens: budget.maxTokens,
     },
   });
 
-  return new ReadableStream({
-    async start(controller) {
-      for await (const chunk of stream) {
-        const text = chunk.text;
-        if (text) {
-          controller.enqueue(new TextEncoder().encode(text));
-        }
-      }
-      controller.close();
-    },
-  });
+  return result.text ?? draft;
 }

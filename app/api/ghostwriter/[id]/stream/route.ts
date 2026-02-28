@@ -315,6 +315,24 @@ export async function GET(
 
       const isAborted = () => abortController.signal.aborted;
 
+      // Safety net: if the pipeline hasn't finished 30s before the hard
+      // timeout, mark the job as errored so it doesn't get stuck forever.
+      const SAFETY_MARGIN_MS = 30_000;
+      const timeoutMs = (maxDuration * 1000) - SAFETY_MARGIN_MS;
+      const timeoutTimer = setTimeout(async () => {
+        if (!abortController.signal.aborted) {
+          abortController.abort();
+          try {
+            await prisma.ghostwriterJob.update({
+              where: { id: jobId },
+              data: { status: "error", errorMsg: "Pipeline timed out. Try a shorter piece or simpler content type." },
+            });
+          } catch { /* best-effort */ }
+          send({ type: "error", message: "Pipeline timed out. Try a shorter piece or simpler content type." });
+          controller.close();
+        }
+      }, timeoutMs);
+
       try {
         // Send pipeline configuration to client
         send({ type: "pipeline", steps: pipelineSteps, tier });
@@ -549,7 +567,7 @@ export async function GET(
           .catch(console.error);
         send({ type: "error", message: "Ghostwriting failed. Please try again." });
       } finally {
-        // No file cleanup needed — binary content is inline base64, not uploaded.
+        clearTimeout(timeoutTimer);
       }
 
       controller.close();
