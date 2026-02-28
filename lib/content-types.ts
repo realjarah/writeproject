@@ -58,6 +58,8 @@ export interface ContextItem {
   // Binary files (images, PDFs) — base64-encoded, no data: prefix
   data?: string;
   mediaType?: string;
+  // Files API — set after uploadContextFiles resolves binary items
+  fileId?: string;
   instructions?: string;
 }
 

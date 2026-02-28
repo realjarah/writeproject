@@ -15,6 +15,8 @@ import {
   conductResearch,
   assessResearchNeeds,
   selfReviewDraft,
+  uploadContextFiles,
+  deleteUploadedFiles,
   InterviewAnswers,
   VoiceAnalysis,
   GenerationContext,
@@ -164,7 +166,13 @@ export async function GET(
     signatureContent?: string;
   };
   const { interview, context: rawContext, signatureContent } = briefData;
-  const resolvedContext = rawContext ? await resolveContext(rawContext) : undefined;
+  let resolvedContext = rawContext ? await resolveContext(rawContext) : undefined;
+
+  // Upload binary context items (PDFs, images) to the Files API once.
+  // They'll be referenced by file_id in all subsequent pipeline calls.
+  if (resolvedContext) {
+    resolvedContext = await uploadContextFiles(resolvedContext);
+  }
 
   const tier = getPipelineTier(interview.contentType);
   const pipelineSteps = getPipelineSteps(tier);
@@ -384,6 +392,11 @@ export async function GET(
           .update({ where: { id: jobId }, data: { status: "error", errorMsg: msg } })
           .catch(console.error);
         send({ type: "error", message: "Ghostwriting failed. Please try again." });
+      } finally {
+        // Clean up uploaded files from the Files API
+        if (resolvedContext) {
+          deleteUploadedFiles(resolvedContext).catch(() => {});
+        }
       }
 
       controller.close();

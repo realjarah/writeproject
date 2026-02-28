@@ -106,6 +106,73 @@ const WORD_GUIDANCE: Record<string, string> = {
   script:        "Label speakers or segments clearly. Write for spoken delivery. Conversational but structured. Include stage directions if helpful.",
 };
 
+// ── Files API helpers ────────────────────────────────────────────────────────
+
+const FILES_API_BETA = "files-api-2025-04-14";
+
+/**
+ * Upload a single file to the Anthropic Files API.
+ * Returns a file_id that can be referenced in subsequent Messages API calls.
+ */
+export async function uploadFile(
+  data: Buffer,
+  fileName: string,
+  mediaType: string
+): Promise<string> {
+  // Convert Buffer to Uint8Array copy for Blob constructor compatibility
+  const bytes = new Uint8Array(data);
+  const blob = new Blob([bytes as BlobPart], { type: mediaType });
+  const file = new File([blob], fileName, { type: mediaType });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const uploaded = await (anthropic.beta as any).files.upload({ file });
+  return uploaded.id;
+}
+
+/**
+ * Upload all binary context items (PDFs, images) to the Files API once.
+ * Mutates items in-place: sets `fileId` and clears `data` to free memory.
+ * Items that fail to upload keep their base64 data as fallback.
+ */
+export async function uploadContextFiles(
+  context: GenerationContext
+): Promise<GenerationContext> {
+  const items = await Promise.all(
+    context.items.map(async (item): Promise<ContextItem> => {
+      if (!item.data || !item.mediaType) return item;
+      // Already uploaded
+      if (item.fileId) return item;
+
+      try {
+        const buf = Buffer.from(item.data, "base64");
+        const name = item.fileName || `file.${item.mediaType.split("/")[1] || "bin"}`;
+        const fileId = await uploadFile(buf, name, item.mediaType);
+        // Clear base64 data to free memory; keep fileId for all subsequent calls
+        return { ...item, fileId, data: undefined };
+      } catch {
+        // Upload failed — keep base64 data as fallback
+        return item;
+      }
+    })
+  );
+  return { items };
+}
+
+/**
+ * Delete uploaded files from the Files API.
+ * Called at the end of a pipeline run to clean up.
+ */
+export async function deleteUploadedFiles(context: GenerationContext): Promise<void> {
+  for (const item of context.items) {
+    if (!item.fileId) continue;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (anthropic.beta as any).files.delete(item.fileId);
+    } catch {
+      // Best-effort cleanup
+    }
+  }
+}
+
 // ── Context helpers ──────────────────────────────────────────────────────────
 
 // Builds the text portion of the context block.
@@ -125,11 +192,11 @@ function buildContextBlock(context: GenerationContext): string {
       } else {
         lines.push("(Content at this URL could not be retrieved.)");
       }
-    } else if (item.data && item.mediaType) {
-      // Binary file — content delivered as a separate message block
+    } else if (item.fileId || (item.data && item.mediaType)) {
+      // Binary file — content delivered as a separate message block (via file_id or base64)
       const kind = item.mediaType === "application/pdf"
         ? "PDF document"
-        : item.mediaType.startsWith("image/") ? "Image" : "File";
+        : item.mediaType?.startsWith("image/") ? "Image" : "File";
       lines.push(`--- Context ${i + 1}: [${tag}] ${kind}${item.fileName ? ` — ${item.fileName}` : ""} (attached below) ---`);
     } else if (item.fileName && item.text !== undefined) {
       // Text-based file
@@ -162,12 +229,44 @@ function buildContextBlock(context: GenerationContext): string {
   return `\n**Supporting Context:**\n${parts.join("\n\n")}\n`;
 }
 
+// Determines which beta headers are needed for a set of binary blocks.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getBetaHeaders(binaryBlocks: any[]): Record<string, string> {
+  const betas: string[] = [];
+  const hasFileRefs = binaryBlocks.some((b) => b.source?.type === "file");
+  const hasBase64PDFs = binaryBlocks.some(
+    (b) => b.type === "document" && b.source?.type === "base64"
+  );
+  if (hasFileRefs) betas.push(FILES_API_BETA);
+  if (hasBase64PDFs) betas.push("pdfs-2024-09-25");
+  if (betas.length === 0) return {};
+  return { "anthropic-beta": betas.join(",") };
+}
+
 // Returns Anthropic content blocks for binary context items (images + PDFs).
+// Prefers file_id references (Files API) over base64 inline data.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildBinaryBlocks(context: GenerationContext): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [];
   for (const item of context.items) {
+    // Prefer file_id (Files API) over base64
+    if (item.fileId && item.mediaType) {
+      if (item.mediaType.startsWith("image/")) {
+        blocks.push({
+          type: "image",
+          source: { type: "file", file_id: item.fileId },
+        });
+      } else if (item.mediaType === "application/pdf") {
+        blocks.push({
+          type: "document",
+          source: { type: "file", file_id: item.fileId },
+          ...(item.fileName ? { title: item.fileName } : {}),
+        });
+      }
+      continue;
+    }
+    // Fallback: base64 inline
     if (!item.data || !item.mediaType) continue;
     if (item.mediaType.startsWith("image/")) {
       blocks.push({
@@ -237,7 +336,7 @@ ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
-  const hasPDFs = binaryBlocks.some((b) => b.type === "document");
+  const betaHeaders = getBetaHeaders(binaryBlocks);
 
   const userPrompt = `Write ${contentTypeLabels[interview.contentType]} using the following brief:
 
@@ -252,15 +351,13 @@ ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 ${contextBlock}
 Write it now.`;
 
-  // Use multipart content when binary attachments (images/PDFs) are present.
-  // PDFs require the anthropic-beta header.
   const messageContent =
     binaryBlocks.length > 0
       ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
       : userPrompt;
 
-  const streamOptions = hasPDFs
-    ? { headers: { "anthropic-beta": "pdfs-2024-09-25" } }
+  const streamOptions = Object.keys(betaHeaders).length > 0
+    ? { headers: betaHeaders }
     : {};
 
   const stream = await anthropic.messages.stream(
@@ -439,7 +536,7 @@ export async function planContent(
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
-  const hasPDFs = binaryBlocks.some((b) => b.type === "document");
+  const betaHeaders = getBetaHeaders(binaryBlocks);
 
   const guidelines = voiceProfile.contentGuidelines?.[interview.contentType];
   const guidelinesBlock = guidelines?.length
@@ -497,8 +594,8 @@ Return ONLY the plan. Do not write the piece yet.`;
       ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
       : userPrompt;
 
-  const reqOptions = hasPDFs
-    ? { headers: { "anthropic-beta": "pdfs-2024-09-25" } }
+  const reqOptions = Object.keys(betaHeaders).length > 0
+    ? { headers: betaHeaders }
     : {};
 
   const { plan: planBudget } = getStageBudgets(interview.contentType);
@@ -532,7 +629,7 @@ export async function draftContent(
 ): Promise<string> {
   const contextBlock = context ? buildContextBlock(context) : "";
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
-  const hasPDFs = binaryBlocks.some((b) => b.type === "document");
+  const betaHeaders = getBetaHeaders(binaryBlocks);
 
   const guidelines = voiceProfile.contentGuidelines?.[interview.contentType];
   const guidelinesBlock = guidelines?.length
@@ -607,8 +704,8 @@ Write the piece now.`;
       ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
       : userPrompt;
 
-  const reqOptions = hasPDFs
-    ? { headers: { "anthropic-beta": "pdfs-2024-09-25" } }
+  const reqOptions = Object.keys(betaHeaders).length > 0
+    ? { headers: betaHeaders }
     : {};
 
   const { draft: draftBudget } = getStageBudgets(interview.contentType);
