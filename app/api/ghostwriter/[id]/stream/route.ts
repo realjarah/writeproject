@@ -259,7 +259,39 @@ export async function GET(
     signatureContent?: string;
   };
   const { interview, context: rawContext, signatureContent } = briefData;
-  let resolvedContext = rawContext ? await resolveContext(rawContext) : undefined;
+
+  // Validate interview has required fields
+  if (!interview?.contentType || !interview?.topic || !interview?.angle || !interview?.keyPoints) {
+    await prisma.ghostwriterJob.update({
+      where: { id: jobId },
+      data: { status: "error", errorMsg: "Malformed brief — missing required interview fields." },
+    });
+    return new Response(
+      JSON.stringify({ error: "Malformed brief data." }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  // Normalize context: ensure items is a valid array, filter out malformed items
+  let normalizedContext: GenerationContext | undefined;
+  if (rawContext && Array.isArray(rawContext.items) && rawContext.items.length > 0) {
+    const validTags = new Set(["data", "example", "research", "reference", "note"]);
+    const validItems = rawContext.items.filter((item: ContextItem) => {
+      if (!item.tag || !validTags.has(item.tag)) {
+        console.warn(`[stream] Dropping context item with invalid tag: ${JSON.stringify(item.tag)}`);
+        return false;
+      }
+      // Must have at least one content source
+      const hasContent = item.url || item.text !== undefined || item.data || item.fileName;
+      if (!hasContent) {
+        console.warn(`[stream] Dropping context item with no content source (tag: ${item.tag})`);
+        return false;
+      }
+      return true;
+    });
+    normalizedContext = validItems.length > 0 ? { items: validItems } : undefined;
+  }
+  let resolvedContext = normalizedContext ? await resolveContext(normalizedContext) : undefined;
 
   // Upload binary context items (PDFs, images) to the Files API once.
   // They'll be referenced by file_id in all subsequent pipeline calls.

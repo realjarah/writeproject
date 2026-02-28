@@ -125,6 +125,9 @@ export async function uploadFile(
   const file = new File([blob], fileName, { type: mediaType });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const uploaded = await (anthropic.beta as any).files.upload({ file });
+  if (!uploaded?.id) {
+    throw new Error(`Files API returned no id for ${fileName}`);
+  }
   return uploaded.id;
 }
 
@@ -148,7 +151,8 @@ export async function uploadContextFiles(
         const fileId = await uploadFile(buf, name, item.mediaType);
         // Clear base64 data to free memory; keep fileId for all subsequent calls
         return { ...item, fileId, data: undefined };
-      } catch {
+      } catch (err) {
+        console.error(`[uploadContextFiles] Failed to upload ${item.fileName ?? "file"}:`, err);
         // Upload failed — keep base64 data as fallback
         return item;
       }
@@ -173,13 +177,44 @@ export async function deleteUploadedFiles(context: GenerationContext): Promise<v
   }
 }
 
+// ── Input sanitization ──────────────────────────────────────────────────────
+
+/**
+ * Sanitize user-provided text before embedding it in prompts.
+ * Strips characters / sequences that could be used for prompt injection
+ * while preserving legitimate content.
+ */
+function sanitizeUserInput(text: string): string {
+  return text
+    // Strip XML-like tags that could mimic system/assistant role markers
+    .replace(/<\/?(?:system|assistant|human|user|instructions?|prompt|tool_use|tool_result|function_call|antml:)[^>]*>/gi, "")
+    // Strip markdown-style system directives
+    .replace(/^#{1,6}\s*(?:SYSTEM|INSTRUCTIONS?|OVERRIDE|IGNORE)\b.*$/gim, "")
+    .trim();
+}
+
+// ── Context size limits ──────────────────────────────────────────────────────
+// Generous limits — the whole point of Opus is handling lots of good context.
+// These exist to prevent truly pathological inputs from blowing the context window.
+
+/** Max characters per individual text context item (~50k words ≈ ~65k tokens) */
+const MAX_ITEM_CHARS = 200_000;
+/** Max total characters across all text context items (~150k words ≈ ~200k tokens) */
+const MAX_TOTAL_CONTEXT_CHARS = 600_000;
+
+function truncateIfNeeded(text: string, maxChars: number, label: string): string {
+  if (text.length <= maxChars) return text;
+  console.warn(`[context] Truncating ${label} from ${text.length} to ${maxChars} chars`);
+  return text.slice(0, maxChars) + `\n\n[… truncated — original was ${text.length} characters]`;
+}
+
 // ── Context helpers ──────────────────────────────────────────────────────────
 
 // Builds the text portion of the context block.
 // Binary items (images/PDFs) are referenced by name only;
 // their actual content goes in separate message content blocks.
 function buildContextBlock(context: GenerationContext): string {
-  if (context.items.length === 0) return "";
+  if (!context?.items?.length) return "";
 
   const parts = context.items.map((item, i) => {
     const tag = item.tag.toUpperCase();
@@ -188,7 +223,10 @@ function buildContextBlock(context: GenerationContext): string {
     if (item.url) {
       lines.push(`--- Context ${i + 1}: [${tag}] ${item.url} ---`);
       if (item.fetchedText) {
-        lines.push(item.fetchedText.trim());
+        lines.push(truncateIfNeeded(item.fetchedText.trim(), MAX_ITEM_CHARS, `URL context ${i + 1}`));
+      } else if (item.text?.trim()) {
+        // URL fetch failed but user provided fallback text — use it
+        lines.push(truncateIfNeeded(item.text.trim(), MAX_ITEM_CHARS, `URL fallback ${i + 1}`));
       } else {
         lines.push("(Content at this URL could not be retrieved.)");
       }
@@ -201,7 +239,7 @@ function buildContextBlock(context: GenerationContext): string {
     } else if (item.fileName && item.text !== undefined) {
       // Text-based file
       lines.push(`--- Context ${i + 1}: [${tag}] ${item.fileName}${item.isCSV ? " (CSV data)" : ""} ---`);
-      lines.push(`\`\`\`\n${item.text}\n\`\`\``);
+      lines.push(`\`\`\`\n${truncateIfNeeded(sanitizeUserInput(item.text), MAX_ITEM_CHARS, `file ${item.fileName}`)}\n\`\`\``);
       if (item.includePlaceholders) {
         lines.push(
           `_Where this data would benefit from visualization, insert [CHART: description], [TABLE: description], or [FIGURE: description] placeholder markers._`
@@ -209,7 +247,7 @@ function buildContextBlock(context: GenerationContext): string {
       }
     } else if (item.text) {
       lines.push(`--- Context ${i + 1}: [${tag}] Note ---`);
-      lines.push(item.text.trim());
+      lines.push(truncateIfNeeded(sanitizeUserInput(item.text.trim()), MAX_ITEM_CHARS, `note ${i + 1}`));
       if (item.includePlaceholders) {
         lines.push(
           `_Where this content would benefit from visualization, insert [CHART: description], [TABLE: description], or [FIGURE: description] placeholder markers._`
@@ -218,7 +256,7 @@ function buildContextBlock(context: GenerationContext): string {
     }
 
     if (item.instructions?.trim()) {
-      lines.push(`→ How to use this: ${item.instructions.trim()}`);
+      lines.push(`→ How to use this: ${sanitizeUserInput(item.instructions.trim())}`);
     } else if (item.tag === "reference") {
       lines.push(`→ Cite this source in your writing where you draw from it.`);
     }
@@ -226,7 +264,9 @@ function buildContextBlock(context: GenerationContext): string {
     return lines.join("\n");
   });
 
-  return `\n**Supporting Context:**\n${parts.join("\n\n")}\n`;
+  const assembled = parts.join("\n\n");
+  const result = truncateIfNeeded(assembled, MAX_TOTAL_CONTEXT_CHARS, "total context block");
+  return `\n**Supporting Context:**\n${result}\n`;
 }
 
 // Determines which beta headers are needed for a set of binary blocks.
@@ -246,6 +286,10 @@ function getBetaHeaders(binaryBlocks: any[]): Record<string, string> {
 // Returns Anthropic content blocks for binary context items (images + PDFs).
 // Prefers file_id references (Files API) over base64 inline data.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isSupportedBinaryType(mediaType: string): boolean {
+  return mediaType.startsWith("image/") || mediaType === "application/pdf";
+}
+
 function buildBinaryBlocks(context: GenerationContext): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [];
@@ -263,11 +307,17 @@ function buildBinaryBlocks(context: GenerationContext): any[] {
           source: { type: "file", file_id: item.fileId },
           ...(item.fileName ? { title: item.fileName } : {}),
         });
+      } else {
+        console.warn(`[buildBinaryBlocks] Unsupported media type "${item.mediaType}" for file "${item.fileName ?? "unknown"}" — skipping binary block`);
       }
       continue;
     }
     // Fallback: base64 inline
     if (!item.data || !item.mediaType) continue;
+    if (!isSupportedBinaryType(item.mediaType)) {
+      console.warn(`[buildBinaryBlocks] Unsupported media type "${item.mediaType}" for file "${item.fileName ?? "unknown"}" — skipping binary block`);
+      continue;
+    }
     if (item.mediaType.startsWith("image/")) {
       blocks.push({
         type: "image",
@@ -340,14 +390,14 @@ ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
 
   const userPrompt = `Write ${contentTypeLabels[interview.contentType]} using the following brief:
 
-**Topic:** ${interview.topic}
-**Angle / Point of View:** ${interview.angle}
-**Key Points to Cover:** ${interview.keyPoints}
+**Topic:** ${sanitizeUserInput(interview.topic)}
+**Angle / Point of View:** ${sanitizeUserInput(interview.angle)}
+**Key Points to Cover:** ${sanitizeUserInput(interview.keyPoints)}
 **Sources / Data to Reference:** ${
-    interview.sourcesOrData || "None provided — draw on general knowledge."
+    interview.sourcesOrData ? sanitizeUserInput(interview.sourcesOrData) : "None provided — draw on general knowledge."
   }
-**Target Audience:** ${interview.targetAudience || "The author's usual audience."}
-**Extra Tone Notes:** ${interview.toneNotes || "None."}
+**Target Audience:** ${interview.targetAudience ? sanitizeUserInput(interview.targetAudience) : "The author's usual audience."}
+**Extra Tone Notes:** ${interview.toneNotes ? sanitizeUserInput(interview.toneNotes) : "None."}
 ${contextBlock}
 Write it now.`;
 
@@ -627,11 +677,11 @@ ${authorContextBlock}${categoryInsightBlock}${guidelinesBlock}${favoriteWordsBlo
   const userPrompt = `Before writing a single word, produce a detailed structural plan.
 
 **Brief:**
-- Topic: ${interview.topic}
-- Angle / argument: ${interview.angle}
-- Key points to cover: ${interview.keyPoints}
-- Audience: ${interview.targetAudience || "the author's usual audience"}
-- Tone notes: ${interview.toneNotes || "none"}${interview.wordCountTarget ? `\n- Target length: ${interview.wordCountTarget}` : ""}
+- Topic: ${sanitizeUserInput(interview.topic)}
+- Angle / argument: ${sanitizeUserInput(interview.angle)}
+- Key points to cover: ${sanitizeUserInput(interview.keyPoints)}
+- Audience: ${interview.targetAudience ? sanitizeUserInput(interview.targetAudience) : "the author's usual audience"}
+- Tone notes: ${interview.toneNotes ? sanitizeUserInput(interview.toneNotes) : "none"}${interview.wordCountTarget ? `\n- Target length: ${sanitizeUserInput(interview.wordCountTarget)}` : ""}
 ${contextBlock}
 **Plan requirements:**
 - The exact opening move — what's the hook? Be specific.
@@ -771,9 +821,9 @@ ${authorContext?.trim() ? `\n## Author Background (subtle context — absorb it;
 ${plan}
 
 **Brief recap:**
-- Topic: ${interview.topic}
-- Angle: ${interview.angle}
-- Key points: ${interview.keyPoints}
+- Topic: ${sanitizeUserInput(interview.topic)}
+- Angle: ${sanitizeUserInput(interview.angle)}
+- Key points: ${sanitizeUserInput(interview.keyPoints)}
 ${contextBlock}
 Write the piece now.`;
 

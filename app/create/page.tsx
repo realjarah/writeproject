@@ -488,7 +488,7 @@ export default function CreatePage() {
     };
 
     const allItems: ContextItem[] = [];
-    if (description.trim().length > 80) {
+    if (description.trim()) {
       allItems.push({
         tag: "note",
         text: description.trim(),

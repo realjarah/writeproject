@@ -54,18 +54,26 @@ export async function fetchUrlAsText(url: string): Promise<string | null> {
       },
       signal: AbortSignal.timeout(12_000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[fetchUrlAsText] HTTP ${res.status} for ${url}`);
+      return null;
+    }
 
     const contentType = res.headers.get("content-type") ?? "";
     if (contentType.includes("text/html")) {
       const html = await res.text();
-      return htmlToText(html) || null;
+      const text = htmlToText(html);
+      // Distinguish genuinely empty page from parse failure: an empty string
+      // after cleanup means the page had no meaningful text content. Return
+      // empty string (truthy check will fail, but it's not a fetch failure).
+      return text;
     }
     if (contentType.includes("text/")) {
-      return (await res.text()).trim() || null;
+      return (await res.text()).trim();
     }
     return null; // binary or unknown
-  } catch {
+  } catch (err) {
+    console.warn(`[fetchUrlAsText] Failed to fetch ${url}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -82,7 +90,10 @@ export async function resolveContext(
     context.items.map(async (item): Promise<ContextItem> => {
       if (!item.url) return item;
       const text = await fetchUrlAsText(item.url);
-      if (!text) return item; // keep url, no fetchedText — signals failure
+      // null = fetch failed entirely; empty string = page had no text content.
+      // Both cases: keep url without fetchedText so buildContextBlock can
+      // show fallback text or an appropriate message.
+      if (text === null || text === "") return item;
       return { ...item, fetchedText: text };
     })
   );
