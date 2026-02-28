@@ -116,6 +116,14 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
         "Preparing draft approach…",
       ],
     },
+    "research->drafting": {
+      baseMs: 8000, jitterMs: 7000,
+      messages: [
+        "Synthesizing research findings…",
+        "Mapping structure to your style…",
+        "Preparing draft approach…",
+      ],
+    },
     "drafting->humanizing": {
       baseMs: 8000, jitterMs: 7000,
       messages: [
@@ -333,13 +341,26 @@ export async function GET(
         );
         if (isAborted()) { controller.close(); return; }
 
-        // ── Research (deep tier only) ────────────────────────────────────
+        // ── Research (all tiers except light) ─────────────────────────────
+        // Research is gated by TOPIC NEEDS, not content format. A blog about
+        // cancer studies needs research just as much as a whitepaper does.
+        // assessResearchNeeds (Haiku) makes the call — we just give it the chance.
         let enrichedContext = resolvedContext;
-        if (tier === "deep") {
-          await setStep("researching", "Researching your topic…");
+        if (tier !== "light") {
           try {
             const assessment = await assessResearchNeeds(plan, interview, resolvedContext);
             if (!isAborted() && assessment.needed && assessment.queries.length > 0) {
+              // Inject "researching" step into the pipeline UI if it wasn't
+              // already there (deep tier has it; standard doesn't by default)
+              if (tier !== "deep") {
+                const updatedSteps = [
+                  pipelineSteps[0], // planning
+                  { key: "researching", label: "Researching your topic" },
+                  ...pipelineSteps.slice(1),
+                ];
+                send({ type: "pipeline", steps: updatedSteps, tier });
+              }
+              await setStep("researching", "Researching your topic…");
               const researchResults: string[] = [];
               for (const query of assessment.queries.slice(0, 3)) {
                 if (isAborted()) break;
@@ -447,8 +468,11 @@ export async function GET(
           if (countNote) selected = `${selected}\n\n${countNote}`;
         } else {
           // Light and standard: single draft
-          // Pace before Opus draft call (spaces out from Opus plan call)
-          await paceTransition(tier, "planning->drafting", "drafting", send, isAborted);
+          // Pace before Opus draft call — use correct transition key based on
+          // whether research ran (enrichedContext differs from resolvedContext)
+          const didResearch = enrichedContext !== resolvedContext;
+          const draftTransition = didResearch ? "research->drafting" : "planning->drafting";
+          await paceTransition(tier, draftTransition, "drafting", send, isAborted);
           if (isAborted()) { controller.close(); return; }
 
           await setStep("drafting", `Writing your ${typeLabel}…`);

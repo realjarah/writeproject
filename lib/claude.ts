@@ -714,10 +714,11 @@ ${contextBlock}
 - The closing move and what the reader leaves with
 - Structural choices that specifically play to this author's voice and the format guidelines above
 
-**Factual integrity — non-negotiable:**
-- Do NOT plan around specific facts, statistics, numbers, data points, study results, or named sources unless they appear in the supporting context above.
-- If the topic naturally involves data (medical results, financial figures, research findings, performance metrics) and no context provides that data, plan the piece to work WITHOUT specific numbers. Use framing like "reference your recent results" or "mention the key findings" — leave room for the author to fill in their own specifics.
-- A plan that invents data the author did not provide is worse than useless — it is dangerous.
+**What you know vs. what you don't — think critically:**
+- Look at the supporting context above. That is what you have to work with. Plan around what is there.
+- If no context was provided, the piece must stand on the author's voice, argument, and perspective alone. That is not a limitation — opinion pieces, personal narratives, and persuasion essays are strongest without manufactured data.
+- If the topic naturally calls for specific data (statistics, study results, technical claims, current events) and the context provides it, weave it in structurally. If the context does NOT provide it, do not plan as if it exists. Structure the piece to work without it, or use placeholder framing ("reference your results," "cite the specific figure") that the author can fill in.
+- Never plan around invented facts, fabricated statistics, or made-up sources. If the plan requires a specific number to land and no number was provided, flag it as a gap the author should fill — do not silently invent one.
 
 Do not plan a generic article. Plan THIS author's article. If the plan could belong to any writer, it is wrong.`;
 
@@ -835,11 +836,13 @@ ${examplesSection}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}
 - Rule of three: do not group ideas into threes ("X, Y, and Z") unless the author demonstrably does this
 - Synonym cycling: do not use four different words for the same concept across consecutive sentences
 
-## Factual Integrity — this overrides everything else
-- NEVER fabricate, invent, or guess specific facts, statistics, numbers, percentages, data points, dates, study results, or named sources.
-- If the supporting context contains specific data, use it. If it does not, do NOT invent replacements.
-- When the topic involves specifics the author has not provided (lab results, financial figures, performance metrics, research findings), use placeholder language the author can fill in: "your recent results showed," "the numbers from your last panel," "based on what you shared with me." Do NOT insert fake numbers.
-- Fabricating data in someone's name — especially medical, legal, or financial data — is the single worst failure mode of this system. Treat it as more dangerous than any style violation above.
+## Factual Integrity — this overrides everything above
+You are writing under a real person's name. Think about what you actually know vs. what you're guessing.
+- If supporting context provides facts, data, or research — use it. That is your factual foundation.
+- If no context was provided, the piece must stand on argument, perspective, and voice. Opinion, narrative, and persuasion do not need invented statistics to be strong. Write with conviction, not with fabricated evidence.
+- Do NOT invent specific numbers, percentages, statistics, study results, dates, named sources, or technical claims. If the piece needs a specific figure and none was provided, use honest placeholder language the author can complete: "your recent results showed," "the data from your last review," "[specific figure]."
+- If you are unsure whether something is a real fact or something you're generating to sound authoritative — it is the latter. Leave it out or flag it as a placeholder.
+- This applies to ALL content. A fabricated statistic in a blog is just as wrong as a fabricated lab result in an email. The standard is the same regardless of format.
 
 ## Author's Favorite Words
 ${favoriteWords?.length
@@ -1204,7 +1207,7 @@ Your review must check:
 2. AI contamination — hunt for hollow hedges, filler transitions, generic conclusions, over-structured formatting, em dash overuse, synonym cycling, rule-of-three groupings, copula avoidance ("serves as", "stands as"). Destroy any you find.
 3. Brief adherence — did it cover the topic, angle, and key points? Is anything missing or weak?
 4. Context usage — if supporting context was provided, did the draft use it? Are specifics woven in naturally?
-5. Fabrication check — this is critical. Look for specific numbers, statistics, percentages, study citations, named sources, dates, or data points. If they do NOT appear in the supporting context above, they were fabricated. Replace any fabricated specifics with honest placeholder language the author can fill in (e.g., "your recent results," "the numbers from your last check," "[specific figure]"). Fabricated data published under someone's name — especially medical, legal, or financial — is unacceptable.
+5. Fabrication check — look for specific numbers, statistics, percentages, study citations, named sources, dates, or data points. Cross-reference them against the supporting context. If a claim appears in the draft but NOT in the context, it was invented. Replace it with placeholder language the author can fill in (e.g., "your recent results," "[specific figure]"). This applies to every content type — fabricated data is fabricated data whether it's in an essay, a blog, or an email.
 6. Fix everything you find. Surgical fixes only — do not rewrite from scratch.
 
 Output ONLY the improved draft. Nothing else.`;
@@ -1269,16 +1272,23 @@ export async function assessResearchNeeds(
   const res = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 1024,
-    system: `You assess whether a ghostwriter needs to do web research before writing. Return ONLY valid JSON — no prose, no code fences.
+    system: `You decide whether a ghostwriter needs web research before writing. The content type does NOT determine this — the TOPIC does. A blog can be pure opinion or heavily data-dependent. An email can be casual or reference medical results. Judge by what the plan actually needs.
 
+Return ONLY valid JSON — no prose, no code fences.
 Return: { "needed": boolean, "queries": ["search query 1", ...] }
 
-Rules:
-- needed=true if the plan references specific facts, statistics, recent events, studies, or data points that aren't already covered by the provided context
-- needed=false for opinion pieces, personal essays, creative writing, or when sufficient context is provided
-- For short-form content (emails, captions, social posts, text messages): needed=false UNLESS the topic inherently involves verifiable data (medical, financial, legal, scientific, technical specifications). An email referencing lab results, investment returns, or legal statutes still needs factual grounding.
-- If needed, suggest 1-3 focused, specific search queries that would fill the knowledge gaps
-- Keep queries targeted — "SaaS churn rate benchmarks 2025" not "SaaS industry trends"`,
+needed=true when:
+- The plan references or implies specific facts, statistics, data points, study results, current events, named sources, or technical claims that are NOT already in the provided context
+- The topic inherently involves verifiable data (medical, scientific, financial, legal, technical) and no context supplies that data
+- The piece would be stronger or safer with factual grounding from real sources
+
+needed=false when:
+- The piece is opinion, personal narrative, creative writing, or persuasion that doesn't depend on external facts
+- The provided context already covers the factual needs of the plan
+- The topic is the author's personal experience, feelings, or perspective
+- The content is conversational (casual emails, social banter, personal messages) with no factual claims
+
+If needed, suggest 1-3 focused, specific search queries. Keep them targeted — "SaaS churn rate benchmarks 2025" not "SaaS industry trends". Do not suggest research for things only the author would know (their own results, experiences, opinions).`,
     messages: [
       {
         role: "user",
