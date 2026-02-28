@@ -88,12 +88,14 @@ function tagMeta(tag: ContextItemTag) {
 const SIZE_LIMITS: Record<string, number> = {
   image: 5 * 1024 * 1024,
   pdf:   10 * 1024 * 1024,
+  docx:  15 * 1024 * 1024,
   text:  50 * 1024,
 };
 
-function fileKind(name: string): "image" | "pdf" | "text" {
+function fileKind(name: string): "image" | "pdf" | "docx" | "text" {
   if (/\.(png|jpe?g|gif|webp)$/i.test(name)) return "image";
   if (/\.pdf$/i.test(name)) return "pdf";
+  if (/\.docx$/i.test(name)) return "docx";
   return "text";
 }
 
@@ -325,7 +327,8 @@ export default function CreatePage() {
     const kind = fileKind(file.name);
     const limit = SIZE_LIMITS[kind];
     if (file.size > limit) {
-      alert(`${file.name} is too large. Limit: ${kind === "image" ? "5MB" : kind === "pdf" ? "10MB" : "50KB"}.`);
+      const limitLabel = kind === "image" ? "5MB" : kind === "pdf" ? "10MB" : kind === "docx" ? "15MB" : "50KB";
+      alert(`${file.name} is too large. Limit: ${limitLabel}.`);
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -340,6 +343,31 @@ export default function CreatePage() {
         setNewMediaType(mime);
         if (kind === "image" && newTag === "reference") setNewTag("example");
         if (kind === "pdf"   && newTag === "reference") setNewTag("research");
+      };
+      reader.readAsDataURL(file);
+    } else if (kind === "docx") {
+      // DOCX is binary (ZIP) — extract text via server API, store as text context
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const [, base64] = dataUrl.split(",");
+        try {
+          const res = await fetch("/api/voice/import-docx", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: base64 }),
+          });
+          const result = await res.json();
+          if (!res.ok || result.error) {
+            alert(result.error || "Could not extract text from this document.");
+            return;
+          }
+          setNewFileName(file.name);
+          setNewFileContent(result.text);
+          setNewIsCSV(false);
+          if (newTag === "reference") setNewTag("research");
+        } catch {
+          alert("Failed to process DOCX file. Please try again.");
+        }
       };
       reader.readAsDataURL(file);
     } else {
@@ -360,13 +388,14 @@ export default function CreatePage() {
     if (!file) return;
     const kind = fileKind(file.name);
     if (kind === "image") {
-      alert("Draft files must be text (.txt, .md) or PDF.");
+      alert("Draft files must be text (.txt, .md), DOCX, or PDF.");
       if (draftFileRef.current) draftFileRef.current.value = "";
       return;
     }
-    const limit = kind === "pdf" ? SIZE_LIMITS.pdf : SIZE_LIMITS.text;
+    const limit = kind === "pdf" ? SIZE_LIMITS.pdf : kind === "docx" ? SIZE_LIMITS.docx : SIZE_LIMITS.text;
     if (file.size > limit) {
-      alert(`File too large. Max ${kind === "pdf" ? "10MB" : "50KB"}.`);
+      const limitLabel = kind === "pdf" ? "10MB" : kind === "docx" ? "15MB" : "50KB";
+      alert(`File too large. Max ${limitLabel}.`);
       if (draftFileRef.current) draftFileRef.current.value = "";
       return;
     }
@@ -380,6 +409,31 @@ export default function CreatePage() {
         setDraftData(base64);
         setDraftMediaType(mime);
         setDraftText("");
+      };
+      reader.readAsDataURL(file);
+    } else if (kind === "docx") {
+      // DOCX is binary — extract text via server API
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const [, base64] = dataUrl.split(",");
+        try {
+          const res = await fetch("/api/voice/import-docx", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: base64 }),
+          });
+          const result = await res.json();
+          if (!res.ok || result.error) {
+            alert(result.error || "Could not extract text from this document.");
+            return;
+          }
+          setDraftText(result.text);
+          setDraftFileName(file.name);
+          setDraftData("");
+          setDraftMediaType("");
+        } catch {
+          alert("Failed to process DOCX file. Please try again.");
+        }
       };
       reader.readAsDataURL(file);
     } else {
@@ -1134,7 +1188,7 @@ export default function CreatePage() {
 
                   {sourceType === "file" && (
                     <div>
-                      <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.pdf,.png,.jpg,.jpeg,.gif,.webp" onChange={handleFileChange} className="hidden" />
+                      <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.pdf,.docx,.png,.jpg,.jpeg,.gif,.webp" onChange={handleFileChange} className="hidden" />
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
@@ -1260,7 +1314,7 @@ export default function CreatePage() {
               />
               <div className="flex items-center gap-3">
                 <span className="text-xs text-black/[0.28] dark:text-white/[0.28]">or</span>
-                <input ref={draftFileRef} type="file" accept=".txt,.md,.pdf" onChange={handleDraftFileChange} className="hidden" />
+                <input ref={draftFileRef} type="file" accept=".txt,.md,.pdf,.docx" onChange={handleDraftFileChange} className="hidden" />
                 <button
                   type="button"
                   onClick={() => draftFileRef.current?.click()}

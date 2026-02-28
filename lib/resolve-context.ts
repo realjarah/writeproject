@@ -49,6 +49,13 @@ const MAX_FETCH_CHARS = 200_000;
  */
 export async function fetchUrlAsText(url: string): Promise<string | null> {
   try {
+    // Validate URL scheme — only allow http(s) to prevent SSRF / protocol abuse
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      console.warn(`[fetchUrlAsText] Blocked non-HTTP URL scheme: ${parsed.protocol}`);
+      return null;
+    }
+
     const res = await fetch(url, {
       headers: {
         "User-Agent":

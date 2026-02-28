@@ -60,6 +60,8 @@ export interface ContextItem {
   mediaType?: string;
   // Files API — set after uploadContextFiles resolves binary items
   fileId?: string;
+  // Text extracted from binary files (PDFs) so text-only models (Grok) can see content
+  extractedText?: string;
   instructions?: string;
 }
 

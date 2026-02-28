@@ -206,8 +206,46 @@ export async function uploadFile(
 }
 
 /**
+ * Extract clean text from a PDF via the Files API + Sonnet.
+ * Used so text-only models (Grok) can see PDF context during planning/drafting.
+ */
+async function extractPdfText(fileId: string, fileName?: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const message = await (getAnthropic().messages.create as any)(
+    {
+      model: "claude-sonnet-4-6",
+      max_tokens: 16000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: { type: "file", file_id: fileId },
+              ...(fileName ? { title: fileName } : {}),
+            },
+            {
+              type: "text",
+              text: "Extract and return ONLY the clean text from this document. Preserve paragraph breaks with double newlines. Remove page numbers, headers, footers, and non-content elements. Return nothing but the text.",
+            },
+          ],
+        },
+      ],
+    },
+    { headers: { "anthropic-beta": FILES_API_BETA } }
+  );
+
+  return (message.content as Anthropic.TextBlock[])
+    .filter((b: Anthropic.TextBlock) => b.type === "text")
+    .map((b: Anthropic.TextBlock) => b.text)
+    .join("")
+    .trim();
+}
+
+/**
  * Upload all binary context items (PDFs, images) to the Files API once.
- * Mutates items in-place: sets `fileId` and clears `data` to free memory.
+ * For PDFs, also extracts text so text-only models (Grok) can see content.
+ * Clears base64 data after upload to free memory.
  * Items that fail to upload keep their base64 data as fallback.
  */
 export async function uploadContextFiles(
@@ -223,8 +261,19 @@ export async function uploadContextFiles(
         const buf = Buffer.from(item.data, "base64");
         const name = item.fileName || `file.${item.mediaType.split("/")[1] || "bin"}`;
         const fileId = await uploadFile(buf, name, item.mediaType);
+
+        // For PDFs, extract text so Grok can see content during planning/drafting
+        let extractedText: string | undefined;
+        if (item.mediaType === "application/pdf") {
+          try {
+            extractedText = await extractPdfText(fileId, name);
+          } catch (err) {
+            console.warn(`[uploadContextFiles] PDF text extraction failed for ${name}:`, err);
+          }
+        }
+
         // Clear base64 data to free memory; keep fileId for all subsequent calls
-        return { ...item, fileId, data: undefined };
+        return { ...item, fileId, data: undefined, ...(extractedText ? { extractedText } : {}) };
       } catch (err) {
         console.error(`[uploadContextFiles] Failed to upload ${item.fileName ?? "file"}:`, err);
         // Upload failed — keep base64 data as fallback
@@ -310,6 +359,10 @@ function buildContextBlock(context: GenerationContext): string {
         ? "PDF document"
         : item.mediaType?.startsWith("image/") ? "Image" : "File";
       lines.push(`--- Context ${i + 1}: [${tag}] ${kind}${item.fileName ? ` — ${item.fileName}` : ""} (attached below) ---`);
+      // Include extracted text inline so text-only models (Grok) can see PDF content
+      if (item.extractedText?.trim()) {
+        lines.push(truncateIfNeeded(item.extractedText.trim(), MAX_ITEM_CHARS, `extracted ${item.fileName ?? "file"}`));
+      }
     } else if (item.fileName && item.text !== undefined) {
       // Text-based file
       lines.push(`--- Context ${i + 1}: [${tag}] ${item.fileName}${item.isCSV ? " (CSV data)" : ""} ---`);

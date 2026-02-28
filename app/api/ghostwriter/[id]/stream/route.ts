@@ -15,6 +15,8 @@ import {
   conductResearch,
   assessResearchNeeds,
   selfReviewDraft,
+  uploadContextFiles,
+  deleteUploadedFiles,
   LIGHT_TYPES,
   InterviewAnswers,
   VoiceAnalysis,
@@ -288,9 +290,12 @@ export async function GET(
   }
   let resolvedContext = normalizedContext ? await resolveContext(normalizedContext) : undefined;
 
-  // Binary context (PDFs, images) stays as base64 in context items.
-  // Each provider handles its own format: Grok uses OpenAI-style image blocks,
-  // Anthropic uses inline base64 blocks. No upfront file upload needed.
+  // Upload binary context (PDFs, images) to Files API once — avoids re-sending
+  // base64 data in every pipeline stage. For PDFs, also extracts text so
+  // text-only models (Grok) can see content during planning/drafting.
+  if (resolvedContext) {
+    resolvedContext = await uploadContextFiles(resolvedContext);
+  }
 
   const tier = getPipelineTier(interview.contentType);
   const pipelineSteps = getPipelineSteps(tier, interview);
@@ -568,6 +573,10 @@ export async function GET(
         send({ type: "error", message: "Ghostwriting failed. Please try again." });
       } finally {
         clearTimeout(timeoutTimer);
+        // Clean up any files uploaded to the Files API
+        if (resolvedContext) {
+          deleteUploadedFiles(resolvedContext).catch(console.error);
+        }
       }
 
       controller.close();
