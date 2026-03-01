@@ -10,11 +10,14 @@ import {
   planContent,
   draftContent,
   humanizeContent,
-  compareAndSelectBestDraft,
+  compareDraftsGrok,
   proposeDraftVariation,
-  conductResearch,
+  conductResearchGrok,
   assessResearchNeeds,
   selfReviewDraft,
+  checkFabrications,
+  assessBriefQuality,
+  scoreVoiceFidelity,
   uploadContextFiles,
   deleteUploadedFiles,
   LIGHT_TYPES,
@@ -69,13 +72,16 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "drafting", label: `Writing your ${typeLabel}` },
         { key: "reviewing", label: "Re-reading as you" },
         { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "scoring", label: "Scoring voice fidelity" },
       ];
     case "standard":
       return [
         { key: "planning", label: `Planning your ${typeLabel}` },
         { key: "drafting", label: `Writing your ${typeLabel}` },
         { key: "reviewing", label: "Re-reading as you" },
+        { key: "fact_checking", label: "Fact-checking claims" },
         { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "scoring", label: "Scoring voice fidelity" },
       ];
     case "deep":
       return [
@@ -87,7 +93,9 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "comparing", label: "Comparing drafts against your voice" },
         { key: "checking", label: "Checking word count & structure" },
         { key: "reviewing", label: "Re-reading as you" },
+        { key: "fact_checking", label: "Fact-checking claims" },
         { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "scoring", label: "Scoring voice fidelity" },
       ];
   }
 }
@@ -113,6 +121,10 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 500, jitterMs: 500,
       messages: ["Preparing final polish…"],
     },
+    "humanizing->scoring": {
+      baseMs: 500, jitterMs: 300,
+      messages: ["Scoring voice match…"],
+    },
   },
   standard: {
     "planning->drafting": {
@@ -127,9 +139,17 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 800, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
-    "reviewing->humanizing": {
-      baseMs: 800, jitterMs: 500,
+    "reviewing->fact_checking": {
+      baseMs: 500, jitterMs: 300,
+      messages: ["Verifying claims…"],
+    },
+    "fact_checking->humanizing": {
+      baseMs: 500, jitterMs: 300,
       messages: ["Preparing final polish…"],
+    },
+    "humanizing->scoring": {
+      baseMs: 500, jitterMs: 300,
+      messages: ["Scoring voice match…"],
     },
   },
   deep: {
@@ -145,9 +165,17 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 800, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
-    "reviewing->humanizing": {
-      baseMs: 800, jitterMs: 500,
+    "reviewing->fact_checking": {
+      baseMs: 500, jitterMs: 300,
+      messages: ["Verifying claims…"],
+    },
+    "fact_checking->humanizing": {
+      baseMs: 500, jitterMs: 300,
       messages: ["Preparing final polish…"],
+    },
+    "humanizing->scoring": {
+      baseMs: 500, jitterMs: 300,
+      messages: ["Scoring voice match…"],
     },
   },
 };
@@ -355,12 +383,31 @@ export async function GET(
         // Send pipeline configuration to client
         send({ type: "pipeline", steps: pipelineSteps, tier });
 
+        // ── Brief quality prediction (Grok — non-blocking) ──────────────
+        // Run in parallel with planning to save time. Fires a warning SSE
+        // event if the brief is weak, but does NOT block the pipeline.
+        const briefQualityPromise = assessBriefQuality(
+          interview, voiceProfile, resolvedContext
+        ).catch(() => null);
+
         // ── Plan ─────────────────────────────────────────────────────────
         await setStep("planning", `Planning your ${typeLabel}…`);
         const plan = await planContent(
           voiceProfile, interview, resolvedContext, favoriteWords, authorContext
         );
         if (isAborted()) { controller.close(); return; }
+
+        // Check brief quality result (already finished or finishing now)
+        try {
+          const briefAssessment = await briefQualityPromise;
+          if (briefAssessment && briefAssessment.warnings.length > 0) {
+            send({
+              type: "brief_warning",
+              score: briefAssessment.score,
+              warnings: briefAssessment.warnings,
+            });
+          }
+        } catch { /* non-blocking */ }
 
         // ── Research (all tiers except light) ─────────────────────────────
         // Research is gated by TOPIC NEEDS, not content format. A blog about
@@ -387,12 +434,12 @@ export async function GET(
                 if (isAborted()) break;
                 await setStep("researching", `Researching: ${query.slice(0, 60)}…`);
                 try {
-                  const result = await conductResearch(query, {
+                  const result = await conductResearchGrok(query, {
                     topic: interview.topic,
                     angle: interview.angle,
                     contentType: interview.contentType,
                   });
-                  if (result && result !== "Research could not be completed.") {
+                  if (result && result.trim()) {
                     researchResults.push(result);
                   }
                 } catch { /* skip failed queries */ }
@@ -457,9 +504,9 @@ export async function GET(
             data: { drafts: JSON.stringify([draft1, draft2]) },
           });
 
-          // Compare & select best (Sonnet — analytical, not creative)
+          // Compare & select best (Grok — analytical reasoning, cheaper than Opus for judgment)
           await setStep("comparing", "Comparing drafts against your voice…");
-          selected = await compareAndSelectBestDraft([draft1, draft2], voiceProfile, interview);
+          selected = await compareDraftsGrok([draft1, draft2], voiceProfile, interview);
           if (isAborted()) { controller.close(); return; }
 
           // Word count quality check
@@ -524,16 +571,41 @@ export async function GET(
         } catch { /* self-review failed — keep draft as-is */ }
         if (isAborted()) { controller.close(); return; }
 
-        // ── Humanize (ALWAYS last — streams final output to client) ─────
-        // The humanizer is the final gate. Nothing runs after it.
-        // Whatever AI patterns the drafter or self-review introduced, the
-        // humanizer kills them here.
-        await paceTransition(tier, "reviewing->humanizing", "humanizing", send, isAborted);
+        // ── Fabrication check (Grok + web search — non-light tiers) ──────
+        // Verifies specific factual claims by searching the web. Replaces
+        // fabricated specifics with honest placeholders the author can fill in.
+        let checkedDraft = reviewedDraft;
+        if (tier !== "light") {
+          await paceTransition(tier, "reviewing->fact_checking", "fact_checking", send, isAborted);
+          if (isAborted()) { controller.close(); return; }
+
+          await setStep("fact_checking", "Fact-checking claims…");
+          try {
+            const { cleanDraft, fabricationsFound } = await checkFabrications(
+              reviewedDraft, interview, enrichedContext
+            );
+            if (cleanDraft && cleanDraft.trim()) {
+              checkedDraft = cleanDraft;
+              if (fabricationsFound > 0) {
+                send({
+                  type: "fact_check_result",
+                  fabricationsFound,
+                  message: `Found and replaced ${fabricationsFound} unverifiable claim${fabricationsFound > 1 ? "s" : ""} with placeholders.`,
+                });
+              }
+            }
+          } catch { /* fact-check failed — keep draft as-is */ }
+          if (isAborted()) { controller.close(); return; }
+        }
+
+        // ── Humanize (streams final output to client) ────────────────────
+        const humanizeTransition = tier !== "light" ? "fact_checking->humanizing" : "reviewing->humanizing";
+        await paceTransition(tier, humanizeTransition, "humanizing", send, isAborted);
         if (isAborted()) { controller.close(); return; }
 
         await setStep("humanizing", `Polishing your ${typeLabel}…`);
         const humanizedStream = await humanizeContent(
-          reviewedDraft, voiceProfile, HUMANIZER, interview.contentType,
+          checkedDraft, voiceProfile, HUMANIZER, interview.contentType,
           favoriteWords, authorContext,
           () => {
             send({ type: "step", step: "humanizing", label: `Humanizing your ${typeLabel}…` });
@@ -550,6 +622,25 @@ export async function GET(
           finalContent += chunk;
           send({ type: "chunk", text: chunk });
         }
+        if (isAborted()) { controller.close(); return; }
+
+        // ── Voice fidelity scoring (Grok — quality gate) ─────────────────
+        // Scores how well the final output matches the author's voice.
+        // Sends the score as an SSE event for the UI to display.
+        await paceTransition(tier, "humanizing->scoring", "scoring", send, isAborted);
+        if (isAborted()) { controller.close(); return; }
+
+        await setStep("scoring", "Scoring voice fidelity…");
+        try {
+          const fidelityResult = await scoreVoiceFidelity(
+            finalContent, voiceProfile, interview.contentType
+          );
+          send({
+            type: "voice_score",
+            score: fidelityResult.score,
+            flags: fidelityResult.flags.slice(0, 5), // Top 5 flags max
+          });
+        } catch { /* scoring failed — continue without score */ }
         if (isAborted()) { controller.close(); return; }
 
         // ── Done ─────────────────────────────────────────────────────────

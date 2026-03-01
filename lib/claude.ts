@@ -1589,3 +1589,377 @@ Output the complete revised draft. Nothing else.`;
 
   return result.text ?? draft;
 }
+
+// ── Grok Responses API helper (web_search built-in tool) ─────────────────────
+
+/**
+ * Call Grok via the xAI Responses API with built-in web_search.
+ * The model autonomously decides when to search; results are folded
+ * into the final response automatically by xAI's servers.
+ */
+async function grokWithWebSearch(
+  instructions: string,
+  input: string,
+  maxOutputTokens: number = 16000,
+): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => (getXai().responses as any).create({
+    model: "grok-4-1-fast-reasoning",
+    instructions,
+    input,
+    tools: [{ type: "web_search" }],
+    max_output_tokens: maxOutputTokens,
+  }), "grokWithWebSearch");
+
+  // Extract text from the response output items
+  if (typeof res.output_text === "string") return res.output_text;
+  // Fallback: iterate output items
+  if (Array.isArray(res.output)) {
+    const texts: string[] = [];
+    for (const item of res.output) {
+      if (item.type === "message" && Array.isArray(item.content)) {
+        for (const block of item.content) {
+          if (block.type === "output_text" || block.type === "text") {
+            texts.push(block.text);
+          }
+        }
+      }
+    }
+    if (texts.length > 0) return texts.join("");
+  }
+  return "";
+}
+
+// ── Research agent (Grok + web_search — replaces Gemini + Google Search) ──────
+
+/**
+ * Multi-step research using Grok 4.1 with built-in web search.
+ * Grok reasons about what to search, executes searches autonomously,
+ * cross-references findings, and produces a structured research brief.
+ * Replaces the single-shot Gemini + Google Search grounding approach.
+ */
+export async function conductResearchGrok(
+  prompt: string,
+  interviewContext?: { topic?: string; angle?: string; contentType?: string }
+): Promise<string> {
+  const typeLabelHint = interviewContext?.contentType
+    ? (CONTENT_TYPE_LABELS[interviewContext.contentType] ?? interviewContext.contentType)
+    : "piece";
+  const contextHint = interviewContext?.topic
+    ? ` Context: writing a ${typeLabelHint} about "${interviewContext.topic}"${interviewContext.angle ? ` (angle: ${interviewContext.angle})` : ""}.`
+    : "";
+
+  const instructions = `You are a research agent preparing a structured brief for a professional ghostwriter.${contextHint}
+
+Your job is to build a comprehensive, fact-checked research foundation. Use web search aggressively — don't settle for one source when three would be stronger.
+
+RESEARCH PROTOCOL:
+1. Start with the core topic — search for authoritative overviews, recent data, key statistics
+2. Go deeper on specific claims — find primary sources, actual studies, named experts
+3. Look for counterarguments and alternative perspectives — strong writing acknowledges complexity
+4. Find recent developments (last 12 months) that the writer should know about
+5. Cross-reference key claims across multiple sources — if only one source says it, flag it as unverified
+
+OUTPUT FORMAT — Structured markdown brief:
+- Key facts, figures, and data points WITH inline source attribution ("According to [Source Name], ...")
+- Relevant statistics with dates and context (not just numbers — what do they mean?)
+- Important background the writer needs to understand the topic
+- Notable arguments and counterarguments from credible voices
+- Specific examples and case studies with real names and details
+- Recent developments and current state of the topic
+- Any commonly repeated claims that turned out to be misleading or outdated
+
+RULES:
+- Every factual claim MUST have a source. No orphan facts.
+- Prefer primary sources (studies, official reports, named experts) over aggregator sites
+- Include publication dates so the writer knows how current the data is
+- If you find conflicting information, present both sides with sources
+- Be specific — "revenue grew 23% to $4.2B in Q3 2025" not "revenue grew significantly"
+- Format clearly with headers and bullets. The ghostwriter will use this directly as context.`;
+
+  return withRetry(
+    () => grokWithWebSearch(instructions, prompt, 16000),
+    "conductResearchGrok"
+  );
+}
+
+// ── Fabrication checker (Grok + web_search) ──────────────────────────────────
+
+/**
+ * Verify factual claims in a draft by searching the web.
+ * Returns the draft with fabricated claims replaced by placeholders,
+ * or the original draft if no fabrications are found.
+ */
+export async function checkFabrications(
+  draft: string,
+  interview: InterviewAnswers,
+  context?: GenerationContext,
+): Promise<{ cleanDraft: string; fabricationsFound: number }> {
+  const contextSummary = context?.items.length
+    ? `The writer was provided ${context.items.length} context item(s) as source material.`
+    : "No source material was provided — the piece was written from the author's perspective and voice profile only.";
+
+  const instructions = `You are a fact-checker reviewing a draft before publication under a real person's name. Your job is to find and flag any fabricated specifics — invented statistics, fake studies, made-up quotes, wrong dates, or claims that don't hold up.
+
+VERIFICATION PROTOCOL:
+1. Scan the draft for every specific factual claim: numbers, percentages, statistics, study citations, named sources, dates, company names, product names, historical events, scientific claims
+2. For each claim, search the web to verify it
+3. Classify each claim as: VERIFIED (found corroborating source), UNVERIFIABLE (can't confirm or deny), or FABRICATED (contradicted by evidence or no evidence exists)
+4. Replace FABRICATED claims with honest placeholder language the author can fill in
+
+RULES:
+- Opinion, perspective, and argument do NOT need verification — only specific factual claims
+- If the author says "I believe X" or "in my experience," that's their opinion — leave it alone
+- Common knowledge doesn't need verification ("the sky is blue")
+- If a claim is close but slightly wrong (e.g. wrong year, wrong percentage), fix it with the correct data and add a [VERIFIED: corrected from original] note
+- If a claim is completely fabricated, replace it with placeholder language like "[specific statistic]" or "according to [source]"
+- Preserve the author's voice and tone in all replacements
+
+${contextSummary}
+
+OUTPUT FORMAT — Return valid JSON only:
+{
+  "fabricationsFound": <number of claims replaced>,
+  "cleanDraft": "<the full draft with fabrications replaced by placeholders>"
+}`;
+
+  const userPrompt = `Content type: ${CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType}
+Topic: ${interview.topic}
+
+Draft to fact-check:
+
+${draft}`;
+
+  try {
+    const result = await grokWithWebSearch(instructions, userPrompt, 32000);
+    const parsed = JSON.parse(repairJson(result));
+    return {
+      cleanDraft: parsed.cleanDraft || draft,
+      fabricationsFound: parsed.fabricationsFound || 0,
+    };
+  } catch {
+    // If parsing fails, return draft unchanged
+    return { cleanDraft: draft, fabricationsFound: 0 };
+  }
+}
+
+// ── Draft comparison (Grok — replaces Opus) ──────────────────────────────────
+
+/**
+ * Compare multiple drafts against the voice profile and brief.
+ * Uses Grok's extended reasoning — this is analytical judgment, not writing.
+ * Cheaper than Opus and arguably deeper for comparison tasks.
+ */
+export async function compareDraftsGrok(
+  drafts: string[],
+  voiceProfile: VoiceAnalysis,
+  interview: InterviewAnswers
+): Promise<string> {
+  const systemPrompt = `You are evaluating drafts written by a ghostwriter attempting to mimic a specific author's voice. Your job is to select the best draft — or synthesize the best elements — so the result is indistinguishable from the author's actual writing.
+
+REASONING PROTOCOL:
+Think deeply before producing output. For each draft:
+1. Read it as if you were the author's editor who knows their voice intimately
+2. Mark every sentence that sounds like AI instead of this specific human
+3. Check brief fidelity — did it cover everything requested?
+4. Check for AI contamination: opener clichés, filler verbs ("delve", "underscore", "leverage", "utilize", "foster"), hollow hedges ("It's worth noting", "One might argue"), transition clichés ("Furthermore,", "Moreover,", "Additionally,"), closing tells ("In conclusion,"), em dash overuse, rule-of-three groupings, synonym cycling
+
+## Author Voice Profile
+${voiceProfile.rawSummary}
+- Tone: ${voiceProfile.tone}
+- Sentence structure: ${voiceProfile.sentenceStructure}
+- Vocabulary: ${voiceProfile.vocabularyStyle}
+- Punctuation habits: ${voiceProfile.punctuationHabits}
+- Rhetorical devices: ${voiceProfile.rhetoricalDevices}
+- Human imperfections: ${voiceProfile.humanImperfections ?? "not specified"}
+- Authentic quirks: ${voiceProfile.authenticQuirks ?? "not specified"}
+- Things this author NEVER does: ${voiceProfile.thingsToAvoid.join("; ")}`;
+
+  const userPrompt = `Select the best of these ${drafts.length} drafts. The winner must sound like this specific author wrote it — not like AI.
+
+**Brief:**
+- Topic: ${interview.topic}
+- Angle: ${interview.angle}
+- Key points: ${interview.keyPoints}
+- Audience: ${interview.targetAudience || "the author's usual audience"}
+
+**The Drafts:**
+${drafts.map((d, i) => `--- DRAFT ${i + 1} ---\n${d}`).join("\n\n")}
+
+Produce the final version. If neither draft fully meets the standard, take the best elements from each and combine them. Clean up any AI patterns you find. The output must be publishable under this person's name without suspicion.
+
+Output ONLY the final piece. Nothing else.`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
+    model: XAI_WRITING_MODEL,
+    max_completion_tokens: 64000,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  }), "compareDraftsGrok");
+
+  const msg = res.choices[0].message;
+  const raw = msg.content ?? msg.reasoning_content ?? "";
+  return raw || drafts[0]; // fallback to first draft if empty
+}
+
+// ── Brief quality prediction (Grok) ──────────────────────────────────────────
+
+/**
+ * Analyze a brief + voice profile and predict output quality issues
+ * BEFORE the pipeline runs. Flags vague briefs, missing context for
+ * data-heavy topics, and mismatches between the brief and voice profile.
+ * Returns null if the brief looks good.
+ */
+export async function assessBriefQuality(
+  interview: InterviewAnswers,
+  voiceProfile: VoiceAnalysis,
+  context?: GenerationContext,
+): Promise<{ score: number; warnings: string[] } | null> {
+  const contextSummary = context?.items.length
+    ? `${context.items.length} context item(s) provided: ${context.items.map((item) => {
+        if (item.url) return `URL: ${item.url}`;
+        if (item.fileName) return `File: ${item.fileName}`;
+        if (item.text) return `Text note (${item.text.slice(0, 50)}...)`;
+        return `${item.tag} item`;
+      }).join(", ")}`
+    : "No supporting context provided.";
+
+  const typeLabel = CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType;
+
+  const systemPrompt = `You predict whether a ghostwriting brief will produce strong output or weak output. You've seen thousands of briefs — you know what works and what doesn't.
+
+REASONING PROTOCOL:
+Think step by step about every dimension:
+1. Is the topic specific enough to write about? "Marketing" is too vague. "Why B2B SaaS companies should stop gating content" is specific.
+2. Does the angle give the ghostwriter a clear thesis or argument? An angle-less piece becomes a Wikipedia summary.
+3. Are key points substantive or just topic labels? "Talk about pricing" vs "Argue that value-based pricing outperforms per-seat for tools under $50/mo"
+4. Does this content type need data/research? A personal essay doesn't. A technical whitepaper does.
+5. Is there a mismatch between the content type and the brief's depth? A 3000-word research paper with a one-line topic will produce filler.
+6. Is there enough context to support factual claims? If the topic implies statistics but no context provides them, the AI will fabricate.
+
+SCORE: 1-10 where 10 is a brief that will definitely produce strong output and 1 will definitely produce weak output.`;
+
+  const userPrompt = `Content type: ${typeLabel}
+Topic: ${interview.topic}
+Angle: ${interview.angle || "(not specified)"}
+Key points: ${interview.keyPoints || "(not specified)"}
+Target audience: ${interview.targetAudience || "(not specified)"}
+Word count target: ${interview.wordCountTarget || "(not specified)"}
+Context: ${contextSummary}
+
+Author writes: ${voiceProfile.rawSummary}
+
+Rate this brief 1-10 and list any specific warnings (things that will cause weak output).
+
+Return ONLY valid JSON:
+{
+  "score": <1-10>,
+  "warnings": ["specific warning 1", "specific warning 2"]
+}
+
+If score >= 7, return empty warnings array. Only warn about things that will actually cause problems.`;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any = await withRetry(() => getXai().chat.completions.create({
+      model: "grok-4-1-fast-non-reasoning",
+      max_tokens: 2048,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }), "assessBriefQuality");
+
+    const raw = res.choices[0].message?.content ?? "";
+    const parsed = JSON.parse(repairJson(raw));
+    if (parsed.score >= 7 || !parsed.warnings?.length) return null;
+    return { score: parsed.score, warnings: parsed.warnings };
+  } catch {
+    return null; // Don't block the pipeline on assessment failure
+  }
+}
+
+// ── Voice fidelity scoring (Grok — post-generation quality gate) ─────────────
+
+/**
+ * Score how well a finished draft matches the author's voice profile.
+ * Runs after humanization as a quality gate. Returns a score (0-100)
+ * and flags specific sentences that break voice.
+ * If the score is below threshold, the flagged sentences inform a
+ * targeted re-humanization pass.
+ */
+export async function scoreVoiceFidelity(
+  draft: string,
+  voiceProfile: VoiceAnalysis,
+  contentType: string,
+): Promise<{ score: number; flags: string[] }> {
+  const typeLabel = CONTENT_TYPE_LABELS[contentType] ?? contentType;
+
+  const systemPrompt = `You are a voice authenticity auditor. You've studied this author's writing extensively and can identify when prose doesn't match their voice. Your job is to score a finished draft on voice fidelity and flag every sentence that doesn't sound like this person.
+
+REASONING PROTOCOL:
+Read the entire draft twice:
+1. First pass: overall impression. Does it FEEL like this author? Gut reaction.
+2. Second pass: sentence-by-sentence. For each sentence, ask: "Would this specific human write this sentence exactly this way?" If no, flag it and explain why.
+
+SCORING GUIDE:
+- 90-100: Indistinguishable from the author. A reader who knows them would not suspect AI.
+- 80-89: Strong match with a few tells. Minor adjustments would fix it.
+- 70-79: Decent match but several sentences feel off. The voice is there but inconsistent.
+- 60-69: Mixed. Some parts sound like them, others sound like generic AI prose.
+- Below 60: Significant voice mismatch. Needs substantial rework.
+
+## Author Voice Profile
+**Summary:** ${voiceProfile.rawSummary}
+**Tone:** ${voiceProfile.tone}
+**Sentence Structure:** ${voiceProfile.sentenceStructure}
+**Vocabulary:** ${voiceProfile.vocabularyStyle}
+**Punctuation:** ${voiceProfile.punctuationHabits}
+**Paragraph Style:** ${voiceProfile.paragraphStyle}
+**Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
+**Human Imperfections:** ${voiceProfile.humanImperfections ?? "not specified"}
+**Authentic Quirks:** ${voiceProfile.authenticQuirks ?? "not specified"}
+**Things this author NEVER does:** ${voiceProfile.thingsToAvoid.join("; ")}
+**Emotional Patterns:** ${voiceProfile.emotionalPatterns ?? "not specified"}
+**Transition Style:** ${voiceProfile.transitionStyle ?? "not specified"}`;
+
+  const userPrompt = `Score this ${typeLabel} on voice fidelity (0-100). Flag any sentences or passages that don't match this author's voice.
+
+Draft:
+
+${draft}
+
+Return ONLY valid JSON:
+{
+  "score": <0-100>,
+  "flags": ["<sentence or passage that doesn't match voice> — <why it fails>"]
+}
+
+Be ruthless. If the piece sounds like polished AI prose where the author writes raw and casual, that's a voice failure even if the grammar is "correct." The goal is authenticity, not quality.`;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any = await withRetry(() => getXai().chat.completions.create({
+      model: XAI_WRITING_MODEL,
+      max_completion_tokens: 32000,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }), "scoreVoiceFidelity");
+
+    const msg = res.choices[0].message;
+    const raw = msg.content ?? msg.reasoning_content ?? "";
+    const parsed = JSON.parse(repairJson(raw));
+    return {
+      score: parsed.score ?? 0,
+      flags: Array.isArray(parsed.flags) ? parsed.flags : [],
+    };
+  } catch {
+    // Don't block the pipeline on scoring failure
+    return { score: 100, flags: [] };
+  }
+}
