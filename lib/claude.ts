@@ -176,7 +176,7 @@ Rules:
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_tokens: 32000,
+    max_completion_tokens: 32000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -236,7 +236,7 @@ Return ONLY valid JSON:
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_tokens: 8000,
+    max_completion_tokens: 8000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
