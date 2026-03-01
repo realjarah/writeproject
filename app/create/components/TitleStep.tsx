@@ -8,6 +8,7 @@ interface Props {
   intake: IntakeResult;
   overrideType: string | null;
   answers: Record<string, string>;
+  description: string;
   titleInput: string;
   onUpdate: BriefUpdater;
   gradeResult: GradeResult;
@@ -18,6 +19,7 @@ export default function TitleStep({
   intake,
   overrideType,
   answers,
+  description,
   titleInput,
   onUpdate,
   gradeResult,
@@ -35,9 +37,9 @@ export default function TitleStep({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contentType: overrideType ?? intake.contentType ?? "blog",
-          topic: intake.topic ?? answers.topic ?? "",
-          angle: intake.angle ?? answers.angle ?? "",
-          keyPoints: intake.keyPoints ?? answers.keyPoints ?? "",
+          topic: intake.topic ?? description,
+          angle: intake.angle ?? "",
+          keyPoints: intake.keyPoints ?? "",
         }),
       });
       const data = await res.json();

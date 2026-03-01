@@ -587,6 +587,7 @@ export default function CreatePage() {
           intake={briefState.intake}
           overrideType={briefState.overrideType}
           answers={briefState.answers}
+          description={briefState.description}
           titleInput={briefState.titleInput}
           onUpdate={updateBrief}
           gradeResult={gradeResult}

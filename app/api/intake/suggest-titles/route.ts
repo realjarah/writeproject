@@ -24,8 +24,10 @@ const TITLE_STYLE_BY_GROUP: Record<string, string> = {
 export async function POST(req: NextRequest) {
   try {
   const { contentType, topic, angle, keyPoints } = await req.json();
-  if (!topic) {
-    return NextResponse.json({ error: "topic required" }, { status: 400 });
+  // Use whatever context we have — topic, angle, keyPoints, or any combination
+  const context = [topic, angle, keyPoints].filter(Boolean).join(". ");
+  if (!context) {
+    return NextResponse.json({ error: "Need at least a topic or description" }, { status: 400 });
   }
 
   const group = getGroupForType(contentType);
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   const result = await getGemini().models.generateContent({
     model: "gemini-2.5-flash",
-    contents: `Content type: ${typeLabel}\nTopic: ${topic}\nAngle: ${angle || "not specified"}\nKey points: ${keyPoints || "not specified"}`,
+    contents: `Content type: ${typeLabel}\nDescription: ${context}`,
     config: {
       systemInstruction: `Generate exactly 4 compelling, specific title options for the described piece. Return ONLY valid JSON with no prose: { "titles": ["title1", "title2", "title3", "title4"] }
 
