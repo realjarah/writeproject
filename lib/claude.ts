@@ -9,12 +9,14 @@ export type {
   GenerationContext,
   InterviewAnswers,
   VoiceAnalysis,
+  SubVoiceAnalysis,
   LabeledSample,
 } from "./content-types";
 export { CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "./content-types";
 
 import type {
   VoiceAnalysis,
+  SubVoiceAnalysis,
   LabeledSample,
   ContextItem,
   GenerationContext,
@@ -23,14 +25,14 @@ import type {
 import { CONTENT_TYPE_LABELS } from "./content-types";
 
 // ── Provider clients (lazy — Next.js evaluates modules at build time) ────────
-// Opus: voice analysis, humanizer, self-review (voice + quality layer)
+// Opus: humanizer, self-review, draft comparison (voice + quality layer)
 let _anthropic: Anthropic;
 function getAnthropic() {
   if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   return _anthropic;
 }
 
-// Grok: core writing engine — planning (non-light) + drafting (2M context)
+// Grok: voice analysis, planning (non-light), drafting (2M context)
 let _xai: OpenAI;
 function getXai() {
   if (!_xai) _xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
@@ -48,6 +50,61 @@ function getGemini() {
 const XAI_WRITING_MODEL = "grok-4-1-fast-reasoning";
 const GEMINI_FAST_MODEL = "gemini-2.5-flash";
 
+// ── Retry helper ─────────────────────────────────────────────────────────────
+// Retries on transient failures (rate limits, network errors, 5xx).
+// Exponential backoff: 2s, 4s, 8s. Max 3 retries.
+
+function isRetryable(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    // Rate limit / overloaded / timeout / network
+    if (msg.includes("rate") || msg.includes("429") || msg.includes("503")
+        || msg.includes("overloaded") || msg.includes("timeout")
+        || msg.includes("econnreset") || msg.includes("socket hang up")
+        || msg.includes("fetch failed")) {
+      return true;
+    }
+    // OpenAI SDK / Anthropic SDK status codes
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const status = (err as any).status ?? (err as any).statusCode;
+    if (status === 429 || status === 503 || status === 502 || status === 500) return true;
+  }
+  return false;
+}
+
+async function withRetry<T>(fn: () => Promise<T>, label: string, maxRetries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxRetries && isRetryable(err)) {
+        const delayMs = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s
+        console.warn(`[retry] ${label} attempt ${attempt + 1} failed, retrying in ${delayMs}ms:`, err instanceof Error ? err.message : err);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr; // unreachable, but TypeScript needs it
+}
+
+/** Best-effort repair of LLM-produced JSON before parsing. */
+function repairJson(text: string): string {
+  let s = text
+    // Strip markdown code fences
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim();
+  // Remove trailing commas before } or ]
+  s = s.replace(/,\s*([}\]])/g, "$1");
+  // Strip control characters that break JSON strings (keep \n \r \t)
+  s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+  return s;
+}
+
 export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnalysis> {
   const samplesText = samples
     .map((s, i) => {
@@ -63,14 +120,9 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
       ? `\nNote: samples span multiple formats (${categories.join(", ")}). Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats.\n`
       : "";
 
-  // Opus: voice analysis is the foundation — quality here determines everything downstream
-  const message = await getAnthropic().messages.create({
-    model: "claude-opus-4-6",
-    max_tokens: 10000,
-    messages: [
-      {
-        role: "user",
-        content: `You are a writing style analyst. Analyze the following writing samples from a single author and extract a detailed voice profile that could be used to ghost-write in their exact style.
+  const systemPrompt = `You are a writing style analyst. Your job is to deeply analyze writing samples from a single author and extract a comprehensive voice profile that a ghostwriter could use to write indistinguishably as this person. Take your time. Read every sample multiple times. Notice patterns across samples, not just within them.`;
+
+  const userPrompt = `Analyze the following writing samples from a single author and extract a detailed voice profile that could be used to ghost-write in their exact style.
 ${categorySection}
 ${samplesText}
 
@@ -88,25 +140,122 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
   "contentGuidelines": {
     "[contentType]": ["6–8 specific, actionable guidelines bridging THIS author's voice with that format's conventions. Each must be specific to this author's actual patterns—not generic writing advice. A ghostwriter must be able to apply each one immediately."]
-  },
-  "topicInsights": {
-    "[broad topic]": "How this author specifically approaches this subject area — recurring angles, framing, terminology, emotional register, and argumentative patterns they use when writing about this topic, regardless of format."
   }
 }
 
 Rules:
 - Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
-- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.
-- topicInsights: Identify recurring subject areas / themes across samples. Use BROAD topic labels (e.g. "health & fitness" not "testosterone", "AI & technology" not "ChatGPT", "leadership & management" not "remote work"). Include topics that appear in 2+ samples across ANY format. For each, describe the author's specific angle, framing, and voice when writing about that subject. Omit the field entirely if no recurring topics are detected.`,
-      },
-    ],
-  });
+- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.`;
 
-  const raw =
-    message.content[0].type === "text" ? message.content[0].text : "";
-  // Strip markdown code fences if the model wraps the JSON despite instructions
-  const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-  return JSON.parse(text) as VoiceAnalysis;
+  // Grok 4.1 reasoning: 2M context window lets us feed ALL samples at once
+  // without truncation. High reasoning budget lets it deeply analyze patterns
+  // across the full corpus. This is the foundation — everything downstream
+  // depends on voice profile quality.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
+    model: XAI_WRITING_MODEL,
+    max_tokens: 32000,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  }), "analyzeVoice");
+
+  const raw = res.choices[0].message.content ?? "";
+  return JSON.parse(repairJson(raw)) as VoiceAnalysis;
+}
+
+/**
+ * Analyze how the author's voice manifests in a specific content format.
+ * Uses a dedicated Grok call focused on only that category's samples.
+ */
+export async function analyzeSubVoice(
+  category: string,
+  samples: LabeledSample[],
+  mainVoiceSummary: string
+): Promise<SubVoiceAnalysis> {
+  const categorySamples = samples.filter(s => s.category === category);
+  if (categorySamples.length === 0) {
+    return { summary: "", toneShift: "", structuralPatterns: "", vocabularyNotes: "", keyGuidelines: [] };
+  }
+
+  const samplesText = categorySamples
+    .map((s, i) => {
+      let header = `--- Sample ${i + 1} ---`;
+      if (s.notes) header += `\nAuthor's note: "${s.notes}"`;
+      return `${header}\n${s.content}`;
+    })
+    .join("\n\n");
+
+  const categoryLabel = CONTENT_TYPE_LABELS[category] ?? category;
+
+  const systemPrompt = `You are a writing style analyst specializing in format-specific voice analysis. You have already analyzed this author's overall voice. Now you need to understand how their voice specifically manifests when writing ${categoryLabel} content.`;
+
+  const userPrompt = `The author's overall voice summary: "${mainVoiceSummary}"
+
+Below are their ${categoryLabel} writing samples. Analyze how their voice specifically shows up in this format.
+
+${samplesText}
+
+Return ONLY valid JSON:
+{
+  "summary": "2-3 sentence description of how this author writes ${categoryLabel} content specifically",
+  "toneShift": "how their tone shifts (if at all) when writing ${categoryLabel} vs their general voice",
+  "structuralPatterns": "structural tendencies specific to their ${categoryLabel} writing",
+  "vocabularyNotes": "vocabulary or register shifts in this format",
+  "keyGuidelines": ["4-6 specific, actionable guidelines for ghostwriting ${categoryLabel} content as this author"]
+}`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
+    model: XAI_WRITING_MODEL,
+    max_tokens: 8000,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  }), `analyzeSubVoice:${category}`);
+
+  const raw = res.choices[0].message.content ?? "";
+  return JSON.parse(repairJson(raw)) as SubVoiceAnalysis;
+}
+
+/**
+ * Run main voice analysis + parallel per-category sub-voice analysis.
+ * Returns a unified VoiceAnalysis with subVoices populated.
+ */
+export async function analyzeVoiceWithSubVoices(
+  samples: LabeledSample[],
+  selectedCategories: string[]
+): Promise<VoiceAnalysis> {
+  const mainAnalysis = await analyzeVoice(samples);
+
+  // Only run sub-voice calls for categories that actually have samples
+  const categoriesWithSamples = selectedCategories.filter(cat =>
+    samples.some(s => s.category === cat)
+  );
+
+  if (categoriesWithSamples.length > 0) {
+    const subVoiceResults = await Promise.all(
+      categoriesWithSamples.map(async (category) => {
+        try {
+          const subVoice = await analyzeSubVoice(category, samples, mainAnalysis.rawSummary);
+          return [category, subVoice] as const;
+        } catch (err) {
+          console.warn(`[analyzeSubVoice] Failed for ${category}:`, err);
+          return null;
+        }
+      })
+    );
+
+    const subVoices: Record<string, SubVoiceAnalysis> = {};
+    for (const result of subVoiceResults) {
+      if (result) subVoices[result[0]] = result[1];
+    }
+    mainAnalysis.subVoices = subVoices;
+  }
+
+  return mainAnalysis;
 }
 
 
@@ -114,25 +263,49 @@ Rules:
 // CONTENT_TYPE_LABELS and CONTENT_TYPE_GROUPS are imported from ./content-types
 
 const WORD_GUIDANCE: Record<string, string> = {
-  blog:          "600–1200 words unless the brief specifies otherwise. Short paragraphs, natural web formatting.",
-  essay:         "500–1500 words. Clear thesis, structured argument, strong opening and close.",
-  newsletter:    "Conversational, scannable. Clear sections with headers. 200–600 words per section.",
-  whitepaper:    "Write as long as the scope demands — cover the full argument completely. Abstract → executive summary → body sections → conclusion. Data-backed throughout. Cite all [REFERENCE] context items.",
-  email:         "Subject line first, then body. Short paragraphs, one clear ask or CTA. 50–400 words.",
-  report:        "Structured with headers. Executive summary first. Data-driven, precise language. Write as long as the scope demands — never truncate to hit a word count. Attribute all [REFERENCE] context items as sources.",
-  press_release: "Inverted pyramid: headline + dateline + lead (who/what/when/where/why) + body + boilerplate. 400–600 words.",
-  proposal:      "Executive summary → problem → solution → timeline → budget (if provided) → next steps. Persuasive but factual.",
-  case_study:    "Challenge → approach → results → lessons learned. 800–2000 words. Specific, quantified outcomes.",
-  resume:        "Reverse chronological unless specified. Achievement-focused bullets. Quantify impact. No filler. ATS-friendly.",
-  cover_letter:  "3–4 paragraphs: hook → specific connection to role → evidence → closing ask. 250–400 words.",
-  research:      "Write as long as the scope demands — do not truncate to hit a word count. Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references. Cover every facet of the topic. Cite every [REFERENCE] context item in-text and in the references section.",
-  technical:     "Write as long as the scope demands — complete coverage beats brevity. Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level. Cite [REFERENCE] context items with inline links or footnotes.",
-  social:          "Single post. Twitter/X: under 280 characters total. LinkedIn: 150–300 words with line breaks. No markdown symbols.",
-  twitter_thread:  "Output each tweet separated by '---' on its own line (e.g. tweet text\\n---\\nnext tweet). Each tweet MUST be under 280 characters — this is a hard platform limit, count carefully. Aim for 5–12 tweets. Each tweet should flow naturally into the next but stand alone. Plain text only — no markdown bold/italics/headers/bullets. Open strong, close with a hook or call to action.",
-  caption:       "1–4 sentences. Conversational, relevant to the image or moment.",
-  text_message:  "1–3 sentences max. Casual, direct. Match the sender's register.",
-  speech:        "Write for the ear, not the eye. Short sentences, natural pauses, direct address. Memorable opening and close.",
-  script:        "Label speakers or segments clearly. Write for spoken delivery. Conversational but structured. Include stage directions if helpful.",
+  // Personal
+  notes:               "Personal notes, brain dumps, shorthand. Match the author's natural thinking style. 50–500 words.",
+  list:                "Bullet points or numbered items. Clear, actionable where applicable. No unnecessary prose. 5–50 items.",
+  ai_prompt:           "Clear, specific instructions for an AI model. Define role, task, constraints, and output format. 50–500 words. Precision matters more than length.",
+  letter:              "Formal or semi-formal correspondence. Opening greeting, body paragraphs, closing. 200–800 words.",
+  thank_you_note:      "Warm, personal, specific. Reference what you're thanking for. 50–200 words.",
+  review:              "Honest, specific assessment. Lead with the verdict, support with details and examples. 100–500 words. Conversational but credible.",
+  bio:                 "First or third person as specified. Highlight credentials, experience, and personality. Concise but compelling. 50–300 words.",
+  text_message:        "1–3 sentences max. Casual, direct. Match the sender's register.",
+  // Social Media
+  social:              "Single post. Twitter/X: under 280 characters total. LinkedIn: 150–300 words with line breaks. No markdown symbols.",
+  twitter_thread:      "Output each tweet separated by '---' on its own line (e.g. tweet text\\n---\\nnext tweet). Each tweet MUST be under 280 characters — this is a hard platform limit, count carefully. Aim for 5–12 tweets. Each tweet should flow naturally into the next but stand alone. Plain text only — no markdown bold/italics/headers/bullets. Open strong, close with a hook or call to action.",
+  caption:             "1–4 sentences. Conversational, relevant to the image or moment.",
+  // Professional
+  email:               "Subject line first, then body. Short paragraphs, one clear ask or CTA. 50–400 words.",
+  proposal:            "Executive summary → problem → solution → timeline → budget (if provided) → next steps. Persuasive but factual.",
+  cover_letter:        "3–4 paragraphs: hook → specific connection to role → evidence → closing ask. 250–400 words.",
+  resume:              "Reverse chronological unless specified. Achievement-focused bullets. Quantify impact. No filler. ATS-friendly.",
+  press_release:       "Inverted pyramid: headline + dateline + lead (who/what/when/where/why) + body + boilerplate. 400–600 words.",
+  scope_of_work:       "Formal project document. Sections: overview → objectives → deliverables → timeline/milestones → assumptions → acceptance criteria. Precise, unambiguous language. 500–2000 words.",
+  rfp:                 "Formal procurement document or response. Clear requirements, evaluation criteria, submission instructions, and timeline. Professional, specific, and structured. 500–3000 words.",
+  // Business
+  business_plan:       "Write as long as the scope demands — complete coverage is essential. Executive summary → company description → market analysis → competitive landscape → products/services → marketing strategy → operations → financial projections → funding requirements. Data-driven, investor-ready language.",
+  report:              "Structured with headers. Executive summary first. Data-driven, precise language. Write as long as the scope demands — never truncate to hit a word count. Attribute all [REFERENCE] context items as sources.",
+  case_study:          "Challenge → approach → results → lessons learned. 800–2000 words. Specific, quantified outcomes.",
+  handbook:            "Write as long as the scope demands — comprehensive coverage is critical. Clear section headers, consistent formatting, plain language. Policy-oriented but accessible. Table of contents structure.",
+  // Marketing & Content
+  blog:                "600–1200 words unless the brief specifies otherwise. Short paragraphs, natural web formatting.",
+  newsletter:          "Conversational, scannable. Clear sections with headers. 200–600 words per section.",
+  ad_copy:             "Headline + body. Benefit-driven, clear CTA. Tight, punchy language. Match the platform (social ad, print, landing page). 25–200 words.",
+  product_description: "Feature-benefit structure. Scannable, specific, sensory where appropriate. Match the platform (e-commerce, catalog, landing page). 50–300 words.",
+  // Education
+  lesson_plan:         "Structured format: objectives → materials → procedure → assessment → differentiation. Clear, actionable steps for the instructor. 300–1000 words.",
+  course:              "Write as long as the scope demands. Module/lesson structure with clear learning objectives, content sections, activities, and assessment prompts. Educational but engaging tone.",
+  guide:               "Step-by-step structure with clear headers. Actionable, practical instructions. 500–2000 words. Include prerequisites, warnings, and tips where helpful.",
+  // Academic & Technical
+  research:            "Write as long as the scope demands — do not truncate to hit a word count. Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references. Cover every facet of the topic. Cite every [REFERENCE] context item in-text and in the references section.",
+  technical:           "Write as long as the scope demands — complete coverage beats brevity. Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level. Cite [REFERENCE] context items with inline links or footnotes.",
+  whitepaper:          "Write as long as the scope demands — cover the full argument completely. Abstract → executive summary → body sections → conclusion. Data-backed throughout. Cite all [REFERENCE] context items.",
+  // Creative & Spoken
+  essay:               "500–1500 words. Clear thesis, structured argument, strong opening and close.",
+  speech:              "Write for the ear, not the eye. Short sentences, natural pauses, direct address. Memorable opening and close.",
+  script:              "Label speakers or segments clearly. Write for spoken delivery. Conversational but structured. Include stage directions if helpful.",
 };
 
 // ── Files API helpers ────────────────────────────────────────────────────────
@@ -161,8 +334,46 @@ export async function uploadFile(
 }
 
 /**
+ * Extract clean text from a PDF via the Files API + Sonnet.
+ * Used so text-only models (Grok) can see PDF context during planning/drafting.
+ */
+async function extractPdfText(fileId: string, fileName?: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const message = await (getAnthropic().messages.create as any)(
+    {
+      model: "claude-sonnet-4-6",
+      max_tokens: 16000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: { type: "file", file_id: fileId },
+              ...(fileName ? { title: fileName } : {}),
+            },
+            {
+              type: "text",
+              text: "Extract and return ONLY the clean text from this document. Preserve paragraph breaks with double newlines. Remove page numbers, headers, footers, and non-content elements. Return nothing but the text.",
+            },
+          ],
+        },
+      ],
+    },
+    { headers: { "anthropic-beta": FILES_API_BETA } }
+  );
+
+  return (message.content as Anthropic.TextBlock[])
+    .filter((b: Anthropic.TextBlock) => b.type === "text")
+    .map((b: Anthropic.TextBlock) => b.text)
+    .join("")
+    .trim();
+}
+
+/**
  * Upload all binary context items (PDFs, images) to the Files API once.
- * Mutates items in-place: sets `fileId` and clears `data` to free memory.
+ * For PDFs, also extracts text so text-only models (Grok) can see content.
+ * Clears base64 data after upload to free memory.
  * Items that fail to upload keep their base64 data as fallback.
  */
 export async function uploadContextFiles(
@@ -178,8 +389,19 @@ export async function uploadContextFiles(
         const buf = Buffer.from(item.data, "base64");
         const name = item.fileName || `file.${item.mediaType.split("/")[1] || "bin"}`;
         const fileId = await uploadFile(buf, name, item.mediaType);
+
+        // For PDFs, extract text so Grok can see content during planning/drafting
+        let extractedText: string | undefined;
+        if (item.mediaType === "application/pdf") {
+          try {
+            extractedText = await extractPdfText(fileId, name);
+          } catch (err) {
+            console.warn(`[uploadContextFiles] PDF text extraction failed for ${name}:`, err);
+          }
+        }
+
         // Clear base64 data to free memory; keep fileId for all subsequent calls
-        return { ...item, fileId, data: undefined };
+        return { ...item, fileId, data: undefined, ...(extractedText ? { extractedText } : {}) };
       } catch (err) {
         console.error(`[uploadContextFiles] Failed to upload ${item.fileName ?? "file"}:`, err);
         // Upload failed — keep base64 data as fallback
@@ -265,6 +487,10 @@ function buildContextBlock(context: GenerationContext): string {
         ? "PDF document"
         : item.mediaType?.startsWith("image/") ? "Image" : "File";
       lines.push(`--- Context ${i + 1}: [${tag}] ${kind}${item.fileName ? ` — ${item.fileName}` : ""} (attached below) ---`);
+      // Include extracted text inline so text-only models (Grok) can see PDF content
+      if (item.extractedText?.trim()) {
+        lines.push(truncateIfNeeded(item.extractedText.trim(), MAX_ITEM_CHARS, `extracted ${item.fileName ?? "file"}`));
+      }
     } else if (item.fileName && item.text !== undefined) {
       // Text-based file
       lines.push(`--- Context ${i + 1}: [${tag}] ${item.fileName}${item.isCSV ? " (CSV data)" : ""} ---`);
@@ -383,108 +609,6 @@ function buildGrokImageBlocks(
   return blocks;
 }
 
-export async function generateContent(
-  voiceProfile: VoiceAnalysis,
-  interview: InterviewAnswers,
-  context?: GenerationContext
-): Promise<ReadableStream<Uint8Array>> {
-  const contentTypeLabels: Record<string, string> = {
-    blog: "a blog post / article",
-    social: "a social media post (e.g. Twitter/X or LinkedIn)",
-    caption: "a short caption (e.g. Instagram or TikTok)",
-  };
-
-  const wordGuidance: Record<string, string> = {
-    blog: interview.wordCountTarget
-      ? `Target length: ${interview.wordCountTarget} words.`
-      : "Aim for 600-1200 words unless the topic calls for more or less.",
-    social:
-      "Keep it punchy — typically 50-280 characters for Twitter/X, or 150-300 words for LinkedIn. Match the platform feel.",
-    caption:
-      "Short and punchy — 1 to 4 sentences max. Can include relevant hashtags if the author's samples suggest they use them.",
-  };
-
-  const systemPrompt = `You are a ghost-writer. Your ONLY job is to write ${contentTypeLabels[interview.contentType]} that sounds EXACTLY like the author described below. You must not reveal you are an AI, not add disclaimers, and not deviate from their voice under any circumstances.
-
-## Author Voice Profile
-
-**Tone:** ${voiceProfile.tone}
-
-**Sentence Structure:** ${voiceProfile.sentenceStructure}
-
-**Vocabulary Style:** ${voiceProfile.vocabularyStyle}
-
-**Punctuation Habits:** ${voiceProfile.punctuationHabits}
-
-**Paragraph Style:** ${voiceProfile.paragraphStyle}
-
-**Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
-
-**Recurring Patterns:**
-${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
-
-**Things to Avoid (not part of their voice):**
-${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-
-**Style Summary:** ${voiceProfile.rawSummary}
-
-## Output Rules
-- Write ONLY the finished piece. No preamble, no "Here's your post:", no meta-commentary.
-- ${wordGuidance[interview.contentType]}
-- Sound like a real human wrote this — their human.`;
-
-  const contextBlock = context ? buildContextBlock(context) : "";
-  const binaryBlocks = context ? buildBinaryBlocks(context) : [];
-  const betaHeaders = getBetaHeaders(binaryBlocks);
-
-  const userPrompt = `Write ${contentTypeLabels[interview.contentType]} using the following brief:
-
-**Topic:** ${sanitizeUserInput(interview.topic)}
-**Angle / Point of View:** ${sanitizeUserInput(interview.angle)}
-**Key Points to Cover:** ${sanitizeUserInput(interview.keyPoints)}
-**Sources / Data to Reference:** ${
-    interview.sourcesOrData ? sanitizeUserInput(interview.sourcesOrData) : "None provided — draw on general knowledge."
-  }
-**Target Audience:** ${interview.targetAudience ? sanitizeUserInput(interview.targetAudience) : "The author's usual audience."}
-**Extra Tone Notes:** ${interview.toneNotes ? sanitizeUserInput(interview.toneNotes) : "None."}
-${contextBlock}
-Write it now.`;
-
-  const messageContent =
-    binaryBlocks.length > 0
-      ? [{ type: "text", text: userPrompt }, ...binaryBlocks]
-      : userPrompt;
-
-  const streamOptions = Object.keys(betaHeaders).length > 0
-    ? { headers: betaHeaders }
-    : {};
-
-  const stream = await getAnthropic().messages.stream(
-    {
-      model: "claude-opus-4-6",
-      max_tokens: 4096,
-      system: systemPrompt,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      messages: [{ role: "user", content: messageContent as any }],
-    },
-    streamOptions
-  );
-
-  return new ReadableStream({
-    async start(controller) {
-      for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
-        }
-      }
-      controller.close();
-    },
-  });
-}
-
 // ── Stage budgets (scales with format complexity / output length) ─────────────
 
 interface StageBudget { maxTokens: number; thinkingBudget: number }
@@ -497,29 +621,46 @@ interface StageBudgets {
 }
 
 const STAGE_BUDGETS: Record<string, StageBudgets> = {
-  // Academic / very long-form
+  // ── Very long-form (128k draft) ───────────────────────────────────────────
   research:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
   whitepaper:    { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
+  business_plan: { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
+  handbook:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
   technical:     { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, humanize: { maxTokens: 100000, thinkingBudget: 48000 } },
+  course:        { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, humanize: { maxTokens: 100000, thinkingBudget: 48000 } },
+  // ── Standard long-form (64k–80k draft) ────────────────────────────────────
   case_study:    { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
-  // Standard long-form
   report:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
+  rfp:           { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
+  scope_of_work: { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
+  guide:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
   essay:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
+  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
   speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 24000 } },
   script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 24000 } },
-  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
-  // Business medium — humanizer needs serious thinking to scan, rewrite, audit, and revise
+  // ── Medium (16k–32k draft) ────────────────────────────────────────────────
   blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, draftFollowup: { maxTokens: 32000,  thinkingBudget: 10000 }, humanize: { maxTokens: 32000,  thinkingBudget: 24000 } },
   newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, draftFollowup: { maxTokens: 24000,  thinkingBudget: 8000  }, humanize: { maxTokens: 24000,  thinkingBudget: 16000 } },
   press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 12000 } },
+  lesson_plan:   { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 12000 } },
   resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 10000 } },
   cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 10000 } },
-  email:         { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
-  // Short-form — humanizer still needs full audit even for short pieces
-  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,  thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,  thinkingBudget: 2000  }, humanize: { maxTokens: 4000,  thinkingBudget: 8000  } },
-  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000, thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000, thinkingBudget: 5000  }, humanize: { maxTokens: 12000, thinkingBudget: 16000 } },
-  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,  thinkingBudget: 1500  }, humanize: { maxTokens: 3000,  thinkingBudget: 6000  } },
-  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,  thinkingBudget: 1500  }, humanize: { maxTokens: 3000,  thinkingBudget: 6000  } },
+  // ── Short (4k–8k draft) ───────────────────────────────────────────────────
+  letter:          { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  review:          { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  email:           { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  bio:             { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  product_description: { plan: { maxTokens: 6000, thinkingBudget: 4000 }, draft: { maxTokens: 4000, thinkingBudget: 3000 }, draftFollowup: { maxTokens: 4000, thinkingBudget: 2000 }, humanize: { maxTokens: 4000, thinkingBudget: 8000 } },
+  list:            { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 16000 } },
+  // ── Very short (3k draft) ─────────────────────────────────────────────────
+  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  thank_you_note:  { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  ad_copy:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  ai_prompt:       { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  notes:           { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
 };
 
 const DEFAULT_BUDGETS: StageBudgets = {
@@ -536,10 +677,11 @@ export function getStageBudgets(contentType: string): StageBudgets {
 // ── Pipeline tier sets ───────────────────────────────────────────────────────
 
 /** Content types that use the lightweight pipeline (Gemini for planning).
- *  Only truly short-form content — threads, emails, and resumes are voice-critical
- *  enough to warrant the full pipeline. */
+ *  Only truly short-form or functional content where voice matching is secondary.
+ *  Voice-critical short types (bio, review, thank_you_note, letter) stay in full pipeline. */
 export const LIGHT_TYPES = new Set([
   "caption", "text_message", "social",
+  "ai_prompt", "notes", "list", "ad_copy",
 ]);
 
 // ── Voice fingerprint (condensed samples for follow-up calls) ────────────────
@@ -596,7 +738,8 @@ Search for relevant, current information. After researching, produce a well-stru
 Be specific and factual. Reference sources inline (e.g. "According to [Source], ..."). Format clearly with headers and bullets. The ghostwriter will use this directly as context.`;
 
   // Gemini Flash with Google Search grounding — single call, no tool loop needed
-  const result = await getGemini().models.generateContent({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result: any = await withRetry(() => getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
     contents: prompt,
     config: {
@@ -604,24 +747,29 @@ Be specific and factual. Reference sources inline (e.g. "According to [Source], 
       tools: [{ googleSearch: {} }],
       maxOutputTokens: 8000,
     },
-  });
+  }), "conductResearch");
 
   return result.text || "Research could not be completed.";
 }
 
-// ── Topic insights helper ────────────────────────────────────────────────────
+// ── Sub-voice helper ─────────────────────────────────────────────────────────
 
 /**
- * Build a prompt block containing all topic insights from the voice profile.
- * All topics are included — the model decides which are relevant to the current piece.
+ * Build a prompt block containing the per-format sub-voice profile for the current content type.
  */
-function buildTopicInsightsBlock(voiceProfile: VoiceAnalysis): string {
-  const topics = voiceProfile.topicInsights;
-  if (!topics || Object.keys(topics).length === 0) return "";
-  const lines = Object.entries(topics).map(
-    ([topic, insight]) => `- **${topic}:** ${insight}`
-  );
-  return `\n**How this author approaches familiar topics (use any that are relevant):**\n${lines.join("\n")}\n`;
+function buildSubVoiceBlock(voiceProfile: VoiceAnalysis, contentType: string): string {
+  const subVoice = voiceProfile.subVoices?.[contentType];
+  if (!subVoice) return "";
+  const lines = [
+    `Summary: ${subVoice.summary}`,
+    `Tone shift: ${subVoice.toneShift}`,
+    `Structural patterns: ${subVoice.structuralPatterns}`,
+    `Vocabulary notes: ${subVoice.vocabularyNotes}`,
+    subVoice.keyGuidelines.length > 0
+      ? `Key guidelines:\n${subVoice.keyGuidelines.map(g => `- ${g}`).join("\n")}`
+      : "",
+  ].filter(Boolean);
+  return `\n**Format-specific voice profile for ${CONTENT_TYPE_LABELS[contentType] ?? contentType}:**\n${lines.join("\n")}\n`;
 }
 
 // ── Multi-stage pipeline ─────────────────────────────────────────────────────
@@ -669,7 +817,7 @@ export async function planContent(
     ? `\n**How this author's voice shows up in ${resolveTypeLabel(interview)}:** ${categoryInsight}\n`
     : "";
 
-  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
   const examplesBlock = sampleExamples?.length
     ? `\n**Author's Actual Writing (study before planning — match this voice exactly):**\n${
@@ -694,7 +842,7 @@ export async function planContent(
   const voicePlanBlock = `You are ghost-writing a ${resolveTypeLabel(interview)}. The piece must be indistinguishable from this author's own work. Study the voice profile and samples below until you can hear them in your head. Every structural decision in your plan must serve this specific author's voice.
 ${examplesBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
-${authorContextBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}`;
+${authorContextBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}`;
 
   const userPrompt = `Produce the structural plan. Do not write the piece — plan only.
 
@@ -726,14 +874,15 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
 
   if (isLight) {
     // Light tier: Gemini Flash — no reasoning overhead for 1-4 sentence pieces
-    const result = await getGemini().models.generateContent({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: any = await withRetry(() => getGemini().models.generateContent({
       model: GEMINI_FAST_MODEL,
       contents: userPrompt,
       config: {
         systemInstruction: voicePlanBlock,
         maxOutputTokens: planBudget.maxTokens,
       },
-    });
+    }), "planContent/light");
     return result.text ?? "";
   }
 
@@ -744,14 +893,15 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
     ? [{ type: "text", text: userPrompt }, ...grokImages]
     : userPrompt;
 
-  const res = await getXai().chat.completions.create({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
     max_tokens: planBudget.maxTokens,
     messages: [
       { role: "system", content: voicePlanBlock },
       { role: "user", content: userContent },
     ],
-  });
+  }), "planContent/grok");
 
   return res.choices[0].message.content ?? "";
 }
@@ -788,7 +938,7 @@ export async function draftContent(
     ? `\n## How This Author Writes ${resolveTypeLabel(interview)}\n${categoryInsight}\n`
     : "";
 
-  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
   // Full samples for first draft, condensed fingerprint for follow-up drafts
   const examplesSection = sampleExamples?.length
@@ -824,7 +974,7 @@ Read the voice profile and writing samples below. Internalize the rhythm, the wo
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in your output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${examplesSection}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}`;
+${examplesSection}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}`;
 
   const rulesBlock = `## Forbidden — zero tolerance. Any of these in the output is an automatic failure.
 - Opener clichés: "In today's fast-paced world", "In the digital age", "It goes without saying", "In an era where"
@@ -880,14 +1030,15 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
   const budgets = getStageBudgets(interview.contentType);
   const draftBudget = isFollowup ? budgets.draftFollowup : budgets.draft;
 
-  const res = await getXai().chat.completions.create({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
     max_tokens: draftBudget.maxTokens,
     messages: [
       { role: "system", content: systemText },
       { role: "user", content: userContent },
     ],
-  });
+  }), "draftContent");
 
   return res.choices[0].message.content ?? "";
 }
@@ -896,7 +1047,9 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
  * Stage 2b — Compare and select the best of multiple drafts
  * Analyzes each draft against the voice profile and brief, then outputs the
  * best single piece (selected or synthesized from the strongest elements).
- * Uses Sonnet (not Opus) — this is analytical comparison, not creative generation.
+ * Uses Opus with extended thinking — this is a voice-fidelity judgment that
+ * directly determines what gets humanized. Gemini Flash was too shallow here;
+ * it couldn't reliably distinguish voice authenticity between two drafts.
  */
 export async function compareAndSelectBestDraft(
   drafts: string[],
@@ -905,14 +1058,18 @@ export async function compareAndSelectBestDraft(
 ): Promise<string> {
   const { draft: draftBudget } = getStageBudgets(interview.contentType);
 
-  const userPrompt = `Select the best of these ${drafts.length} drafts. The winner must sound like this specific author wrote it — not like AI. If neither draft meets that standard, take the best elements and make it meet the standard.
+  const systemPrompt = `You are evaluating drafts written by a ghostwriter attempting to mimic a specific author's voice. Your job is to select the best draft — or synthesize the best elements — so the result is indistinguishable from the author's actual writing.
 
-**Author Voice Profile:**
+## Author Voice Profile
 ${voiceProfile.rawSummary}
 - Tone: ${voiceProfile.tone}
 - Sentence structure: ${voiceProfile.sentenceStructure}
 - Vocabulary: ${voiceProfile.vocabularyStyle}
-- Things this author NEVER does: ${voiceProfile.thingsToAvoid.join("; ")}
+- Punctuation habits: ${voiceProfile.punctuationHabits}
+- Rhetorical devices: ${voiceProfile.rhetoricalDevices}
+- Things this author NEVER does: ${voiceProfile.thingsToAvoid.join("; ")}`;
+
+  const userPrompt = `Select the best of these ${drafts.length} drafts. The winner must sound like this specific author wrote it — not like AI. If neither draft meets that standard, take the best elements and make it meet the standard.
 
 **Brief:**
 - Topic: ${interview.topic}
@@ -932,14 +1089,19 @@ Produce the final version. If it contains any AI patterns, remove them before ou
 
 Output ONLY the final piece. Nothing else.`;
 
-  // Gemini Flash: analytical comparison, not creative generation
-  const result = await getGemini().models.generateContent({
-    model: GEMINI_FAST_MODEL,
-    contents: userPrompt,
-    config: { maxOutputTokens: draftBudget.maxTokens },
-  });
+  // Opus with extended thinking: this is a voice-fidelity judgment that
+  // determines what goes into the humanizer. Worth the quality investment.
+  const thinkingBudget = Math.min(Math.ceil(draftBudget.thinkingBudget / 2), 32000, draftBudget.maxTokens - 1);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
+    model: "claude-opus-4-6",
+    max_tokens: draftBudget.maxTokens,
+    thinking: { type: "enabled", budget_tokens: thinkingBudget },
+    system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: userPrompt }],
+  }), "compareAndSelectBestDraft");
 
-  return result.text ?? "";
+  return extractText(res.content) || "";
 }
 
 /**
@@ -992,21 +1154,22 @@ Return ONLY valid JSON (no markdown, no prose, no code fences):
 
   const text = result.text ?? "";
   try {
-    const clean = text
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```\s*$/, "")
-      .trim();
-    return JSON.parse(clean);
+    return JSON.parse(repairJson(text));
   } catch {
-    return {
-      direction: "Restructure the piece to lead with the strongest example first, then build the argument around it. Prioritize narrative momentum.",
-    };
+    // Fallback uses the author's actual rhetorical devices instead of a
+    // generic direction that any writer could follow
+    const fallback = voiceProfile.rhetoricalDevices
+      ? `Lean harder into this author's rhetorical strengths: ${voiceProfile.rhetoricalDevices}. Restructure so the piece leads with the strongest example first.`
+      : "Restructure the piece to lead with the strongest example first, then build the argument around it.";
+    return { direction: fallback };
   }
 }
 
 /**
  * Stage 3 — Humanize
- * Strips AI patterns, audits itself, and produces the final polished piece.
+ * Single-pass humanizer with boosted thinking budget and structured verification.
+ * Replaces the previous 3-pass approach which burned ~70% of pipeline time
+ * and could undo its own fixes across passes.
  * Streams the output.
  */
 export async function humanizeContent(
@@ -1031,7 +1194,7 @@ export async function humanizeContent(
   const categoryInsightBlock = categoryInsight
     ? `\n## How This Author Writes ${typeLabel}\n${categoryInsight}\n`
     : "";
-  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, contentType);
   const fingerprintBlock = sampleExamples?.length
     ? buildVoiceFingerprint(sampleExamples)
     : "";
@@ -1042,9 +1205,7 @@ export async function humanizeContent(
     ? `\n## Author Background\n${authorContext.trim()}\n`
     : "";
 
-  // System prompt: humanizer.md instructions + author voice profile
-  // Same prompt is used for all 3 passes — the instructions don't change,
-  // just the input text gets cleaner each time
+  // System prompt: humanizer.md instructions + author voice profile + structured checklist
   const systemPrompt = [
     {
       type: "text",
@@ -1057,16 +1218,6 @@ export async function humanizeContent(
 
 This text is going to be published under a real person's name. If it reads like AI wrote it, their reputation is damaged. Treat this accordingly.
 
-Apply every single pattern from the humanizer guide above. Miss nothing. Every "furthermore", every rule-of-three, every hollow hedge, every generic conclusion, every synonym cycle, every copula avoidance ("serves as", "stands as"), every filler phrase — find it and kill it.
-
-EM DASH RULE (absolute): Replace virtually ALL em dashes (—) with commas, periods, colons, semicolons, or parentheses. At most ONE em dash may survive in the entire piece, and only if the author's punctuation habits explicitly favor them. When in doubt, remove the em dash. Do NOT introduce any new em dashes in your rewrites — this is the single most common AI tell and the one readers notice first.
-
-Do not replace AI patterns with bland, voiceless prose. That is equally unacceptable. Replace them with THIS AUTHOR'S voice. Read the profile and excerpts below. That is how the output must read — like this specific person sat down and wrote it.
-
-While humanizing, also watch for fabricated specifics — numbers, statistics, percentages, study citations, or data points that look suspiciously precise and were not provided as context. If you spot what appears to be an invented figure, replace it with honest placeholder language (e.g., "your recent results," "the data you mentioned," "[specific number]"). Do not let fabricated data survive into the final output.
-
-Output the final text only. No commentary. No process notes. No preamble.
-
 ## Author Voice Profile
 **Tone:** ${voiceProfile.tone}
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
@@ -1078,67 +1229,81 @@ Output the final text only. No commentary. No process notes. No preamble.
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in the output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}`,
+${fingerprintBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}
+
+## MANDATORY VERIFICATION CHECKLIST
+
+You MUST work through this checklist in your thinking before producing output.
+For each item, scan the ENTIRE draft, count occurrences, and fix every one.
+Do NOT skip items. Do NOT leave any for "later." There is no later.
+
+**PASS 1 — Find and destroy AI patterns:**
+[ ] Count em dashes (—). Replace ALL with commas, periods, colons, semicolons, or parentheses. Maximum 1 surviving em dash in the entire piece, and only if the author's punctuation habits explicitly favor them.
+[ ] Find every instance of: "furthermore", "moreover", "additionally", "in addition" used as paragraph/sentence openers. Remove or rewrite each one.
+[ ] Find every instance of: "delve", "underscore", "leverage" (metaphor), "utilize", "facilitate", "navigate" (metaphor), "foster", "garner", "showcase", "pivotal", "crucial", "landscape" (abstract), "tapestry" (abstract), "testament", "vibrant", "enhance". Replace each with plain language or the author's actual vocabulary.
+[ ] Find copula avoidance: "serves as", "stands as", "marks a", "represents a", "boasts", "features a". Replace with "is", "are", "has".
+[ ] Find hollow hedges: "It's worth noting", "It's important to note", "One might argue", "It's crucial to understand", "Needless to say". Delete or rewrite.
+[ ] Find filler phrases: "In order to", "Due to the fact that", "At this point in time", "has the ability to", "In the event that". Simplify each.
+[ ] Find rule-of-three groupings (X, Y, and Z patterns that feel forced). Break up any that aren't natural to the author.
+[ ] Find synonym cycling (same concept called by 4 different names across sentences). Pick one term and stick with it.
+[ ] Find generic conclusions: "the future looks bright", "exciting times ahead", "represents a major step", "continues to evolve". Replace with specifics or cut.
+[ ] Find negative parallelisms: "Not only X but Y", "It's not just X; it's Y". Simplify.
+[ ] Find -ing phrase padding: "highlighting...", "underscoring...", "reflecting...", "showcasing...", "contributing to...". Cut or rewrite as direct statements.
+[ ] Find collaborative artifacts: "Here's...", "I hope this helps", "Let me know", "Great question!". Delete.
+
+**PASS 2 — Verify formatting:**
+[ ] Remove emojis entirely.
+[ ] Convert title-case headings to sentence case.
+[ ] Replace curly quotes with straight quotes.
+[ ] Check for excessive boldface. Remove mechanical bolding.
+[ ] Convert inline-header vertical lists (bolded label + colon) to flowing prose where appropriate.
+
+**PASS 3 — Voice and fabrication audit:**
+[ ] Read the piece aloud mentally. Does every sentence sound like THIS author? Not "good writing." THIS author.
+[ ] Check for fabricated specifics: numbers, statistics, percentages, study citations, dates, or data points that look suspiciously precise and weren't in the provided context. Replace with honest placeholder language.
+[ ] Confirm sentence length variation matches the author's patterns.
+[ ] Confirm paragraph length matches the author's style.
+[ ] Check that the opening sounds like how this author starts pieces, not a generic hook.
+[ ] Check that the closing sounds like how this author ends pieces, not a generic wrap-up.
+
+**AFTER completing the checklist:** Output the final text only. No commentary. No process notes. No preamble. No checklist results.`,
     },
   ];
 
   const { humanize: humanizeBudget } = getStageBudgets(contentType);
-  // Each pass gets the FULL thinking budget — the model only uses what it needs.
-  // Splitting by 3 starved each pass and let AI patterns survive.
-  const perPassBudget = humanizeBudget.thinkingBudget;
+  // Single pass gets 2x the original per-pass thinking budget.
+  // One deep pass with ample thinking outperforms 3 rushed passes that
+  // can undo each other's fixes.
+  const thinkingBudget = Math.min(humanizeBudget.thinkingBudget * 2, 128000, humanizeBudget.maxTokens - 1);
 
-  // Run the humanizer 3 times. Each pass feeds its output into the next.
-  // Pass 1 catches the obvious stuff. Pass 2 catches what pass 1 missed.
-  // Pass 3 catches whatever is left. Same instructions every time.
-  let current = draft;
-  for (let pass = 1; pass <= 3; pass++) {
-    onPassStart?.(pass, 3);
-    const isLastPass = pass === 3;
-    const passLabel = pass === 1
-      ? `Humanize this ${typeLabel}. Apply every pattern from the humanizer guide. Strip every AI tell. Replace every em dash (—) with a comma, period, or colon — do NOT write any new em dashes in your output. Replace all AI patterns with the author's voice from the profile above. Output the cleaned text only.`
-      : `This text has been through ${pass - 1} humanization pass${pass > 2 ? "es" : ""} and AI patterns may still remain. Scan line by line. Every em dash (—) must be replaced with a comma, period, colon, or semicolon — zero new em dashes allowed. Every "furthermore", "moreover", "additionally", every hollow hedge, every filler phrase, every rule-of-three — if it survived, kill it now. Do NOT introduce any new AI patterns in your rewrites. Output the cleaned text only.`;
+  onPassStart?.(1, 1);
 
-    if (isLastPass) {
-      // Stream the final pass back to the client
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stream = await (getAnthropic().messages.stream as any)({
-        model: "claude-opus-4-6",
-        max_tokens: humanizeBudget.maxTokens,
-        thinking: { type: "enabled", budget_tokens: perPassBudget },
-        system: systemPrompt,
-        messages: [{ role: "user", content: `${passLabel}\n\n${current}` }],
-      });
+  // Single streamed pass with structured checklist verification
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stream: any = await withRetry(() => (getAnthropic().messages.stream as any)({
+    model: "claude-opus-4-6",
+    max_tokens: humanizeBudget.maxTokens,
+    thinking: { type: "enabled", budget_tokens: thinkingBudget },
+    system: systemPrompt,
+    messages: [{
+      role: "user",
+      content: `Humanize this ${typeLabel}. Work through the MANDATORY VERIFICATION CHECKLIST in your thinking. For each checklist item, scan the entire text, find every instance, and fix it. Do not skip any item. Replace all AI patterns with this author's voice from the profile above. Output the cleaned text only.\n\n${draft}`,
+    }],
+  }), "humanizeContent");
 
-      return new ReadableStream({
-        async start(controller) {
-          for await (const chunk of stream) {
-            if (
-              chunk.type === "content_block_delta" &&
-              chunk.delta.type === "text_delta"
-            ) {
-              controller.enqueue(new TextEncoder().encode(chunk.delta.text));
-            }
-          }
-          controller.close();
-        },
-      });
-    }
-
-    // Non-streaming passes — collect full output
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await (getAnthropic().messages.create as any)({
-      model: "claude-opus-4-6",
-      max_tokens: humanizeBudget.maxTokens,
-      thinking: { type: "enabled", budget_tokens: perPassBudget },
-      system: systemPrompt,
-      messages: [{ role: "user", content: `${passLabel}\n\n${current}` }],
-    });
-
-    current = extractText(res.content);
-  }
-
-  // Unreachable — loop always returns on pass 3
-  return new ReadableStream({ start(c) { c.close(); } });
+  return new ReadableStream({
+    async start(controller) {
+      for await (const chunk of stream) {
+        if (
+          chunk.type === "content_block_delta" &&
+          chunk.delta.type === "text_delta"
+        ) {
+          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
+        }
+      }
+      controller.close();
+    },
+  });
 }
 
 // ── Self-review ───────────────────────────────────────────────────────────────
@@ -1172,7 +1337,7 @@ export async function selfReviewDraft(
     ? `\n## How This Author Writes ${resolveTypeLabel(interview)}\n${categoryInsight}\n`
     : "";
 
-  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
   // Use condensed voice fingerprint for self-review (enough to verify voice fidelity)
   const samplesBlock = sampleExamples?.length
@@ -1191,10 +1356,10 @@ export async function selfReviewDraft(
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
   const betaHeaders = getBetaHeaders(binaryBlocks);
 
-  const systemPrompt = `You are this author's last line of defense before publication. This text has already been through 3 passes of AI pattern removal (humanization). Your job is to check voice fidelity, brief adherence, and fabrication — NOT to rewrite prose. Surgical fixes only.
+  const systemPrompt = `You are this author's editorial eye before the final humanization pass. Your job is to check voice fidelity, brief adherence, and fabrication — NOT to rewrite prose. Surgical fixes only.
 
-CRITICAL — DO NOT RE-INTRODUCE AI PATTERNS:
-This text was carefully humanized. Any of the following in YOUR edits is a failure:
+CRITICAL — DO NOT INTRODUCE AI PATTERNS:
+The humanizer runs AFTER you. Any AI patterns in YOUR edits will survive into the final output. The following in your edits is a failure:
 - Em dashes (—) — use commas, periods, colons, or semicolons instead. ZERO new em dashes.
 - "Furthermore," / "Moreover," / "Additionally," / "In addition," as paragraph openers
 - Hollow hedges: "It's worth noting," "One might argue," "It's important to note"
@@ -1209,7 +1374,7 @@ If you need to rewrite a sentence, use the author's voice from the profile below
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
 **Vocabulary:** ${voiceProfile.vocabularyStyle}
 **Things to Avoid (if ANY of these appear, fix them immediately):** ${voiceProfile.thingsToAvoid.join("; ")}
-${samplesBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
+${samplesBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
 Your review must check:
 1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
 2. AI contamination — if any AI patterns survived the humanizer, destroy them. But do NOT introduce new ones in your fixes.
@@ -1243,16 +1408,16 @@ ${draft}`;
 
   // Opus: self-review is the last defense for voice fidelity + fabrication checking
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await (getAnthropic().messages.create as any)(
+  const res: any = await withRetry(() => (getAnthropic().messages.create as any)(
     {
       model: "claude-opus-4-6",
       max_tokens: budget.maxTokens,
-      thinking: { type: "enabled", budget_tokens: Math.ceil(budget.thinkingBudget / 2) },
+      thinking: { type: "enabled", budget_tokens: Math.min(Math.ceil(budget.thinkingBudget / 2), budget.maxTokens - 1) },
       system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: messageContent }],
     },
     reqOptions
-  );
+  ), "selfReviewDraft");
 
   return extractText(res.content) || draft;
 }
@@ -1318,11 +1483,7 @@ Does this plan need web research before drafting?`,
 
   const text = result.text ?? "";
   try {
-    const clean = text
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```\s*$/, "")
-      .trim();
-    return JSON.parse(clean);
+    return JSON.parse(repairJson(text));
   } catch {
     return { needed: false, queries: [] };
   }
@@ -1333,13 +1494,15 @@ Does this plan need web research before drafting?`,
 /**
  * Apply specific feedback to a finished draft.
  * Only makes the changes described — does not rewrite anything else.
+ * Returns the revised text (non-streaming) so callers can pipe it
+ * through the humanizer before presenting to the user.
  */
 export async function reviseDraft(
   draft: string,
   feedback: string,
   voiceProfile: VoiceAnalysis,
   contentType: string = "blog"
-): Promise<ReadableStream<Uint8Array>> {
+): Promise<string> {
   const { humanize: budget } = getStageBudgets(contentType);
 
   const systemPrompt = `Apply ONLY the changes described in the feedback. Touch nothing else. Do not rewrite, restructure, or "improve" anything the feedback does not mention. Preserve the author's voice, phrasing, and formatting exactly as-is for everything not covered.
@@ -1353,25 +1516,16 @@ Output the complete revised draft. Nothing else.`;
 
   const userPrompt = `Draft:\n\n${draft}\n\n---\n\nFeedback (apply these changes only):\n${feedback}\n\nRevised draft:`;
 
-  // Gemini Flash: surgical revision with streaming
-  const stream = await getGemini().models.generateContentStream({
+  // Gemini Flash: surgical revision (collected, not streamed —
+  // the output goes through the humanizer before reaching the client)
+  const result = await getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
-    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+    contents: userPrompt,
     config: {
       systemInstruction: systemPrompt,
       maxOutputTokens: budget.maxTokens,
     },
   });
 
-  return new ReadableStream({
-    async start(controller) {
-      for await (const chunk of stream) {
-        const text = chunk.text;
-        if (text) {
-          controller.enqueue(new TextEncoder().encode(text));
-        }
-      }
-      controller.close();
-    },
-  });
+  return result.text ?? draft;
 }

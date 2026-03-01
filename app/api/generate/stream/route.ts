@@ -10,6 +10,8 @@ import {
   planContent,
   draftContent,
   humanizeContent,
+  uploadContextFiles,
+  deleteUploadedFiles,
   InterviewAnswers,
   VoiceAnalysis,
   GenerationContext,
@@ -60,7 +62,11 @@ export async function POST(req: NextRequest) {
   }));
 
   // Resolve any URL context items to actual fetched content before the pipeline.
-  const resolvedContext = context ? await resolveContext(context) : undefined;
+  let resolvedContext = context ? await resolveContext(context) : undefined;
+  // Upload binary context (PDFs, images) to Files API; extract PDF text for Grok
+  if (resolvedContext) {
+    resolvedContext = await uploadContextFiles(resolvedContext);
+  }
 
   const encoder = new TextEncoder();
 
@@ -115,6 +121,11 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         console.error("Generation pipeline error:", err);
         send({ type: "error", message: "Generation failed. Please try again." });
+      } finally {
+        // Clean up any files uploaded to the Files API
+        if (resolvedContext) {
+          deleteUploadedFiles(resolvedContext).catch(console.error);
+        }
       }
 
       controller.close();
