@@ -74,7 +74,6 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "drafting", label: `Writing your ${typeLabel}` },
         { key: "reviewing", label: "Re-reading as you" },
         { key: "humanizing", label: `Polishing your ${typeLabel}` },
-        { key: "scoring", label: "Scoring voice fidelity" },
       ];
     case "standard":
       return [
@@ -82,8 +81,8 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "drafting", label: `Writing your ${typeLabel}` },
         { key: "reviewing", label: "Re-reading as you" },
         { key: "fact_checking", label: "Fact-checking claims" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
         { key: "scoring", label: "Scoring voice fidelity" },
+        { key: "humanizing", label: `Polishing your ${typeLabel}` },
       ];
     case "deep":
       return [
@@ -96,8 +95,8 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "checking", label: "Checking word count & structure" },
         { key: "reviewing", label: "Re-reading as you" },
         { key: "fact_checking", label: "Fact-checking claims" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
         { key: "scoring", label: "Scoring voice fidelity" },
+        { key: "humanizing", label: `Polishing your ${typeLabel}` },
       ];
   }
 }
@@ -123,10 +122,6 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 500, jitterMs: 500,
       messages: ["Preparing final polish…"],
     },
-    "humanizing->scoring": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Scoring voice match…"],
-    },
   },
   standard: {
     "planning->drafting": {
@@ -145,13 +140,13 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 500, jitterMs: 300,
       messages: ["Verifying claims…"],
     },
-    "fact_checking->humanizing": {
+    "fact_checking->scoring": {
+      baseMs: 500, jitterMs: 300,
+      messages: ["Checking voice match…"],
+    },
+    "scoring->humanizing": {
       baseMs: 500, jitterMs: 300,
       messages: ["Preparing final polish…"],
-    },
-    "humanizing->scoring": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Scoring voice match…"],
     },
   },
   deep: {
@@ -171,13 +166,13 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 500, jitterMs: 300,
       messages: ["Verifying claims…"],
     },
-    "fact_checking->humanizing": {
+    "fact_checking->scoring": {
+      baseMs: 500, jitterMs: 300,
+      messages: ["Checking voice match…"],
+    },
+    "scoring->humanizing": {
       baseMs: 500, jitterMs: 300,
       messages: ["Preparing final polish…"],
-    },
-    "humanizing->scoring": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Scoring voice match…"],
     },
   },
 };
@@ -600,14 +595,56 @@ export async function GET(
           if (isAborted()) { controller.close(); return; }
         }
 
-        // ── Humanize (streams final output to client) ────────────────────
-        const humanizeTransition = tier !== "light" ? "fact_checking->humanizing" : "reviewing->humanizing";
+        // ── Voice fidelity scoring + repair (BEFORE humanizer) ───────────
+        // Scores the reviewed/checked draft on voice fidelity. If low,
+        // repairs flagged sentences. Either way, the humanizer runs AFTER
+        // this and is always the absolute last writing step.
+        let preHumanizeDraft = checkedDraft;
+        if (tier !== "light") {
+          await paceTransition(tier, "fact_checking->scoring", "scoring", send, isAborted);
+          if (isAborted()) { controller.close(); return; }
+
+          await setStep("scoring", "Scoring voice fidelity…");
+          try {
+            const fidelityResult = await scoreVoiceFidelity(
+              preHumanizeDraft, voiceProfile, interview.contentType
+            );
+            send({
+              type: "voice_score",
+              score: fidelityResult.score,
+              flags: fidelityResult.flags.slice(0, 5),
+            });
+
+            // If score is below threshold and we have actionable flags, repair
+            if (
+              fidelityResult.score < VOICE_FIDELITY_THRESHOLD &&
+              fidelityResult.flags.length > 0 &&
+              !isAborted()
+            ) {
+              await setStep("scoring", "Voice score low — repairing flagged sentences…");
+              const repaired = await repairVoice(
+                preHumanizeDraft, voiceProfile, fidelityResult.flags.slice(0, 8),
+                interview.contentType
+              );
+              if (repaired && repaired.trim() && repaired !== preHumanizeDraft) {
+                preHumanizeDraft = repaired;
+              }
+            }
+          } catch { /* scoring failed — continue without score */ }
+          if (isAborted()) { controller.close(); return; }
+        }
+
+        // ── Humanize (ALWAYS last — streams final output to client) ──────
+        // The humanizer is the absolute final writing step. Nothing modifies
+        // prose after this. Whatever AI patterns the drafter, self-review,
+        // fact-checker, or voice repair introduced, the humanizer kills here.
+        const humanizeTransition = tier !== "light" ? "scoring->humanizing" : "reviewing->humanizing";
         await paceTransition(tier, humanizeTransition, "humanizing", send, isAborted);
         if (isAborted()) { controller.close(); return; }
 
         await setStep("humanizing", `Polishing your ${typeLabel}…`);
         const humanizedStream = await humanizeContent(
-          checkedDraft, voiceProfile, HUMANIZER, interview.contentType,
+          preHumanizeDraft, voiceProfile, HUMANIZER, interview.contentType,
           favoriteWords, authorContext,
           () => {
             send({ type: "step", step: "humanizing", label: `Humanizing your ${typeLabel}…` });
@@ -624,60 +661,6 @@ export async function GET(
           finalContent += chunk;
           send({ type: "chunk", text: chunk });
         }
-        if (isAborted()) { controller.close(); return; }
-
-        // ── Voice fidelity scoring (Grok — quality gate) ─────────────────
-        // Scores how well the final output matches the author's voice.
-        // If the score is below threshold, runs a targeted repair pass on
-        // the flagged sentences using Grok, then re-scores once.
-        await paceTransition(tier, "humanizing->scoring", "scoring", send, isAborted);
-        if (isAborted()) { controller.close(); return; }
-
-        await setStep("scoring", "Scoring voice fidelity…");
-        try {
-          const fidelityResult = await scoreVoiceFidelity(
-            finalContent, voiceProfile, interview.contentType
-          );
-          send({
-            type: "voice_score",
-            score: fidelityResult.score,
-            flags: fidelityResult.flags.slice(0, 5),
-          });
-
-          // If score is below threshold and we have actionable flags, repair
-          if (
-            fidelityResult.score < VOICE_FIDELITY_THRESHOLD &&
-            fidelityResult.flags.length > 0 &&
-            !isAborted()
-          ) {
-            await setStep("scoring", "Voice score low — repairing flagged sentences…");
-            const repaired = await repairVoice(
-              finalContent, voiceProfile, fidelityResult.flags.slice(0, 8),
-              interview.contentType
-            );
-            if (repaired && repaired.trim() && repaired !== finalContent) {
-              finalContent = repaired;
-              // Clear streamed chunks and send the repaired version
-              send({ type: "replace", text: finalContent });
-
-              // Re-score to confirm improvement (one attempt only, no loop)
-              if (!isAborted()) {
-                await setStep("scoring", "Re-scoring after repair…");
-                try {
-                  const reScore = await scoreVoiceFidelity(
-                    finalContent, voiceProfile, interview.contentType
-                  );
-                  send({
-                    type: "voice_score",
-                    score: reScore.score,
-                    flags: reScore.flags.slice(0, 5),
-                    repaired: true,
-                  });
-                } catch { /* re-score failed — we already have the repair */ }
-              }
-            }
-          }
-        } catch { /* scoring failed — continue without score */ }
         if (isAborted()) { controller.close(); return; }
 
         // ── Done ─────────────────────────────────────────────────────────
