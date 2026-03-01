@@ -36,36 +36,40 @@ export async function POST(req: NextRequest) {
     update: { status: "analyzing", totalWords, sampleCount },
   });
 
-  // Fire analysis in background (non-blocking)
-  analyzeVoiceWithSubVoices(
-    samples.map((s) => ({ content: s.content, category: s.category, notes: s.notes })),
-    selectedCategories
-  )
-    .then(async (analysis) => {
-      await prisma.voiceProfile.upsert({
-        where: { userId },
-        create: {
-          userId,
-          analysis: JSON.stringify(analysis),
-          status: "done",
-          totalWords,
-          sampleCount,
-        },
-        update: {
-          analysis: JSON.stringify(analysis),
-          status: "done",
-          totalWords,
-          sampleCount,
-        },
-      });
-    })
-    .catch(async (err) => {
-      console.error("[voice/analyze] Failed:", err);
-      await prisma.voiceProfile.update({
-        where: { userId },
-        data: { status: "error" },
-      }).catch(() => {});
+  try {
+    // Await the full analysis — maxDuration=300 gives us 5 minutes
+    const analysis = await analyzeVoiceWithSubVoices(
+      samples.map((s) => ({ content: s.content, category: s.category, notes: s.notes })),
+      selectedCategories
+    );
+
+    await prisma.voiceProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        analysis: JSON.stringify(analysis),
+        status: "done",
+        totalWords,
+        sampleCount,
+      },
+      update: {
+        analysis: JSON.stringify(analysis),
+        status: "done",
+        totalWords,
+        sampleCount,
+      },
     });
 
-  return NextResponse.json({ status: "analyzing", totalWords, sampleCount });
+    return NextResponse.json({ status: "done", totalWords, sampleCount });
+  } catch (err) {
+    console.error("[voice/analyze] Failed:", err);
+    await prisma.voiceProfile.update({
+      where: { userId },
+      data: { status: "error" },
+    }).catch(() => {});
+    return NextResponse.json(
+      { error: "Voice analysis failed. Check server logs for details." },
+      { status: 500 }
+    );
+  }
 }

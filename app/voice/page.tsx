@@ -253,36 +253,16 @@ export default function VoicePage() {
   async function analyzeVoice() {
     setAnalyzing(true);
     setAnalyzeError("");
-    const res = await fetch("/api/voice/analyze", { method: "POST" });
-    if (!res.ok) {
+    try {
+      const res = await fetch("/api/voice/analyze", { method: "POST" });
       const data = await res.json();
-      setAnalyzeError(data.error || "Analysis failed.");
-      setAnalyzing(false);
-      return;
-    }
-
-    // Poll status until analysis completes (background Grok call)
-    const poll = async (): Promise<boolean> => {
-      for (let i = 0; i < 150; i++) { // up to ~5 min
-        await new Promise((r) => setTimeout(r, 2000));
-        try {
-          const statusRes = await fetch("/api/voice/analyze/status");
-          const statusData = await statusRes.json();
-          if (statusData.status === "done") return true;
-          if (statusData.status === "error") return false;
-          // "analyzing" or "pending" → keep polling
-        } catch {
-          // Network blip — keep trying
-        }
+      if (!res.ok) {
+        setAnalyzeError(data.error || "Analysis failed.");
+      } else {
+        await load();
       }
-      return false; // timeout
-    };
-
-    const success = await poll();
-    if (success) {
-      await load();
-    } else {
-      setAnalyzeError("Analysis failed or timed out. Check your API key and try again.");
+    } catch {
+      setAnalyzeError("Analysis failed or timed out. Please try again.");
     }
     setAnalyzing(false);
   }
