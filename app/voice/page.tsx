@@ -254,7 +254,12 @@ export default function VoicePage() {
     setAnalyzing(true);
     setAnalyzeError("");
     try {
-      const res = await fetch("/api/voice/analyze", { method: "POST" });
+      const categories = Array.from(new Set(samples.map((s) => s.category)));
+      const res = await fetch("/api/voice/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selectedCategories: categories }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setAnalyzeError(data.error || "Analysis failed.");
