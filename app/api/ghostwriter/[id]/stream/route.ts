@@ -62,41 +62,51 @@ function getPipelineTier(contentType: string): PipelineTier {
   return "standard";
 }
 
+/** Truncate topic text for step labels so the UI doesn't overflow. */
+function shortTopic(topic: string, max = 40): string {
+  if (!topic) return "";
+  const trimmed = topic.trim();
+  if (trimmed.length <= max) return trimmed;
+  return trimmed.slice(0, max).replace(/\s+\S*$/, "") + "…";
+}
+
 function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { key: string; label: string }[] {
   const typeLabel = CONTENT_TYPE_LABELS[interview.contentType]
     ?? interview.contentTypeLabel
     ?? interview.contentType;
+  const topic = shortTopic(interview.topic);
+  const onTopic = topic ? ` on ${topic}` : "";
 
   switch (tier) {
     case "light":
       return [
-        { key: "planning", label: `Structuring your ${typeLabel}` },
-        { key: "drafting", label: `Writing your ${typeLabel}` },
-        { key: "reviewing", label: "Self-editing as you" },
-        { key: "humanizing", label: "Writing in your voice" },
+        { key: "planning", label: `Outlining your ${typeLabel}${onTopic}` },
+        { key: "drafting", label: `Drafting your ${typeLabel}` },
+        { key: "reviewing", label: "Self-editing like you would" },
+        { key: "humanizing", label: "Final pass — your voice, your words" },
       ];
     case "standard":
       return [
-        { key: "planning", label: `Structuring your ${typeLabel}` },
-        { key: "drafting", label: `Writing your ${typeLabel}` },
-        { key: "reviewing", label: "Self-editing as you" },
-        { key: "fact_checking", label: "Verifying claims" },
-        { key: "scoring", label: "Checking voice match" },
-        { key: "humanizing", label: "Writing in your voice" },
+        { key: "planning", label: `Outlining your ${typeLabel}${onTopic}` },
+        { key: "drafting", label: `Drafting your ${typeLabel}` },
+        { key: "reviewing", label: "Self-editing like you would" },
+        { key: "fact_checking", label: "Cross-checking facts" },
+        { key: "scoring", label: "Measuring voice accuracy" },
+        { key: "humanizing", label: "Final pass — your voice, your words" },
       ];
     case "deep":
       return [
-        { key: "planning", label: `Structuring your ${typeLabel}` },
-        { key: "researching", label: "Researching your topic" },
+        { key: "planning", label: `Outlining your ${typeLabel}${onTopic}` },
+        { key: "researching", label: topic ? `Researching ${topic}` : "Researching your topic" },
         { key: "drafting_1", label: "Writing first draft" },
-        { key: "proposing", label: "Rethinking the approach" },
-        { key: "drafting_2", label: "Writing second draft" },
-        { key: "comparing", label: "Picking the strongest draft" },
-        { key: "checking", label: "Checking structure" },
-        { key: "reviewing", label: "Self-editing as you" },
-        { key: "fact_checking", label: "Verifying claims" },
-        { key: "scoring", label: "Checking voice match" },
-        { key: "humanizing", label: "Writing in your voice" },
+        { key: "proposing", label: "Rethinking the angle" },
+        { key: "drafting_2", label: "Writing a second take" },
+        { key: "comparing", label: "Picking the stronger draft" },
+        { key: "checking", label: "Checking length & structure" },
+        { key: "reviewing", label: "Self-editing like you would" },
+        { key: "fact_checking", label: "Cross-checking facts" },
+        { key: "scoring", label: "Measuring voice accuracy" },
+        { key: "humanizing", label: "Final pass — your voice, your words" },
       ];
   }
 }
@@ -239,6 +249,7 @@ export async function GET(
   const typeLabel = CONTENT_TYPE_LABELS[interview.contentType]
     ?? interview.contentTypeLabel
     ?? interview.contentType;
+  const topic = shortTopic(interview.topic);
   const encoder = new TextEncoder();
   const abortController = new AbortController();
 
@@ -290,7 +301,7 @@ export async function GET(
         ).catch(() => null);
 
         // ── Plan ─────────────────────────────────────────────────────────
-        await setStep("planning", `Structuring your ${typeLabel}…`);
+        await setStep("planning", `Outlining your ${typeLabel}${topic ? ` on ${topic}` : ""}…`);
         const plan = await planContent(
           voiceProfile, interview, resolvedContext, favoriteWords, authorContext
         );
@@ -322,12 +333,12 @@ export async function GET(
               if (tier !== "deep") {
                 const updatedSteps = [
                   pipelineSteps[0], // planning
-                  { key: "researching", label: "Researching your topic" },
+                  { key: "researching", label: topic ? `Researching ${topic}` : "Researching your topic" },
                   ...pipelineSteps.slice(1),
                 ];
                 send({ type: "pipeline", steps: updatedSteps, tier });
               }
-              await setStep("researching", "Researching your topic…");
+              await setStep("researching", topic ? `Researching ${topic}…` : "Researching your topic…");
               const researchResults: string[] = [];
               for (const query of assessment.queries.slice(0, 3)) {
                 if (isAborted()) break;
@@ -371,14 +382,14 @@ export async function GET(
 
           // Propose variation: Sonnet reads draft 1 + voice profile and suggests
           // 1 alternative creative direction specific to this author
-          await setStep("proposing", "Rethinking the approach…");
+          await setStep("proposing", "Rethinking the angle…");
           const variation = await proposeDraftVariation(
             draft1, voiceProfile, interview, plan
           );
           if (isAborted()) { controller.close(); return; }
 
           // Draft 2 uses condensed voice fingerprint (isFollowup=true) + reduced thinking budget
-          await setStep("drafting_2", "Writing second draft…");
+          await setStep("drafting_2", "Writing a second take…");
           const interview2: InterviewAnswers = {
             ...interview,
             toneNotes: [interview.toneNotes, variation.direction]
@@ -396,12 +407,12 @@ export async function GET(
           });
 
           // Compare & select best (Grok — analytical reasoning, cheaper than Opus for judgment)
-          await setStep("comparing", "Picking the strongest draft…");
+          await setStep("comparing", "Picking the stronger draft…");
           selected = await compareDraftsGrok([draft1, draft2], voiceProfile, interview);
           if (isAborted()) { controller.close(); return; }
 
           // Word count quality check
-          await setStep("checking", "Checking structure…");
+          await setStep("checking", "Checking length & structure…");
           const wc = wordCount(selected);
           let minW: number, maxW: number;
           const targetStr = interview.wordCountTarget;
@@ -427,7 +438,7 @@ export async function GET(
           if (countNote) selected = `${selected}\n\n${countNote}`;
         } else {
           // Light and standard: single draft
-          await setStep("drafting", `Writing your ${typeLabel}…`);
+          await setStep("drafting", `Drafting your ${typeLabel}…`);
           selected = await draftContent(
             voiceProfile, interview, plan, enrichedContext, favoriteWords, authorContext
           );
@@ -438,7 +449,7 @@ export async function GET(
         // Self-review checks voice fidelity, brief adherence, and fabrication.
         // It runs on the raw draft so it can catch content issues before the
         // humanizer does its final AI-pattern cleanup pass.
-        await setStep("reviewing", "Self-editing as you…");
+        await setStep("reviewing", "Self-editing like you would…");
         let reviewedDraft = selected;
         try {
           const reviewed = await selfReviewDraft(
@@ -456,7 +467,7 @@ export async function GET(
         // fabricated specifics with honest placeholders the author can fill in.
         let checkedDraft = reviewedDraft;
         if (tier !== "light") {
-          await setStep("fact_checking", "Verifying claims…");
+          await setStep("fact_checking", "Cross-checking facts…");
           try {
             const { cleanDraft, fabricationsFound } = await checkFabrications(
               reviewedDraft, interview, enrichedContext
@@ -481,7 +492,7 @@ export async function GET(
         // this and is always the absolute last writing step.
         let preHumanizeDraft = checkedDraft;
         if (tier !== "light") {
-          await setStep("scoring", "Checking voice match…");
+          await setStep("scoring", "Measuring voice accuracy…");
           try {
             const fidelityResult = await scoreVoiceFidelity(
               preHumanizeDraft, voiceProfile, interview.contentType
@@ -515,12 +526,12 @@ export async function GET(
         // The humanizer is the absolute final writing step. Nothing modifies
         // prose after this. Whatever AI patterns the drafter, self-review,
         // fact-checker, or voice repair introduced, the humanizer kills here.
-        await setStep("humanizing", `Writing in your voice…`);
+        await setStep("humanizing", "Final pass — your voice, your words…");
         const humanizedStream = await humanizeContent(
           preHumanizeDraft, voiceProfile, HUMANIZER, interview.contentType,
           favoriteWords, authorContext,
           () => {
-            send({ type: "step", step: "humanizing", label: `Writing in your voice…` });
+            send({ type: "step", step: "humanizing", label: "Final pass — your voice, your words…" });
           }
         );
 

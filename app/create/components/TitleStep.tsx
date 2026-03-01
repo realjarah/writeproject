@@ -81,6 +81,17 @@ export default function TitleStep({
           className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.09] dark:border-white/[0.07] rounded-xl px-4 py-3 text-sm text-black/90 dark:text-white placeholder-black/[0.25] dark:placeholder-white/[0.22] focus:outline-none focus:border-black/[0.22] dark:focus:border-white/[0.22]"
           autoFocus
         />
+        {suggesting && suggestedTitles.length === 0 && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {[1, 2, 3, 4].map((i) => (
+              <span
+                key={i}
+                className="inline-block h-[30px] rounded-lg bg-black/[0.06] dark:bg-white/[0.06] animate-pulse"
+                style={{ width: `${70 + Math.sin(i * 1.8) * 30}px` }}
+              />
+            ))}
+          </div>
+        )}
         {suggestedTitles.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">
             {suggestedTitles.map((t, i) => (

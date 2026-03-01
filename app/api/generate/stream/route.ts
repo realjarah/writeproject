@@ -17,6 +17,7 @@ import {
   GenerationContext,
 } from "@/lib/claude";
 import { resolveContext } from "@/lib/resolve-context";
+import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
 
 // Load humanizer instructions once at module load (server-side only)
 const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
@@ -56,6 +57,9 @@ export async function POST(req: NextRequest) {
     resolvedContext = await uploadContextFiles(resolvedContext);
   }
 
+  const typeLabel = CONTENT_TYPE_LABELS[interview.contentType] ?? interview.contentType;
+  const topicRaw = (interview.topic ?? "").trim();
+  const topic = topicRaw.length > 40 ? topicRaw.slice(0, 40).replace(/\s+\S*$/, "") + "…" : topicRaw;
   const encoder = new TextEncoder();
 
   const sseStream = new ReadableStream({
@@ -71,15 +75,15 @@ export async function POST(req: NextRequest) {
 
       try {
         // ── Stage 1: Plan ────────────────────────────────────────────────
-        send({ type: "stage", step: 1, total: 3, label: "Structuring your piece…" });
+        send({ type: "stage", step: 1, total: 3, label: `Outlining your ${typeLabel}${topic ? ` on ${topic}` : ""}…` });
         const plan = await planContent(voiceProfile, interview, resolvedContext);
 
         // ── Stage 2: Draft ───────────────────────────────────────────────
-        send({ type: "stage", step: 2, total: 3, label: "Writing first draft…" });
+        send({ type: "stage", step: 2, total: 3, label: `Drafting your ${typeLabel}…` });
         const draft = await draftContent(voiceProfile, interview, plan, resolvedContext);
 
         // ── Stage 3: Humanize (streams to client) ────────────────────────
-        send({ type: "stage", step: 3, total: 3, label: "Writing in your voice…" });
+        send({ type: "stage", step: 3, total: 3, label: "Final pass — your voice, your words…" });
         const humanizedStream = await humanizeContent(draft, voiceProfile, HUMANIZER, interview.contentType);
 
         let finalContent = "";
