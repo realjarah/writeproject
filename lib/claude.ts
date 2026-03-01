@@ -1600,7 +1600,7 @@ Output the complete revised draft. Nothing else.`;
 async function grokWithWebSearch(
   instructions: string,
   input: string,
-  maxOutputTokens: number = 16000,
+  maxOutputTokens: number = 32000,
 ): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => (getXai().responses as any).create({
@@ -1856,6 +1856,7 @@ Before producing any output, reason deeply about every dimension of this brief. 
 5. Is there a mismatch between the content type and the brief's depth? A 3000-word research paper with a one-line topic will produce filler. A tweet thread with 500 words of key points will produce a novel crammed into tweets.
 6. Is there enough context to support factual claims? If the topic implies statistics but no context provides them, the AI will fabricate. This is the #1 quality failure mode.
 7. Does the voice profile suggest this author writes this content type well? A casual, fragment-heavy writer assigned a formal whitepaper will produce a voice mismatch.
+8. Does the author have documented human imperfections and quirks that the AI will likely erase? If the voice profile lists specific imperfections (sentence fragments, run-ons, comma splices, starting sentences with "And" or "But," etc.), the output pipeline MUST preserve them. If the content type or brief tone conflicts with those imperfections (e.g. a formal whitepaper brief but the author writes with fragments and slang), warn that the output will either break voice or break format.
 
 SCORING CALIBRATION:
 - 9-10: Specific topic, clear angle, substantive key points, appropriate context. Will definitely produce strong output.
@@ -1873,6 +1874,8 @@ Word count target: ${interview.wordCountTarget || "(not specified)"}
 Context: ${contextSummary}
 
 Author writes: ${voiceProfile.rawSummary}
+Human imperfections: ${voiceProfile.humanImperfections ?? "(none documented)"}
+Authentic quirks: ${voiceProfile.authenticQuirks ?? "(none documented)"}
 
 Rate this brief 1-10 and list any specific warnings (things that will cause weak output).
 
@@ -1888,7 +1891,7 @@ If score >= 7, return empty warnings array. Only warn about things that will act
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res: any = await withRetry(() => getXai().chat.completions.create({
       model: XAI_WRITING_MODEL,
-      max_completion_tokens: 16000,
+      max_completion_tokens: 32000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -2011,12 +2014,17 @@ export async function repairVoice(
 
   const systemPrompt = `You are surgically repairing specific sentences in a ${typeLabel} that don't match the author's voice. Fix ONLY the flagged sentences. Touch NOTHING else — every other word, comma, and paragraph break stays exactly as-is.
 
-REASONING PROTOCOL:
-For each flag:
+REASONING PROTOCOL — USE YOUR FULL THINKING BUDGET:
+Before rewriting anything, reason carefully about each flag. Do NOT jump to rewrites. Think step by step:
 1. Find the exact sentence or passage in the draft
-2. Understand WHY it fails (the flag explains this)
-3. Rewrite it to match the author's voice profile below
-4. Verify your rewrite sounds like this specific human, not like generic prose
+2. Understand WHY it fails (the flag explains this) — is it word choice? Sentence structure? Too polished? Missing a characteristic imperfection?
+3. Study the author's human imperfections listed below. These are NOT bugs — they are the author's fingerprint. If the flagged sentence was flagged because it's too clean, too grammatically perfect, or too AI-polished, your fix MUST reintroduce the author's characteristic imperfections. A grammatically "incorrect" sentence that matches the author's voice is BETTER than a grammatically perfect sentence that doesn't.
+4. Rewrite the sentence to match the author's voice profile — including their imperfections, quirks, and rough edges
+5. After rewriting, read the sentence IN CONTEXT (with the sentences before and after). Does the rhythm match? Does it flow naturally with the surrounding text, or does it now stick out as different in the opposite direction?
+6. Final check: would this specific human actually write this exact sentence? Not "would a good writer write this" — would THIS person?
+
+CRITICAL — HUMAN IMPERFECTIONS ARE MANDATORY:
+The author's human imperfections below are what make their writing sound human. When repairing voice, you MUST preserve or reintroduce these patterns. If the author uses sentence fragments, your repair should use fragments. If they start sentences with "And" or "But," your repair should too. If they use comma splices, let them stand. Do NOT "fix" the author's style. Match it.
 
 ## Author Voice Profile
 **Summary:** ${voiceProfile.rawSummary}
@@ -2032,6 +2040,7 @@ RULES:
 - Fix ONLY the flagged sentences. Do not "improve" surrounding text.
 - Do not introduce AI patterns (em dashes, "furthermore", hollow hedges, filler verbs)
 - Match the author's level of polish — if they write rough, your fixes should be rough
+- PRESERVE human imperfections. If the author's profile says they use fragments, run-ons, or unconventional grammar, your rewrites MUST include those patterns. A "correct" rewrite that erases their imperfections is a FAILED repair.
 - Output the COMPLETE draft with fixes applied. Nothing else.`;
 
   const userPrompt = `Fix these specific voice failures:
