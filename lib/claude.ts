@@ -1963,3 +1963,73 @@ Be ruthless. If the piece sounds like polished AI prose where the author writes 
     return { score: 100, flags: [] };
   }
 }
+
+// ── Voice repair (targeted fix for low-scoring drafts) ───────────────────────
+
+/** Minimum voice fidelity score. Below this, the pipeline runs a repair pass. */
+export const VOICE_FIDELITY_THRESHOLD = 80;
+
+/**
+ * Surgically fix specific voice-fidelity failures flagged by scoreVoiceFidelity.
+ * Does NOT re-humanize the whole piece — only rewrites the flagged sentences
+ * to match the author's voice. Uses Grok reasoning to keep costs down.
+ */
+export async function repairVoice(
+  draft: string,
+  voiceProfile: VoiceAnalysis,
+  flags: string[],
+  contentType: string,
+): Promise<string> {
+  if (flags.length === 0) return draft;
+
+  const typeLabel = CONTENT_TYPE_LABELS[contentType] ?? contentType;
+
+  const systemPrompt = `You are surgically repairing specific sentences in a ${typeLabel} that don't match the author's voice. Fix ONLY the flagged sentences. Touch NOTHING else — every other word, comma, and paragraph break stays exactly as-is.
+
+REASONING PROTOCOL:
+For each flag:
+1. Find the exact sentence or passage in the draft
+2. Understand WHY it fails (the flag explains this)
+3. Rewrite it to match the author's voice profile below
+4. Verify your rewrite sounds like this specific human, not like generic prose
+
+## Author Voice Profile
+**Summary:** ${voiceProfile.rawSummary}
+**Tone:** ${voiceProfile.tone}
+**Sentence Structure:** ${voiceProfile.sentenceStructure}
+**Vocabulary:** ${voiceProfile.vocabularyStyle}
+**Punctuation:** ${voiceProfile.punctuationHabits}
+**Human Imperfections:** ${voiceProfile.humanImperfections ?? "not specified"}
+**Authentic Quirks:** ${voiceProfile.authenticQuirks ?? "not specified"}
+**Things this author NEVER does:** ${voiceProfile.thingsToAvoid.join("; ")}
+
+RULES:
+- Fix ONLY the flagged sentences. Do not "improve" surrounding text.
+- Do not introduce AI patterns (em dashes, "furthermore", hollow hedges, filler verbs)
+- Match the author's level of polish — if they write rough, your fixes should be rough
+- Output the COMPLETE draft with fixes applied. Nothing else.`;
+
+  const userPrompt = `Fix these specific voice failures:
+
+${flags.map((f, i) => `${i + 1}. ${f}`).join("\n")}
+
+Draft:
+
+${draft}
+
+Output the complete draft with ONLY the flagged sentences rewritten. Everything else stays identical.`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
+    model: XAI_WRITING_MODEL,
+    max_completion_tokens: 64000,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  }), "repairVoice");
+
+  const msg = res.choices[0].message;
+  const raw = msg.content ?? msg.reasoning_content ?? "";
+  return raw || draft;
+}

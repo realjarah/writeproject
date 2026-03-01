@@ -18,6 +18,8 @@ import {
   checkFabrications,
   assessBriefQuality,
   scoreVoiceFidelity,
+  repairVoice,
+  VOICE_FIDELITY_THRESHOLD,
   uploadContextFiles,
   deleteUploadedFiles,
   LIGHT_TYPES,
@@ -626,7 +628,8 @@ export async function GET(
 
         // ── Voice fidelity scoring (Grok — quality gate) ─────────────────
         // Scores how well the final output matches the author's voice.
-        // Sends the score as an SSE event for the UI to display.
+        // If the score is below threshold, runs a targeted repair pass on
+        // the flagged sentences using Grok, then re-scores once.
         await paceTransition(tier, "humanizing->scoring", "scoring", send, isAborted);
         if (isAborted()) { controller.close(); return; }
 
@@ -638,8 +641,42 @@ export async function GET(
           send({
             type: "voice_score",
             score: fidelityResult.score,
-            flags: fidelityResult.flags.slice(0, 5), // Top 5 flags max
+            flags: fidelityResult.flags.slice(0, 5),
           });
+
+          // If score is below threshold and we have actionable flags, repair
+          if (
+            fidelityResult.score < VOICE_FIDELITY_THRESHOLD &&
+            fidelityResult.flags.length > 0 &&
+            !isAborted()
+          ) {
+            await setStep("scoring", "Voice score low — repairing flagged sentences…");
+            const repaired = await repairVoice(
+              finalContent, voiceProfile, fidelityResult.flags.slice(0, 8),
+              interview.contentType
+            );
+            if (repaired && repaired.trim() && repaired !== finalContent) {
+              finalContent = repaired;
+              // Clear streamed chunks and send the repaired version
+              send({ type: "replace", text: finalContent });
+
+              // Re-score to confirm improvement (one attempt only, no loop)
+              if (!isAborted()) {
+                await setStep("scoring", "Re-scoring after repair…");
+                try {
+                  const reScore = await scoreVoiceFidelity(
+                    finalContent, voiceProfile, interview.contentType
+                  );
+                  send({
+                    type: "voice_score",
+                    score: reScore.score,
+                    flags: reScore.flags.slice(0, 5),
+                    repaired: true,
+                  });
+                } catch { /* re-score failed — we already have the repair */ }
+              }
+            }
+          }
         } catch { /* scoring failed — continue without score */ }
         if (isAborted()) { controller.close(); return; }
 
