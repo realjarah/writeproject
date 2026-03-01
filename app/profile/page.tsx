@@ -53,6 +53,14 @@ interface Sample {
   createdAt: string;
 }
 
+interface SubVoiceAnalysis {
+  summary: string;
+  toneShift: string;
+  structuralPatterns: string;
+  vocabularyNotes: string;
+  keyGuidelines: string[];
+}
+
 interface VoiceProfile {
   analysis: {
     tone: string;
@@ -64,6 +72,13 @@ interface VoiceProfile {
     commonPatterns: string[];
     thingsToAvoid: string[];
     rawSummary: string;
+    humanImperfections?: string;
+    authenticQuirks?: string;
+    emotionalPatterns?: string;
+    transitionStyle?: string;
+    categoryInsights?: Record<string, string>;
+    contentGuidelines?: Record<string, string[]>;
+    subVoices?: Record<string, SubVoiceAnalysis>;
   };
   updatedAt: string;
 }
@@ -662,6 +677,130 @@ function TrainTab() {
                     {profile.analysis.thingsToAvoid.map((t, i) => (
                       <span key={i} className="text-[11px] text-black/40 dark:text-white/30 bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-full px-2.5 py-0.5">{t}</span>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Human voice markers */}
+              {(profile.analysis.humanImperfections || profile.analysis.authenticQuirks || profile.analysis.emotionalPatterns || profile.analysis.transitionStyle) && (
+                <div className="space-y-3 border-t border-black/[0.07] dark:border-white/[0.06] pt-4">
+                  <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">What makes your writing human</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {([
+                      ["Imperfections", profile.analysis.humanImperfections],
+                      ["Quirks", profile.analysis.authenticQuirks],
+                      ["Emotional patterns", profile.analysis.emotionalPatterns],
+                      ["Transitions", profile.analysis.transitionStyle],
+                    ] as const).filter(([, val]) => val).map(([label, val]) => (
+                      <div key={label} className="space-y-1">
+                        <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">{label}</div>
+                        <p className="text-xs text-black/45 dark:text-white/35 leading-relaxed">{val}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Per-format sub-voices */}
+              {profile.analysis.subVoices && Object.keys(profile.analysis.subVoices).length > 0 && (
+                <div className="space-y-3 border-t border-black/[0.07] dark:border-white/[0.06] pt-4">
+                  <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">Voice by format</div>
+                  <div className="space-y-3">
+                    {Object.entries(profile.analysis.subVoices).map(([cat, sv]) => (
+                      <div key={cat} className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.07] dark:border-white/[0.06] rounded-lg p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                            style={{ color: groupColor(cat), borderColor: groupColor(cat) + "55", backgroundColor: groupColor(cat) + "15" }}
+                          >
+                            {CONTENT_TYPE_LABELS[cat] ?? cat}
+                          </span>
+                          {sv.toneShift && (
+                            <span className="text-[10px] text-black/35 dark:text-white/25 italic">{sv.toneShift}</span>
+                          )}
+                        </div>
+                        {profile.analysis.categoryInsights?.[cat] && (
+                          <p className="text-[11px] text-black/40 dark:text-white/30 italic">{profile.analysis.categoryInsights[cat]}</p>
+                        )}
+                        {sv.summary && (
+                          <p className="text-xs text-black/45 dark:text-white/35 leading-relaxed">{sv.summary}</p>
+                        )}
+                        {sv.keyGuidelines?.length > 0 && (
+                          <ul className="space-y-1">
+                            {sv.keyGuidelines.map((g, i) => (
+                              <li key={i} className="text-[11px] text-black/40 dark:text-white/30 flex gap-1.5">
+                                <span className="text-black/20 dark:text-white/15 shrink-0">-</span>
+                                {g}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {(profile.analysis.contentGuidelines?.[cat]?.length ?? 0) > 0 && (
+                          <div className="space-y-1 border-t border-black/[0.05] dark:border-white/[0.04] pt-2 mt-1">
+                            <div className="text-[10px] font-semibold text-black/30 dark:text-white/20 uppercase tracking-widest">Guidelines</div>
+                            <ul className="space-y-1">
+                              {profile.analysis.contentGuidelines![cat].map((g, i) => (
+                                <li key={i} className="text-[11px] text-black/40 dark:text-white/30 flex gap-1.5">
+                                  <span className="text-black/20 dark:text-white/15 shrink-0">-</span>
+                                  {g}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {/* contentGuidelines for categories without a sub-voice */}
+                    {profile.analysis.contentGuidelines && Object.entries(profile.analysis.contentGuidelines)
+                      .filter(([cat]) => !profile.analysis.subVoices?.[cat])
+                      .filter(([, guidelines]) => guidelines.length > 0)
+                      .map(([cat, guidelines]) => (
+                        <div key={cat} className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.07] dark:border-white/[0.06] rounded-lg p-3 space-y-2">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                            style={{ color: groupColor(cat), borderColor: groupColor(cat) + "55", backgroundColor: groupColor(cat) + "15" }}
+                          >
+                            {CONTENT_TYPE_LABELS[cat] ?? cat}
+                          </span>
+                          <ul className="space-y-1">
+                            {guidelines.map((g, i) => (
+                              <li key={i} className="text-[11px] text-black/40 dark:text-white/30 flex gap-1.5">
+                                <span className="text-black/20 dark:text-white/15 shrink-0">-</span>
+                                {g}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Fallback: contentGuidelines only (no subVoices at all) */}
+              {!profile.analysis.subVoices && profile.analysis.contentGuidelines && Object.keys(profile.analysis.contentGuidelines).length > 0 && (
+                <div className="space-y-3 border-t border-black/[0.07] dark:border-white/[0.06] pt-4">
+                  <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">Voice by format</div>
+                  <div className="space-y-3">
+                    {Object.entries(profile.analysis.contentGuidelines)
+                      .filter(([, guidelines]) => guidelines.length > 0)
+                      .map(([cat, guidelines]) => (
+                        <div key={cat} className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.07] dark:border-white/[0.06] rounded-lg p-3 space-y-2">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                            style={{ color: groupColor(cat), borderColor: groupColor(cat) + "55", backgroundColor: groupColor(cat) + "15" }}
+                          >
+                            {CONTENT_TYPE_LABELS[cat] ?? cat}
+                          </span>
+                          <ul className="space-y-1">
+                            {guidelines.map((g, i) => (
+                              <li key={i} className="text-[11px] text-black/40 dark:text-white/30 flex gap-1.5">
+                                <span className="text-black/20 dark:text-white/15 shrink-0">-</span>
+                                {g}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}
