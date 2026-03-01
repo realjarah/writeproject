@@ -25,10 +25,9 @@ export async function POST(
   const { feedback } = await req.json();
   if (!feedback?.trim()) return new Response("feedback is required", { status: 400 });
 
-  const [job, profileRow, sampleRows, favoriteWords] = await Promise.all([
+  const [job, profileRow, favoriteWords] = await Promise.all([
     prisma.ghostwriterJob.findFirst({ where: { id: jobId, userId } }),
     prisma.voiceProfile.findUnique({ where: { userId } }),
-    prisma.voiceSample.findMany({ where: { userId }, orderBy: { wordCount: "desc" } }),
     prisma.favoriteWord.findMany({ where: { userId }, select: { word: true, definition: true } }),
   ]);
 
@@ -37,7 +36,6 @@ export async function POST(
   if (!profileRow) return new Response("No voice profile", { status: 400 });
 
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);
-  const sampleExamples = sampleRows.map((s) => ({ content: s.content, category: s.category }));
   const encoder = new TextEncoder();
 
   const sseStream = new ReadableStream({
@@ -60,7 +58,6 @@ export async function POST(
         send({ type: "step", step: "humanizing", label: "Humanizing revised draft…" });
         const humanizedStream = await humanizeContent(
           revised, voiceProfile, HUMANIZER, job.contentType,
-          sampleExamples.length > 0 ? sampleExamples : undefined,
           favoriteWords.length > 0 ? favoriteWords : undefined,
         );
 

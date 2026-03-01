@@ -45,21 +45,9 @@ export async function POST(req: NextRequest) {
 
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);
 
-  // Fetch all writing samples — type-matching first, then others.
-  // No truncation: pass the full content to take advantage of the large context window.
-  const typeSpecific = await prisma.voiceSample.findMany({
-    where: { userId, category: interview.contentType },
-    orderBy: { wordCount: "desc" },
-  });
-  const others = await prisma.voiceSample.findMany({
-    where: { userId, NOT: { category: interview.contentType } },
-    orderBy: { wordCount: "desc" },
-  });
-
-  const sampleExamples = [...typeSpecific, ...others].map((s) => ({
-    content: s.content,
-    category: s.category,
-  }));
+  // NOTE: Writing samples are NOT loaded here. The voice profile (analyzed by
+  // Grok during voice setup) contains all voice data the pipeline needs.
+  // Passing raw samples caused content contamination.
 
   // Resolve any URL context items to actual fetched content before the pipeline.
   let resolvedContext = context ? await resolveContext(context) : undefined;
@@ -84,11 +72,11 @@ export async function POST(req: NextRequest) {
       try {
         // ── Stage 1: Plan ────────────────────────────────────────────────
         send({ type: "stage", step: 1, total: 3, label: "Planning structure..." });
-        const plan = await planContent(voiceProfile, interview, resolvedContext, sampleExamples);
+        const plan = await planContent(voiceProfile, interview, resolvedContext);
 
         // ── Stage 2: Draft ───────────────────────────────────────────────
         send({ type: "stage", step: 2, total: 3, label: "Writing first draft..." });
-        const draft = await draftContent(voiceProfile, interview, plan, resolvedContext, sampleExamples);
+        const draft = await draftContent(voiceProfile, interview, plan, resolvedContext);
 
         // ── Stage 3: Humanize (streams to client) ────────────────────────
         send({ type: "stage", step: 3, total: 3, label: "Humanizing..." });

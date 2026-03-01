@@ -100,53 +100,53 @@ interface TransitionConfig {
   messages: string[];
 }
 
-// Minimal delays: just enough for rate-limit spacing between providers.
-// Previous delays (8-14s base + 8s jitter per transition) burned 46-78s on
-// deep tier and contributed to the 300s timeout killing jobs.
+// Minimal delays: just enough for UX pacing between pipeline steps.
+// All agents now use the same provider (Opus), so rate-limit spacing
+// between providers is no longer a concern.
 const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> = {
   light: {
     "drafting->reviewing": {
-      baseMs: 1500, jitterMs: 1000,
+      baseMs: 500, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
     "reviewing->humanizing": {
-      baseMs: 1500, jitterMs: 1000,
+      baseMs: 500, jitterMs: 500,
       messages: ["Preparing final polish…"],
     },
   },
   standard: {
     "planning->drafting": {
-      baseMs: 2000, jitterMs: 1000,
+      baseMs: 800, jitterMs: 500,
       messages: ["Mapping structure to your voice…"],
     },
     "research->drafting": {
-      baseMs: 2000, jitterMs: 1000,
+      baseMs: 800, jitterMs: 500,
       messages: ["Synthesizing research…"],
     },
     "drafting->reviewing": {
-      baseMs: 2000, jitterMs: 1000,
+      baseMs: 800, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
     "reviewing->humanizing": {
-      baseMs: 2000, jitterMs: 1000,
+      baseMs: 800, jitterMs: 500,
       messages: ["Preparing final polish…"],
     },
   },
   deep: {
     "research->drafting_1": {
-      baseMs: 2000, jitterMs: 1000,
+      baseMs: 800, jitterMs: 500,
       messages: ["Preparing draft approach…"],
     },
     "proposing->drafting_2": {
-      baseMs: 2000, jitterMs: 1000,
+      baseMs: 800, jitterMs: 500,
       messages: ["Setting up second draft…"],
     },
     "checking->reviewing": {
-      baseMs: 2000, jitterMs: 1000,
+      baseMs: 800, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
     "reviewing->humanizing": {
-      baseMs: 2000, jitterMs: 1000,
+      baseMs: 800, jitterMs: 500,
       messages: ["Preparing final polish…"],
     },
   },
@@ -219,17 +219,15 @@ export async function GET(
 
   const voiceProfile: VoiceAnalysis = JSON.parse(profileRow.analysis);
 
-  // Load samples, favorite words, and user onboarding profile
-  const [typeSpecific, others, favoriteWordsRows, userRow] = await Promise.all([
-    prisma.voiceSample.findMany({ where: { userId, category: job.contentType }, orderBy: { wordCount: "desc" } }),
-    prisma.voiceSample.findMany({ where: { userId, NOT: { category: job.contentType } }, orderBy: { wordCount: "desc" } }),
+  // Load favorite words and user onboarding profile
+  // NOTE: Writing samples are NOT loaded here. The voice profile (analyzed by
+  // Grok during voice setup) contains all voice data the pipeline needs.
+  // Passing raw samples caused content contamination — the AI would copy
+  // specific content from samples into unrelated articles.
+  const [favoriteWordsRows, userRow] = await Promise.all([
     prisma.favoriteWord.findMany({ where: { userId }, select: { word: true, definition: true } }),
     prisma.user.findUnique({ where: { id: userId }, select: { accountType: true, onboardingProfile: true } }),
   ]);
-  const sampleExamples = [...typeSpecific, ...others].map((s) => ({
-    content: s.content,
-    category: s.category,
-  }));
   const favoriteWords = favoriteWordsRows.length > 0 ? favoriteWordsRows : undefined;
 
   // Build author context and extract editing preferences from onboarding Q&A
@@ -360,7 +358,7 @@ export async function GET(
         // ── Plan ─────────────────────────────────────────────────────────
         await setStep("planning", `Planning your ${typeLabel}…`);
         const plan = await planContent(
-          voiceProfile, interview, resolvedContext, sampleExamples, favoriteWords, authorContext
+          voiceProfile, interview, resolvedContext, favoriteWords, authorContext
         );
         if (isAborted()) { controller.close(); return; }
 
@@ -425,7 +423,7 @@ export async function GET(
           // Draft 1 (full samples) → study it → propose 1 variation → draft 2 (fingerprint only)
           await setStep("drafting_1", "Writing first draft…");
           const draft1 = await draftContent(
-            voiceProfile, interview, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
+            voiceProfile, interview, plan, enrichedContext, favoriteWords, authorContext
           );
           if (isAborted()) { controller.close(); return; }
 
@@ -449,7 +447,7 @@ export async function GET(
               .filter(Boolean).join(". "),
           };
           const draft2 = await draftContent(
-            voiceProfile, interview2, plan, enrichedContext, sampleExamples, favoriteWords, authorContext, true
+            voiceProfile, interview2, plan, enrichedContext, favoriteWords, authorContext, true
           );
           if (isAborted()) { controller.close(); return; }
 
@@ -500,7 +498,7 @@ export async function GET(
 
           await setStep("drafting", `Writing your ${typeLabel}…`);
           selected = await draftContent(
-            voiceProfile, interview, plan, enrichedContext, sampleExamples, favoriteWords, authorContext
+            voiceProfile, interview, plan, enrichedContext, favoriteWords, authorContext
           );
           if (isAborted()) { controller.close(); return; }
         }
@@ -518,7 +516,7 @@ export async function GET(
         try {
           const reviewed = await selfReviewDraft(
             selected, voiceProfile, interview, editingPrefs,
-            enrichedContext, sampleExamples, favoriteWords, authorContext
+            enrichedContext, favoriteWords, authorContext
           );
           if (reviewed && reviewed.trim()) {
             reviewedDraft = reviewed;
@@ -536,7 +534,7 @@ export async function GET(
         await setStep("humanizing", `Polishing your ${typeLabel}…`);
         const humanizedStream = await humanizeContent(
           reviewedDraft, voiceProfile, HUMANIZER, interview.contentType,
-          sampleExamples, favoriteWords, authorContext,
+          favoriteWords, authorContext,
           () => {
             send({ type: "step", step: "humanizing", label: `Humanizing your ${typeLabel}…` });
           }
