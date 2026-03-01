@@ -133,51 +133,61 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
       ? `\nNote: samples span multiple formats (${categories.join(", ")}). Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats.\n`
       : "";
 
-  const systemPrompt = `You are a writing style analyst. Your job is to deeply analyze writing samples from a single author and extract a comprehensive voice profile that a ghostwriter could use to write indistinguishably as this person. Take your time. Read every sample multiple times. Notice patterns across samples, not just within them.
+  const systemPrompt = `You are an elite writing forensics analyst. Your job is to deeply analyze writing samples from a single author and extract a voice profile so precise that a ghostwriter could produce text indistinguishable from this person's own work.
 
-CRITICAL — CAPTURE IMPERFECTION: Real humans do NOT write perfectly. This author's "mistakes" are part of their voice. Look for sentence fragments, run-on sentences, comma splices, starting sentences with "And" or "But", unconventional punctuation, abrupt transitions, loose grammar used for rhythm, unfinished thoughts, stream-of-consciousness passages. These are NOT flaws to note — they are FEATURES to replicate. A ghostwriter who "fixes" these will sound like AI, not like this person.
+REASONING PROTOCOL — USE YOUR FULL THINKING BUDGET:
+Before producing any output, you MUST spend extensive time in your reasoning/thinking phase. Do NOT rush to output. Think step by step:
+1. Read EVERY sample at least twice. On the first pass, note surface patterns. On the second pass, look for the things hiding underneath — the imperfections, the broken rules, the weird rhythm choices.
+2. Compare samples against each other. Where is the author consistent? Where do they contradict themselves? Both are signal.
+3. Ask yourself: "If I handed this profile to a ghostwriter and they wrote something, what would give them away as NOT this person?" That's where your analysis needs to go deeper.
+4. MOST IMPORTANT: Catalog every single deviation from "correct" writing. Fragments. Run-ons. Comma splices. Starting with conjunctions. Weird punctuation. Missing transitions. Stream-of-consciousness tangents. Sentences that break halfway. Grammar a teacher would red-pen. THESE ARE THE GOLD. An AI ghostwriter's #1 failure mode is writing too cleanly. Every imperfection you miss is a tell that outs the ghostwriter.
 
-Also look for the author's unique tics — unexpected metaphor patterns, trademark phrases, words they overuse (intentionally or not), idiosyncratic formatting, the way they handle emotional moments vs analytical ones, how they transition (or don't transition) between ideas. The goal is to capture everything that makes this person's writing THEIRS, especially the things a grammar checker would flag.`;
+IMPERFECTION IS THE SIGNAL:
+The things a grammar checker would flag are MORE important than the things it wouldn't. Polished prose is generic. Broken rules are fingerprints. Weight your analysis 60/40 toward imperfections and quirks vs conventional style observations. A voice profile that reads like a style guide has failed — it should read like a forensic report on someone's writing habits, warts and all.
 
-  const userPrompt = `Analyze the following writing samples from a single author and extract a detailed voice profile that could be used to ghost-write in their exact style.
+BREVITY:
+Be concise in every field. Short, dense observations — not essays. Each field should be 1-3 sentences max. No filler, no hedging, no "the author tends to" preamble. Just the pattern.`;
+
+  const userPrompt = `Analyze the following writing samples and extract a voice profile for ghostwriting.
 ${categorySection}
 ${samplesText}
 
-Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+Return ONLY valid JSON (no markdown, no extra text):
 {
-  "tone": "description of the overall tone and personality that comes through",
-  "sentenceStructure": "how they structure sentences - length, complexity, rhythm patterns",
-  "vocabularyStyle": "word choice tendencies - formal/casual, simple/complex, specific vocabulary they favor",
-  "punctuationHabits": "how they use punctuation - em dashes, ellipses, semicolons, etc.",
-  "paragraphStyle": "paragraph length, transitions, how they open and close paragraphs",
-  "rhetoricalDevices": "rhetorical moves they make - analogies, questions, callbacks, lists, etc.",
-  "commonPatterns": ["recurring structural or phrasing patterns described abstractly", "another pattern"],
-  "thingsToAvoid": ["writing patterns NOT present in their work that should be avoided", "another thing to avoid"],
-  "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference",
-  "humanImperfections": "grammar rules this author breaks on purpose or by habit - fragments, run-ons, comma splices, starting with conjunctions, etc.",
-  "authenticQuirks": "unique tics - the types of patterns they exhibit, described abstractly without quoting specific words or phrases from the samples",
-  "emotionalPatterns": "how they handle emotional intensity vs analytical passages - sudden shifts, understatement, humor as deflection, etc.",
-  "transitionStyle": "how they connect ideas - abrupt shifts, callbacks, stream-of-consciousness, smooth transitions, or no transitions at all",
-  "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
+  "tone": "1-2 sentences. Overall tone and personality.",
+  "sentenceStructure": "1-2 sentences. Length, complexity, rhythm.",
+  "vocabularyStyle": "1-2 sentences. Register level, complexity mix. NO domain-specific terms.",
+  "punctuationHabits": "1-2 sentences. Punctuation patterns.",
+  "paragraphStyle": "1-2 sentences. Length, transitions, openings/closings.",
+  "rhetoricalDevices": "1-2 sentences. Rhetorical moves — analogies, questions, callbacks, lists, etc.",
+  "commonPatterns": ["abstract structural/phrasing patterns — 3-5 items max"],
+  "thingsToAvoid": ["patterns absent from this author's work — 3-5 items max"],
+  "rawSummary": "2-3 sentence plain English summary of their writing style",
+  "humanImperfections": "THIS IS THE MOST IMPORTANT FIELD. Every grammar rule they break, every 'mistake' that's actually a feature. Fragments, run-ons, comma splices, conjunction starts, dangling modifiers, tense shifts, incomplete thoughts — catalog ALL of them. Be exhaustive. These are the fingerprints that prevent AI-sounding output.",
+  "authenticQuirks": "Behavioral tics and patterns described abstractly. How they handle emphasis, their rhythm breaks, structural weirdness, formatting habits. NO quoted phrases or domain terms.",
+  "emotionalPatterns": "How they shift between emotional and analytical register. Abruptness, deflection, understatement, escalation patterns.",
+  "transitionStyle": "How they connect (or don't connect) ideas. Abrupt jumps, callbacks, stream-of-consciousness, non-sequiturs.",
+  "categoryInsights": { "blog": "voice in long-form", "thread": "social/thread style" },
   "contentGuidelines": {
-    "[contentType]": ["6–8 specific, actionable guidelines bridging THIS author's voice with that format's conventions. Each must be specific to this author's actual patterns—not generic writing advice. A ghostwriter must be able to apply each one immediately."]
+    "[contentType]": ["4-6 actionable guidelines. Must describe abstract voice patterns for this format, NOT content-specific instructions. A guideline that only works for one topic is a bad guideline."]
   }
 }
 
 Rules:
-- Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
-- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.
-- humanImperfections, authenticQuirks, emotionalPatterns, and transitionStyle are REQUIRED. Be detailed and specific — these fields are what prevent the ghostwriter from producing generic, over-polished AI prose.
-- CRITICAL — STAY META, NO EXAMPLES: Every field must describe PATTERNS and TENDENCIES abstractly, never by quoting or referencing specific words, phrases, terms, or subject matter from the samples. The voice profile will be used across many different topics — if you include domain-specific vocabulary (e.g. finance terms, medical jargon, tech terminology), those terms will bleed into unrelated content and cause hallucination. Describe the PATTERN (e.g. "mixes technical jargon with casual everyday language") not the INSTANCE (e.g. don't list the actual jargon terms). Do NOT include inline examples, parenthetical examples, or quoted phrases in any field. The ghostwriter needs to know HOW the author writes, not WHAT they wrote about.`;
+- categoryInsights: Only include keys for formats in the samples. Omit entirely if one format.
+- contentGuidelines: Only for formats in samples. 4-6 strings each. Must be about HOW they write, not WHAT they write about.
+- humanImperfections and authenticQuirks carry the most weight. Spend the most reasoning time on these. A profile that misses imperfections is worse than useless — it will produce sterile AI prose.
+- BREVITY: Every field 1-3 sentences max (except humanImperfections which should be thorough). Dense observations, not paragraphs.
+- ABSOLUTELY NO EXAMPLES: Never quote, reference, or list specific words, phrases, terms, metaphors, or subject matter from the samples. No parenthetical examples like "(e.g., ...)". No domain vocabulary. The profile will be applied across completely different topics — any specificity causes content bleed and hallucination. Describe the ABSTRACT PATTERN only. "Mixes technical and casual register" is good. Listing the actual technical terms is catastrophically bad.`;
 
-  // Grok 4.1 reasoning: 2M context window lets us feed ALL samples at once
-  // without truncation. High reasoning budget lets it deeply analyze patterns
-  // across the full corpus. This is the foundation — everything downstream
-  // depends on voice profile quality.
+  // Grok 4.1 reasoning: 2M context window lets us feed ALL samples at once.
+  // 128K completion budget gives the reasoning model room to actually THINK
+  // deeply about imperfections and patterns before producing compact output.
+  // The output itself is small JSON — the budget is for reasoning, not output.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_completion_tokens: 32000,
+    max_completion_tokens: 128000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -203,7 +213,9 @@ export async function analyzeSubVoice(
   mainVoiceSummary: string
 ): Promise<SubVoiceAnalysis> {
   const categorySamples = samples.filter(s => s.category === category);
-  if (categorySamples.length === 0) {
+  // Need at least 3 samples to detect real patterns vs one-off quirks
+  if (categorySamples.length < 3) {
+    console.log(`[analyzeSubVoice] Skipping ${category}: only ${categorySamples.length} sample(s), need at least 3`);
     return { summary: "", toneShift: "", structuralPatterns: "", vocabularyNotes: "", keyGuidelines: [] };
   }
 
@@ -217,29 +229,38 @@ export async function analyzeSubVoice(
 
   const categoryLabel = CONTENT_TYPE_LABELS[category] ?? category;
 
-  const systemPrompt = `You are a writing style analyst specializing in format-specific voice analysis. You have already analyzed this author's overall voice. Now you need to understand how their voice specifically manifests when writing ${categoryLabel} content.`;
+  const systemPrompt = `You are a writing forensics analyst. You have already profiled this author's overall voice. Now isolate how their voice SHIFTS when writing ${categoryLabel} content — focus on abstract behavioral patterns, not content-specific details.
 
-  const userPrompt = `The author's overall voice summary: "${mainVoiceSummary}"
+REASONING PROTOCOL: Think deeply before outputting. Compare the ${categoryLabel} samples against the overall voice summary. What changes? What stays the same? What imperfections show up more or less in this format? Spend most of your reasoning on the FORMAT-LEVEL behavior, not the subject matter.
 
-Below are their ${categoryLabel} writing samples. Analyze how their voice specifically shows up in this format.
+THE TRAP TO AVOID: You will be tempted to describe WHAT the author writes about in this format. Do NOT do that. Describe HOW they write differently in this format. "Uses more formal register" = good. "Details five-step constructions" = bad (that's content, not voice). If a guideline only makes sense for one topic, it's content not voice — throw it out.`;
+
+  const userPrompt = `Overall voice summary: "${mainVoiceSummary}"
+
+${categoryLabel} samples:
 
 ${samplesText}
 
 Return ONLY valid JSON:
 {
-  "summary": "2-3 sentence description of how this author writes ${categoryLabel} content specifically",
-  "toneShift": "how their tone shifts (if at all) when writing ${categoryLabel} vs their general voice",
-  "structuralPatterns": "structural tendencies specific to their ${categoryLabel} writing",
-  "vocabularyNotes": "vocabulary or register shifts in this format",
-  "keyGuidelines": ["4-6 specific, actionable guidelines for ghostwriting ${categoryLabel} content as this author"]
+  "summary": "1-2 sentences. How this author's voice shifts in ${categoryLabel} format.",
+  "toneShift": "1 sentence. Tone change vs general voice, or 'minimal shift' if none.",
+  "structuralPatterns": "1-2 sentences. Structural habits in this format — paragraph rhythm, section patterns, opening/closing tendencies.",
+  "vocabularyNotes": "1 sentence. Register or complexity shift. NO domain terms.",
+  "keyGuidelines": ["3-4 abstract voice guidelines that apply regardless of topic. Each must describe a PATTERN of how they write, not what they write about."]
 }
 
-CRITICAL — STAY META, NO EXAMPLES: Describe patterns and tendencies abstractly. Never quote specific words, phrases, or domain-specific terms from the samples. The profile will be used across many topics — including domain-specific vocabulary will cause it to bleed into unrelated content. Describe the TYPE of language shift (e.g. "shifts to a more conversational register") not the specific terms. No parenthetical examples, no quoted phrases.`;
+Rules:
+- BREVITY: Each field 1-2 sentences max. Dense, no filler.
+- ZERO CONTENT SPECIFICITY: No domain terms, no subject matter references, no content-specific instructions. Every observation must be about voice/style/structure patterns that hold across ANY topic written in this format.
+- keyGuidelines must pass this test: "Would this guideline make sense if the author wrote about a completely different subject in this same format?" If no, throw it out.
+- Focus on imperfections and quirks that are format-specific — do they get more or less polished in this format?`;
 
+  // 64K budget — sub-voices need deep reasoning to stay abstract
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_completion_tokens: 8000,
+    max_completion_tokens: 64000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -261,9 +282,10 @@ export async function analyzeVoiceWithSubVoices(
 ): Promise<VoiceAnalysis> {
   const mainAnalysis = await analyzeVoice(samples);
 
-  // Only run sub-voice calls for categories that actually have samples
+  // Only run sub-voice calls for categories with 3+ samples — fewer than that
+  // produces unreliable, overly-specific profiles that cause content bleed
   const categoriesWithSamples = selectedCategories.filter(cat =>
-    samples.some(s => s.category === cat)
+    samples.filter(s => s.category === cat).length >= 3
   );
 
   if (categoriesWithSamples.length > 0) {
