@@ -70,112 +70,36 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
   switch (tier) {
     case "light":
       return [
-        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "planning", label: `Structuring your ${typeLabel}` },
         { key: "drafting", label: `Writing your ${typeLabel}` },
-        { key: "reviewing", label: "Re-reading as you" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "reviewing", label: "Self-editing as you" },
+        { key: "humanizing", label: "Writing in your voice" },
       ];
     case "standard":
       return [
-        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "planning", label: `Structuring your ${typeLabel}` },
         { key: "drafting", label: `Writing your ${typeLabel}` },
-        { key: "reviewing", label: "Re-reading as you" },
-        { key: "fact_checking", label: "Fact-checking claims" },
-        { key: "scoring", label: "Scoring voice fidelity" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "reviewing", label: "Self-editing as you" },
+        { key: "fact_checking", label: "Verifying claims" },
+        { key: "scoring", label: "Checking voice match" },
+        { key: "humanizing", label: "Writing in your voice" },
       ];
     case "deep":
       return [
-        { key: "planning", label: `Planning your ${typeLabel}` },
+        { key: "planning", label: `Structuring your ${typeLabel}` },
         { key: "researching", label: "Researching your topic" },
         { key: "drafting_1", label: "Writing first draft" },
-        { key: "proposing", label: "Studying draft — proposing variation" },
+        { key: "proposing", label: "Rethinking the approach" },
         { key: "drafting_2", label: "Writing second draft" },
-        { key: "comparing", label: "Comparing drafts against your voice" },
-        { key: "checking", label: "Checking word count & structure" },
-        { key: "reviewing", label: "Re-reading as you" },
-        { key: "fact_checking", label: "Fact-checking claims" },
-        { key: "scoring", label: "Scoring voice fidelity" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "comparing", label: "Picking the strongest draft" },
+        { key: "checking", label: "Checking structure" },
+        { key: "reviewing", label: "Self-editing as you" },
+        { key: "fact_checking", label: "Verifying claims" },
+        { key: "scoring", label: "Checking voice match" },
+        { key: "humanizing", label: "Writing in your voice" },
       ];
   }
 }
-
-// ── Inter-stage delays (rate-limit spacing + agentic UX) ─────────────────────
-
-interface TransitionConfig {
-  baseMs: number;
-  jitterMs: number;
-  messages: string[];
-}
-
-// Minimal delays: just enough for UX pacing between pipeline steps.
-// All agents now use the same provider (Opus), so rate-limit spacing
-// between providers is no longer a concern.
-const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> = {
-  light: {
-    "drafting->reviewing": {
-      baseMs: 500, jitterMs: 500,
-      messages: ["Reviewing draft…"],
-    },
-    "reviewing->humanizing": {
-      baseMs: 500, jitterMs: 500,
-      messages: ["Preparing final polish…"],
-    },
-  },
-  standard: {
-    "planning->drafting": {
-      baseMs: 800, jitterMs: 500,
-      messages: ["Mapping structure to your voice…"],
-    },
-    "research->drafting": {
-      baseMs: 800, jitterMs: 500,
-      messages: ["Synthesizing research…"],
-    },
-    "drafting->reviewing": {
-      baseMs: 800, jitterMs: 500,
-      messages: ["Reviewing draft…"],
-    },
-    "reviewing->fact_checking": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Verifying claims…"],
-    },
-    "fact_checking->scoring": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Checking voice match…"],
-    },
-    "scoring->humanizing": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Preparing final polish…"],
-    },
-  },
-  deep: {
-    "research->drafting_1": {
-      baseMs: 800, jitterMs: 500,
-      messages: ["Preparing draft approach…"],
-    },
-    "proposing->drafting_2": {
-      baseMs: 800, jitterMs: 500,
-      messages: ["Setting up second draft…"],
-    },
-    "checking->reviewing": {
-      baseMs: 800, jitterMs: 500,
-      messages: ["Reviewing draft…"],
-    },
-    "reviewing->fact_checking": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Verifying claims…"],
-    },
-    "fact_checking->scoring": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Checking voice match…"],
-    },
-    "scoring->humanizing": {
-      baseMs: 500, jitterMs: 300,
-      messages: ["Preparing final polish…"],
-    },
-  },
-};
 
 /**
  * SSE keepalive: sends a comment line every 15s to prevent proxy/CDN timeouts
@@ -190,31 +114,6 @@ function startHeartbeat(
     send({ type: "heartbeat" });
   }, 15_000);
   return () => clearInterval(interval);
-}
-
-/**
- * Deliberate delay between pipeline stages. Sends cycling sub-step messages
- * via SSE so the UI feels agentic. Uses send() directly (not setStep) to
- * avoid writing transient labels to the database.
- */
-async function paceTransition(
-  tier: PipelineTier,
-  transitionKey: string,
-  nextStepKey: string,
-  send: (data: object) => void,
-  isAborted: () => boolean,
-): Promise<void> {
-  const config = TRANSITION_DELAYS[tier]?.[transitionKey];
-  if (!config) return;
-
-  const totalMs = config.baseMs + Math.floor(Math.random() * config.jitterMs);
-  const perMsg = Math.floor(totalMs / config.messages.length);
-
-  for (let i = 0; i < config.messages.length; i++) {
-    if (isAborted()) return;
-    send({ type: "step", step: nextStepKey, label: config.messages[i] });
-    await new Promise((r) => setTimeout(r, perMsg));
-  }
 }
 
 export async function GET(
@@ -376,6 +275,9 @@ export async function GET(
         }
       }, timeoutMs);
 
+      // Start heartbeat to prevent proxy/CDN timeouts during long AI calls
+      const stopHeartbeat = startHeartbeat(send, isAborted);
+
       try {
         // Send pipeline configuration to client
         send({ type: "pipeline", steps: pipelineSteps, tier });
@@ -388,7 +290,7 @@ export async function GET(
         ).catch(() => null);
 
         // ── Plan ─────────────────────────────────────────────────────────
-        await setStep("planning", `Planning your ${typeLabel}…`);
+        await setStep("planning", `Structuring your ${typeLabel}…`);
         const plan = await planContent(
           voiceProfile, interview, resolvedContext, favoriteWords, authorContext
         );
@@ -460,10 +362,6 @@ export async function GET(
         let selected: string;
 
         if (tier === "deep") {
-          // Pace before first Opus draft (research used Haiku/Sonnet, different rate pool)
-          await paceTransition(tier, "research->drafting_1", "drafting_1", send, isAborted);
-          if (isAborted()) { controller.close(); return; }
-
           // Draft 1 (full samples) → study it → propose 1 variation → draft 2 (fingerprint only)
           await setStep("drafting_1", "Writing first draft…");
           const draft1 = await draftContent(
@@ -473,14 +371,10 @@ export async function GET(
 
           // Propose variation: Sonnet reads draft 1 + voice profile and suggests
           // 1 alternative creative direction specific to this author
-          await setStep("proposing", "Studying draft — proposing variation…");
+          await setStep("proposing", "Rethinking the approach…");
           const variation = await proposeDraftVariation(
             draft1, voiceProfile, interview, plan
           );
-          if (isAborted()) { controller.close(); return; }
-
-          // Pace before second Opus draft
-          await paceTransition(tier, "proposing->drafting_2", "drafting_2", send, isAborted);
           if (isAborted()) { controller.close(); return; }
 
           // Draft 2 uses condensed voice fingerprint (isFollowup=true) + reduced thinking budget
@@ -502,12 +396,12 @@ export async function GET(
           });
 
           // Compare & select best (Grok — analytical reasoning, cheaper than Opus for judgment)
-          await setStep("comparing", "Comparing drafts against your voice…");
+          await setStep("comparing", "Picking the strongest draft…");
           selected = await compareDraftsGrok([draft1, draft2], voiceProfile, interview);
           if (isAborted()) { controller.close(); return; }
 
           // Word count quality check
-          await setStep("checking", "Checking word count & structure…");
+          await setStep("checking", "Checking structure…");
           const wc = wordCount(selected);
           let minW: number, maxW: number;
           const targetStr = interview.wordCountTarget;
@@ -533,13 +427,6 @@ export async function GET(
           if (countNote) selected = `${selected}\n\n${countNote}`;
         } else {
           // Light and standard: single draft
-          // Pace before Opus draft call — use correct transition key based on
-          // whether research ran (enrichedContext differs from resolvedContext)
-          const didResearch = enrichedContext !== resolvedContext;
-          const draftTransition = didResearch ? "research->drafting" : "planning->drafting";
-          await paceTransition(tier, draftTransition, "drafting", send, isAborted);
-          if (isAborted()) { controller.close(); return; }
-
           await setStep("drafting", `Writing your ${typeLabel}…`);
           selected = await draftContent(
             voiceProfile, interview, plan, enrichedContext, favoriteWords, authorContext
@@ -551,11 +438,7 @@ export async function GET(
         // Self-review checks voice fidelity, brief adherence, and fabrication.
         // It runs on the raw draft so it can catch content issues before the
         // humanizer does its final AI-pattern cleanup pass.
-        const reviewTransition = tier === "deep" ? "checking->reviewing" : "drafting->reviewing";
-        await paceTransition(tier, reviewTransition, "reviewing", send, isAborted);
-        if (isAborted()) { controller.close(); return; }
-
-        await setStep("reviewing", "Re-reading as you…");
+        await setStep("reviewing", "Self-editing as you…");
         let reviewedDraft = selected;
         try {
           const reviewed = await selfReviewDraft(
@@ -573,10 +456,7 @@ export async function GET(
         // fabricated specifics with honest placeholders the author can fill in.
         let checkedDraft = reviewedDraft;
         if (tier !== "light") {
-          await paceTransition(tier, "reviewing->fact_checking", "fact_checking", send, isAborted);
-          if (isAborted()) { controller.close(); return; }
-
-          await setStep("fact_checking", "Fact-checking claims…");
+          await setStep("fact_checking", "Verifying claims…");
           try {
             const { cleanDraft, fabricationsFound } = await checkFabrications(
               reviewedDraft, interview, enrichedContext
@@ -601,10 +481,7 @@ export async function GET(
         // this and is always the absolute last writing step.
         let preHumanizeDraft = checkedDraft;
         if (tier !== "light") {
-          await paceTransition(tier, "fact_checking->scoring", "scoring", send, isAborted);
-          if (isAborted()) { controller.close(); return; }
-
-          await setStep("scoring", "Scoring voice fidelity…");
+          await setStep("scoring", "Checking voice match…");
           try {
             const fidelityResult = await scoreVoiceFidelity(
               preHumanizeDraft, voiceProfile, interview.contentType
@@ -621,7 +498,7 @@ export async function GET(
               fidelityResult.flags.length > 0 &&
               !isAborted()
             ) {
-              await setStep("scoring", "Voice score low — repairing flagged sentences…");
+              await setStep("scoring", "Repairing voice mismatches…");
               const repaired = await repairVoice(
                 preHumanizeDraft, voiceProfile, fidelityResult.flags.slice(0, 8),
                 interview.contentType
@@ -638,16 +515,12 @@ export async function GET(
         // The humanizer is the absolute final writing step. Nothing modifies
         // prose after this. Whatever AI patterns the drafter, self-review,
         // fact-checker, or voice repair introduced, the humanizer kills here.
-        const humanizeTransition = tier !== "light" ? "scoring->humanizing" : "reviewing->humanizing";
-        await paceTransition(tier, humanizeTransition, "humanizing", send, isAborted);
-        if (isAborted()) { controller.close(); return; }
-
-        await setStep("humanizing", `Polishing your ${typeLabel}…`);
+        await setStep("humanizing", `Writing in your voice…`);
         const humanizedStream = await humanizeContent(
           preHumanizeDraft, voiceProfile, HUMANIZER, interview.contentType,
           favoriteWords, authorContext,
           () => {
-            send({ type: "step", step: "humanizing", label: `Humanizing your ${typeLabel}…` });
+            send({ type: "step", step: "humanizing", label: `Writing in your voice…` });
           }
         );
 
@@ -696,6 +569,7 @@ export async function GET(
           .catch(console.error);
         send({ type: "error", message: "Ghostwriting failed. Please try again." });
       } finally {
+        stopHeartbeat();
         clearTimeout(timeoutTimer);
         // Clean up any files uploaded to the Files API
         if (resolvedContext) {

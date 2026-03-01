@@ -35,9 +35,9 @@ interface PipelineStep {
 // Default steps used as fallback when no pipeline event has been received
 // (e.g. for jobs already in progress before this update)
 const DEFAULT_STEPS: PipelineStep[] = [
-  { key: "planning",    label: "Planning…" },
+  { key: "planning",    label: "Structuring…" },
   { key: "drafting",    label: "Writing…" },
-  { key: "humanizing",  label: "Polishing…" },
+  { key: "humanizing",  label: "Writing in your voice…" },
 ];
 
 // Superset of all possible active step keys across all pipeline tiers

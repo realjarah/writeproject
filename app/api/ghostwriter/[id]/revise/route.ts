@@ -55,7 +55,7 @@ export async function POST(
 
         // Step 2: Run humanizer on revised output (Opus — catches any AI
         // patterns the revision introduced)
-        send({ type: "step", step: "humanizing", label: "Humanizing revised draft…" });
+        send({ type: "step", step: "humanizing", label: "Rewriting in your voice…" });
         const humanizedStream = await humanizeContent(
           revised, voiceProfile, HUMANIZER, job.contentType,
           favoriteWords.length > 0 ? favoriteWords : undefined,

@@ -71,15 +71,15 @@ export async function POST(req: NextRequest) {
 
       try {
         // ── Stage 1: Plan ────────────────────────────────────────────────
-        send({ type: "stage", step: 1, total: 3, label: "Planning structure..." });
+        send({ type: "stage", step: 1, total: 3, label: "Structuring your piece…" });
         const plan = await planContent(voiceProfile, interview, resolvedContext);
 
         // ── Stage 2: Draft ───────────────────────────────────────────────
-        send({ type: "stage", step: 2, total: 3, label: "Writing first draft..." });
+        send({ type: "stage", step: 2, total: 3, label: "Writing first draft…" });
         const draft = await draftContent(voiceProfile, interview, plan, resolvedContext);
 
         // ── Stage 3: Humanize (streams to client) ────────────────────────
-        send({ type: "stage", step: 3, total: 3, label: "Humanizing..." });
+        send({ type: "stage", step: 3, total: 3, label: "Writing in your voice…" });
         const humanizedStream = await humanizeContent(draft, voiceProfile, HUMANIZER, interview.contentType);
 
         let finalContent = "";
