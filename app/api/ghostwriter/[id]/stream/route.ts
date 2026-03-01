@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;
+export const maxDuration = 800; // Vercel Pro plan max — deep-tier pipelines (research papers, whitepapers) can run 9+ AI stages
 
 import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
@@ -151,6 +151,21 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
     },
   },
 };
+
+/**
+ * SSE keepalive: sends a comment line every 15s to prevent proxy/CDN timeouts
+ * during long AI calls. Returns a stop function.
+ */
+function startHeartbeat(
+  send: (data: object) => void,
+  isAborted: () => boolean
+): () => void {
+  const interval = setInterval(() => {
+    if (isAborted()) { clearInterval(interval); return; }
+    send({ type: "heartbeat" });
+  }, 15_000);
+  return () => clearInterval(interval);
+}
 
 /**
  * Deliberate delay between pipeline stages. Sends cycling sub-step messages

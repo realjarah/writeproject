@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes — required for multi-stage Opus pipeline
+export const maxDuration = 800; // Vercel Pro plan max — multi-stage pipeline can be lengthy for long-form content
 
 import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
@@ -75,6 +75,11 @@ export async function POST(req: NextRequest) {
       const send = (data: object) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
+
+      // Keepalive heartbeat to prevent proxy/CDN timeouts during long AI calls
+      const heartbeat = setInterval(() => {
+        send({ type: "heartbeat" });
+      }, 15_000);
 
       try {
         // ── Stage 1: Plan ────────────────────────────────────────────────

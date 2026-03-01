@@ -47,13 +47,13 @@ Rules:
     },
   });
 
-  const text = (result.text ?? "").trim();
+    const text = (result.text ?? "").trim();
 
-  try {
-    const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+    const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
     const parsed = JSON.parse(clean);
     return NextResponse.json({ titles: parsed.titles ?? [] });
-  } catch {
-    return NextResponse.json({ titles: [] });
+  } catch (err) {
+    console.error("[suggest-titles] Failed:", err);
+    return NextResponse.json({ titles: [], error: "Title suggestion failed" }, { status: 200 });
   }
 }

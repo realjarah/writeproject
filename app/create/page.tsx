@@ -218,6 +218,117 @@ export default function CreatePage() {
     setStep("describe");
     setBriefState(INITIAL_BRIEF_STATE);
     setError("");
+    setContextItems([]);
+    setDraftText("");
+    setDraftData("");
+    setDraftFileName("");
+    setDraftMediaType("");
+    setOverrideType(null);
+    setContextOpen(false);
+    setDraftOpen(false);
+    setTitleInput("");
+    setSuggestedTitles([]);
+    setWordCountTarget("");
+  }
+
+  async function suggestTitles() {
+    if (!intake || suggestingTitles) return;
+    // Use description as fallback when intake didn't extract a topic
+    const topicValue = intake.topic || description || "";
+    if (!topicValue.trim()) return;
+    setSuggestingTitles(true);
+    try {
+      const res = await fetch("/api/intake/suggest-titles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentType: overrideType ?? intake.contentType ?? "blog",
+          topic:       topicValue,
+          angle:       intake.angle      ?? "",
+          keyPoints:   intake.keyPoints  ?? "",
+        }),
+      });
+      const data = await res.json();
+      if (Array.isArray(data.titles) && data.titles.length > 0) setSuggestedTitles(data.titles);
+    } catch { /* ignore */ }
+    finally { setSuggestingTitles(false); }
+  }
+
+  // ── File handlers ────────────────────────────────────────────────────────
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const kind = fileKind(file.name);
+    const limit = SIZE_LIMITS[kind];
+    if (file.size > limit) {
+      alert(`${file.name} is too large. Limit: ${kind === "image" ? "5MB" : kind === "pdf" ? "10MB" : "50KB"}.`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    if (kind === "image" || kind === "pdf") {
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const [header, base64] = dataUrl.split(",");
+        const mime = header.match(/data:([^;]+)/)?.[1] ?? (kind === "pdf" ? "application/pdf" : "image/jpeg");
+        setNewFileName(file.name);
+        setNewData(base64);
+        setNewMediaType(mime);
+        if (kind === "image" && newTag === "reference") setNewTag("example");
+        if (kind === "pdf"   && newTag === "reference") setNewTag("research");
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const isCSV = file.name.toLowerCase().endsWith(".csv");
+      reader.onload = (ev) => {
+        setNewFileName(file.name);
+        setNewFileContent(ev.target?.result as string);
+        setNewIsCSV(isCSV);
+        if (isCSV) setNewTag("data");
+      };
+      reader.readAsText(file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleDraftFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const kind = fileKind(file.name);
+    if (kind === "image") {
+      alert("Draft files must be text (.txt, .md) or PDF.");
+      if (draftFileRef.current) draftFileRef.current.value = "";
+      return;
+    }
+    const limit = kind === "pdf" ? SIZE_LIMITS.pdf : SIZE_LIMITS.text;
+    if (file.size > limit) {
+      alert(`File too large. Max ${kind === "pdf" ? "10MB" : "50KB"}.`);
+      if (draftFileRef.current) draftFileRef.current.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    if (kind === "pdf") {
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const [header, base64] = dataUrl.split(",");
+        const mime = header.match(/data:([^;]+)/)?.[1] ?? "application/pdf";
+        setDraftFileName(file.name);
+        setDraftData(base64);
+        setDraftMediaType(mime);
+        setDraftText("");
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = (ev) => {
+        setDraftText(ev.target?.result as string);
+        setDraftFileName(file.name);
+        setDraftData("");
+        setDraftMediaType("");
+      };
+      reader.readAsText(file);
+    }
+    if (draftFileRef.current) draftFileRef.current.value = "";
     setEditingBriefId(null);
     // Restore default signature
     const def = signatures.find((s) => s.isDefault);
