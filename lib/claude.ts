@@ -263,25 +263,49 @@ export async function analyzeVoiceWithSubVoices(
 // CONTENT_TYPE_LABELS and CONTENT_TYPE_GROUPS are imported from ./content-types
 
 const WORD_GUIDANCE: Record<string, string> = {
-  blog:          "600–1200 words unless the brief specifies otherwise. Short paragraphs, natural web formatting.",
-  essay:         "500–1500 words. Clear thesis, structured argument, strong opening and close.",
-  newsletter:    "Conversational, scannable. Clear sections with headers. 200–600 words per section.",
-  whitepaper:    "Write as long as the scope demands — cover the full argument completely. Abstract → executive summary → body sections → conclusion. Data-backed throughout. Cite all [REFERENCE] context items.",
-  email:         "Subject line first, then body. Short paragraphs, one clear ask or CTA. 50–400 words.",
-  report:        "Structured with headers. Executive summary first. Data-driven, precise language. Write as long as the scope demands — never truncate to hit a word count. Attribute all [REFERENCE] context items as sources.",
-  press_release: "Inverted pyramid: headline + dateline + lead (who/what/when/where/why) + body + boilerplate. 400–600 words.",
-  proposal:      "Executive summary → problem → solution → timeline → budget (if provided) → next steps. Persuasive but factual.",
-  case_study:    "Challenge → approach → results → lessons learned. 800–2000 words. Specific, quantified outcomes.",
-  resume:        "Reverse chronological unless specified. Achievement-focused bullets. Quantify impact. No filler. ATS-friendly.",
-  cover_letter:  "3–4 paragraphs: hook → specific connection to role → evidence → closing ask. 250–400 words.",
-  research:      "Write as long as the scope demands — do not truncate to hit a word count. Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references. Cover every facet of the topic. Cite every [REFERENCE] context item in-text and in the references section.",
-  technical:     "Write as long as the scope demands — complete coverage beats brevity. Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level. Cite [REFERENCE] context items with inline links or footnotes.",
-  social:          "Single post. Twitter/X: under 280 characters total. LinkedIn: 150–300 words with line breaks. No markdown symbols.",
-  twitter_thread:  "Output each tweet separated by '---' on its own line (e.g. tweet text\\n---\\nnext tweet). Each tweet MUST be under 280 characters — this is a hard platform limit, count carefully. Aim for 5–12 tweets. Each tweet should flow naturally into the next but stand alone. Plain text only — no markdown bold/italics/headers/bullets. Open strong, close with a hook or call to action.",
-  caption:       "1–4 sentences. Conversational, relevant to the image or moment.",
-  text_message:  "1–3 sentences max. Casual, direct. Match the sender's register.",
-  speech:        "Write for the ear, not the eye. Short sentences, natural pauses, direct address. Memorable opening and close.",
-  script:        "Label speakers or segments clearly. Write for spoken delivery. Conversational but structured. Include stage directions if helpful.",
+  // Personal
+  notes:               "Personal notes, brain dumps, shorthand. Match the author's natural thinking style. 50–500 words.",
+  list:                "Bullet points or numbered items. Clear, actionable where applicable. No unnecessary prose. 5–50 items.",
+  ai_prompt:           "Clear, specific instructions for an AI model. Define role, task, constraints, and output format. 50–500 words. Precision matters more than length.",
+  letter:              "Formal or semi-formal correspondence. Opening greeting, body paragraphs, closing. 200–800 words.",
+  thank_you_note:      "Warm, personal, specific. Reference what you're thanking for. 50–200 words.",
+  review:              "Honest, specific assessment. Lead with the verdict, support with details and examples. 100–500 words. Conversational but credible.",
+  bio:                 "First or third person as specified. Highlight credentials, experience, and personality. Concise but compelling. 50–300 words.",
+  text_message:        "1–3 sentences max. Casual, direct. Match the sender's register.",
+  // Social Media
+  social:              "Single post. Twitter/X: under 280 characters total. LinkedIn: 150–300 words with line breaks. No markdown symbols.",
+  twitter_thread:      "Output each tweet separated by '---' on its own line (e.g. tweet text\\n---\\nnext tweet). Each tweet MUST be under 280 characters — this is a hard platform limit, count carefully. Aim for 5–12 tweets. Each tweet should flow naturally into the next but stand alone. Plain text only — no markdown bold/italics/headers/bullets. Open strong, close with a hook or call to action.",
+  caption:             "1–4 sentences. Conversational, relevant to the image or moment.",
+  // Professional
+  email:               "Subject line first, then body. Short paragraphs, one clear ask or CTA. 50–400 words.",
+  proposal:            "Executive summary → problem → solution → timeline → budget (if provided) → next steps. Persuasive but factual.",
+  cover_letter:        "3–4 paragraphs: hook → specific connection to role → evidence → closing ask. 250–400 words.",
+  resume:              "Reverse chronological unless specified. Achievement-focused bullets. Quantify impact. No filler. ATS-friendly.",
+  press_release:       "Inverted pyramid: headline + dateline + lead (who/what/when/where/why) + body + boilerplate. 400–600 words.",
+  scope_of_work:       "Formal project document. Sections: overview → objectives → deliverables → timeline/milestones → assumptions → acceptance criteria. Precise, unambiguous language. 500–2000 words.",
+  rfp:                 "Formal procurement document or response. Clear requirements, evaluation criteria, submission instructions, and timeline. Professional, specific, and structured. 500–3000 words.",
+  // Business
+  business_plan:       "Write as long as the scope demands — complete coverage is essential. Executive summary → company description → market analysis → competitive landscape → products/services → marketing strategy → operations → financial projections → funding requirements. Data-driven, investor-ready language.",
+  report:              "Structured with headers. Executive summary first. Data-driven, precise language. Write as long as the scope demands — never truncate to hit a word count. Attribute all [REFERENCE] context items as sources.",
+  case_study:          "Challenge → approach → results → lessons learned. 800–2000 words. Specific, quantified outcomes.",
+  handbook:            "Write as long as the scope demands — comprehensive coverage is critical. Clear section headers, consistent formatting, plain language. Policy-oriented but accessible. Table of contents structure.",
+  // Marketing & Content
+  blog:                "600–1200 words unless the brief specifies otherwise. Short paragraphs, natural web formatting.",
+  newsletter:          "Conversational, scannable. Clear sections with headers. 200–600 words per section.",
+  ad_copy:             "Headline + body. Benefit-driven, clear CTA. Tight, punchy language. Match the platform (social ad, print, landing page). 25–200 words.",
+  product_description: "Feature-benefit structure. Scannable, specific, sensory where appropriate. Match the platform (e-commerce, catalog, landing page). 50–300 words.",
+  // Education
+  lesson_plan:         "Structured format: objectives → materials → procedure → assessment → differentiation. Clear, actionable steps for the instructor. 300–1000 words.",
+  course:              "Write as long as the scope demands. Module/lesson structure with clear learning objectives, content sections, activities, and assessment prompts. Educational but engaging tone.",
+  guide:               "Step-by-step structure with clear headers. Actionable, practical instructions. 500–2000 words. Include prerequisites, warnings, and tips where helpful.",
+  // Academic & Technical
+  research:            "Write as long as the scope demands — do not truncate to hit a word count. Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references. Cover every facet of the topic. Cite every [REFERENCE] context item in-text and in the references section.",
+  technical:           "Write as long as the scope demands — complete coverage beats brevity. Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level. Cite [REFERENCE] context items with inline links or footnotes.",
+  whitepaper:          "Write as long as the scope demands — cover the full argument completely. Abstract → executive summary → body sections → conclusion. Data-backed throughout. Cite all [REFERENCE] context items.",
+  // Creative & Spoken
+  essay:               "500–1500 words. Clear thesis, structured argument, strong opening and close.",
+  speech:              "Write for the ear, not the eye. Short sentences, natural pauses, direct address. Memorable opening and close.",
+  script:              "Label speakers or segments clearly. Write for spoken delivery. Conversational but structured. Include stage directions if helpful.",
 };
 
 // ── Files API helpers ────────────────────────────────────────────────────────
@@ -597,29 +621,46 @@ interface StageBudgets {
 }
 
 const STAGE_BUDGETS: Record<string, StageBudgets> = {
-  // Academic / very long-form
+  // ── Very long-form (128k draft) ───────────────────────────────────────────
   research:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
   whitepaper:    { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
+  business_plan: { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
+  handbook:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
   technical:     { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, humanize: { maxTokens: 100000, thinkingBudget: 48000 } },
+  course:        { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, humanize: { maxTokens: 100000, thinkingBudget: 48000 } },
+  // ── Standard long-form (64k–80k draft) ────────────────────────────────────
   case_study:    { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
-  // Standard long-form
   report:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
+  rfp:           { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
+  scope_of_work: { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
+  guide:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
   essay:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
+  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
   speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 24000 } },
   script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 24000 } },
-  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
-  // Business medium — humanizer needs serious thinking to scan, rewrite, audit, and revise
+  // ── Medium (16k–32k draft) ────────────────────────────────────────────────
   blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, draftFollowup: { maxTokens: 32000,  thinkingBudget: 10000 }, humanize: { maxTokens: 32000,  thinkingBudget: 24000 } },
   newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, draftFollowup: { maxTokens: 24000,  thinkingBudget: 8000  }, humanize: { maxTokens: 24000,  thinkingBudget: 16000 } },
   press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 12000 } },
+  lesson_plan:   { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 12000 } },
   resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 10000 } },
   cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 10000 } },
-  email:         { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
-  // Short-form — humanizer still needs full audit even for short pieces
-  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,  thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,  thinkingBudget: 2000  }, humanize: { maxTokens: 4000,  thinkingBudget: 8000  } },
-  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000, thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000, thinkingBudget: 5000  }, humanize: { maxTokens: 12000, thinkingBudget: 16000 } },
-  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,  thinkingBudget: 1500  }, humanize: { maxTokens: 3000,  thinkingBudget: 6000  } },
-  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,  thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,  thinkingBudget: 1500  }, humanize: { maxTokens: 3000,  thinkingBudget: 6000  } },
+  // ── Short (4k–8k draft) ───────────────────────────────────────────────────
+  letter:          { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  review:          { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  email:           { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  bio:             { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  product_description: { plan: { maxTokens: 6000, thinkingBudget: 4000 }, draft: { maxTokens: 4000, thinkingBudget: 3000 }, draftFollowup: { maxTokens: 4000, thinkingBudget: 2000 }, humanize: { maxTokens: 4000, thinkingBudget: 8000 } },
+  list:            { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 16000 } },
+  // ── Very short (3k draft) ─────────────────────────────────────────────────
+  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  thank_you_note:  { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  ad_copy:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  ai_prompt:       { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  notes:           { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
 };
 
 const DEFAULT_BUDGETS: StageBudgets = {
@@ -636,10 +677,11 @@ export function getStageBudgets(contentType: string): StageBudgets {
 // ── Pipeline tier sets ───────────────────────────────────────────────────────
 
 /** Content types that use the lightweight pipeline (Gemini for planning).
- *  Only truly short-form content — threads, emails, and resumes are voice-critical
- *  enough to warrant the full pipeline. */
+ *  Only truly short-form or functional content where voice matching is secondary.
+ *  Voice-critical short types (bio, review, thank_you_note, letter) stay in full pipeline. */
 export const LIGHT_TYPES = new Set([
   "caption", "text_message", "social",
+  "ai_prompt", "notes", "list", "ad_copy",
 ]);
 
 // ── Voice fingerprint (condensed samples for follow-up calls) ────────────────

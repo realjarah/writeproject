@@ -3,17 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
 import ReadinessBar from "@/components/ReadinessBar";
-import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_LABELS } from "@/lib/content-types";
-
-// Color per group — used in sample list badges and the mastery grid
-const GROUP_COLORS: Record<string, string> = {
-  "Writing":              "#60a5fa",
-  "Business":             "#34d399",
-  "Career":               "#a78bfa",
-  "Academic & Technical": "#fb923c",
-  "Short-form":           "#f472b6",
-  "Spoken word":          "#facc15",
-};
+import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_LABELS, GROUP_COLORS } from "@/lib/content-types";
 
 function groupColor(type: string): string {
   for (const g of CONTENT_TYPE_GROUPS) {

@@ -5,42 +5,74 @@
  */
 
 export const CONTENT_TYPE_LABELS: Record<string, string> = {
-  // Writing
-  blog:          "blog post / article",
-  essay:         "essay",
-  newsletter:    "newsletter",
-  whitepaper:    "whitepaper",
+  // Personal
+  notes:               "personal notes",
+  list:                "list / to-do list",
+  ai_prompt:           "AI prompt",
+  letter:              "letter",
+  thank_you_note:      "thank you note",
+  review:              "review / testimonial",
+  bio:                 "bio / about page",
+  text_message:        "text message",
+  // Social Media
+  social:              "social media post (LinkedIn or single tweet)",
+  twitter_thread:      "Twitter/X thread",
+  caption:             "caption (Instagram or TikTok)",
+  // Professional
+  email:               "email",
+  proposal:            "proposal",
+  cover_letter:        "cover letter",
+  resume:              "resume / CV",
+  press_release:       "press release",
+  scope_of_work:       "scope of work",
+  rfp:                 "RFP / RFP response",
   // Business
-  email:         "email",
-  report:        "report",
-  press_release: "press release",
-  proposal:      "proposal",
-  case_study:    "case study",
-  // Career
-  resume:        "resume / CV",
-  cover_letter:  "cover letter",
+  business_plan:       "business plan",
+  report:              "report",
+  case_study:          "case study",
+  handbook:            "handbook",
+  // Marketing & Content
+  blog:                "blog post / article",
+  newsletter:          "newsletter",
+  ad_copy:             "ad copy",
+  product_description: "product description",
+  // Education
+  lesson_plan:         "lesson plan",
+  course:              "course content",
+  guide:               "guide / how-to",
   // Academic & Technical
-  research:      "research paper",
-  technical:     "technical documentation",
-  // Short-form
-  social:         "social media post (LinkedIn or single tweet)",
-  twitter_thread: "Twitter/X thread",
-  caption:        "caption (Instagram or TikTok)",
-  text_message:   "text message",
-  // Spoken word
-  speech:        "speech",
-  script:        "script (podcast / video)",
+  research:            "research paper",
+  technical:           "technical documentation",
+  whitepaper:          "whitepaper",
+  // Creative & Spoken
+  essay:               "essay",
+  speech:              "speech",
+  script:              "script (podcast / video)",
 };
 
 // Groups used by the type selector UI
 export const CONTENT_TYPE_GROUPS: { label: string; types: string[] }[] = [
-  { label: "Writing",              types: ["blog", "essay", "newsletter", "whitepaper"] },
-  { label: "Business",             types: ["email", "report", "press_release", "proposal", "case_study"] },
-  { label: "Career",               types: ["resume", "cover_letter"] },
-  { label: "Academic & Technical", types: ["research", "technical"] },
-  { label: "Short-form",           types: ["social", "twitter_thread", "caption", "text_message"] },
-  { label: "Spoken word",          types: ["speech", "script"] },
+  { label: "Personal",             types: ["notes", "list", "ai_prompt", "letter", "thank_you_note", "review", "bio", "text_message"] },
+  { label: "Social Media",         types: ["social", "twitter_thread", "caption"] },
+  { label: "Professional",         types: ["email", "proposal", "cover_letter", "resume", "press_release", "scope_of_work", "rfp"] },
+  { label: "Business",             types: ["business_plan", "report", "case_study", "handbook"] },
+  { label: "Marketing & Content",  types: ["blog", "newsletter", "ad_copy", "product_description"] },
+  { label: "Education",            types: ["lesson_plan", "course", "guide"] },
+  { label: "Academic & Technical", types: ["research", "technical", "whitepaper"] },
+  { label: "Creative & Spoken",    types: ["essay", "speech", "script"] },
 ];
+
+// Shared color palette for content type groups (used by voice page, profile page, etc.)
+export const GROUP_COLORS: Record<string, string> = {
+  "Personal":            "#a78bfa",
+  "Social Media":        "#f472b6",
+  "Professional":        "#34d399",
+  "Business":            "#2dd4bf",
+  "Marketing & Content": "#60a5fa",
+  "Education":           "#f59e0b",
+  "Academic & Technical": "#fb923c",
+  "Creative & Spoken":   "#facc15",
+};
 
 // ── Shared types ─────────────────────────────────────────────────────────────
 
