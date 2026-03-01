@@ -10,6 +10,7 @@ const JOB_SELECT = {
   topic: true,
   title: true,
   summaryText: true,
+  briefGrade: true,
   brief: true,
   status: true,
   stepLabel: true,
@@ -27,6 +28,7 @@ const JOB_LIST_SELECT = {
   topic: true,
   title: true,
   summaryText: true,
+  briefGrade: true,
   status: true,
   stepLabel: true,
   finalDraft: true,
@@ -72,7 +74,7 @@ export async function POST(req: NextRequest) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { contentType, topic, title, summaryText, brief, status: reqStatus } = await req.json();
+  const { contentType, topic, title, summaryText, brief, status: reqStatus, briefGrade } = await req.json();
   if (!contentType || !brief) {
     return NextResponse.json({ error: "contentType and brief are required" }, { status: 400 });
   }
@@ -99,6 +101,7 @@ export async function POST(req: NextRequest) {
       topic: topic ?? "",
       title: title ?? "",
       summaryText: summaryText ?? "",
+      briefGrade: briefGrade ?? "",
       brief,
       status,
     },

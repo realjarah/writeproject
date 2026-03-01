@@ -74,6 +74,14 @@ export const GROUP_COLORS: Record<string, string> = {
   "Creative & Spoken":   "#facc15",
 };
 
+/** Look up the group label for a content type key. */
+export function getGroupForType(contentType: string): string | undefined {
+  for (const group of CONTENT_TYPE_GROUPS) {
+    if (group.types.includes(contentType)) return group.label;
+  }
+  return undefined;
+}
+
 // ── Shared types ─────────────────────────────────────────────────────────────
 
 export type ContextItemTag = "data" | "example" | "research" | "reference" | "note";

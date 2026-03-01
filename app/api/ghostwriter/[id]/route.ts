@@ -60,6 +60,10 @@ export async function PATCH(
   if (typeof body.summaryText === "string") {
     data.summaryText = body.summaryText;
   }
+  // Update brief grade
+  if (typeof body.briefGrade === "string") {
+    data.briefGrade = body.briefGrade;
+  }
   // Change status (only allow specific transitions)
   if (typeof body.status === "string") {
     // draft → queued (send to ghostwriter)

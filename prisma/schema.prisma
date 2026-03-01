@@ -110,7 +110,8 @@ model GhostwriterJob {
   topic       String
   title       String    @default("")
   summaryText String    @default("")
-  brief       String    // JSON: { interview, context?, signatureContent? }
+  briefGrade  String    @default("")    // D | C | B | A | A+
+  brief       String    // JSON: { interview, context?, signatureContent?, briefGrade?, briefScore? }
   status      String    @default("queued") // queued|planning|drafting_1|drafting_2|drafting_3|comparing|checking|humanizing|done|error
   stepLabel   String    @default("")
   drafts      String    @default("[]")     // JSON array of up to 3 raw draft strings
