@@ -15,11 +15,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "topic required" }, { status: 400 });
   }
 
-  const result = await getGemini().models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: `Content type: ${contentType}\nTopic: ${topic}\nAngle: ${angle || "not specified"}\nKey points: ${keyPoints || "not specified"}`,
-    config: {
-      systemInstruction: `Generate exactly 4 compelling, specific title options for the described piece. Return ONLY valid JSON with no prose: { "titles": ["title1", "title2", "title3", "title4"] }
+  try {
+    const result = await getGemini().models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `Content type: ${contentType}\nTopic: ${topic}\nAngle: ${angle || "not specified"}\nKey points: ${keyPoints || "not specified"}`,
+      config: {
+        systemInstruction: `Generate exactly 4 compelling, specific title options for the described piece. Return ONLY valid JSON with no prose: { "titles": ["title1", "title2", "title3", "title4"] }
 
 Rules:
 - Be punchy, direct, and specific to the topic
@@ -27,17 +28,17 @@ Rules:
 - Vary the style across the 4 options (e.g. one declarative, one question, one contrarian, one list-style if appropriate)
 - Match the tone implied by the content type
 - Keep titles concise (under 12 words each)`,
-      maxOutputTokens: 512,
-    },
-  });
+        maxOutputTokens: 2048,
+      },
+    });
 
-  const text = (result.text ?? "").trim();
+    const text = (result.text ?? "").trim();
 
-  try {
-    const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+    const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
     const parsed = JSON.parse(clean);
     return NextResponse.json({ titles: parsed.titles ?? [] });
-  } catch {
-    return NextResponse.json({ titles: [] });
+  } catch (err) {
+    console.error("[suggest-titles] Failed:", err);
+    return NextResponse.json({ titles: [], error: "Title suggestion failed" }, { status: 200 });
   }
 }

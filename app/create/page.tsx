@@ -299,6 +299,9 @@ export default function CreatePage() {
 
   async function suggestTitles() {
     if (!intake || suggestingTitles) return;
+    // Use description as fallback when intake didn't extract a topic
+    const topicValue = intake.topic || description || "";
+    if (!topicValue.trim()) return;
     setSuggestingTitles(true);
     try {
       const res = await fetch("/api/intake/suggest-titles", {
@@ -306,13 +309,13 @@ export default function CreatePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contentType: overrideType ?? intake.contentType ?? "blog",
-          topic:       intake.topic      ?? answers.topic      ?? "",
-          angle:       intake.angle      ?? answers.angle      ?? "",
-          keyPoints:   intake.keyPoints  ?? answers.keyPoints  ?? "",
+          topic:       topicValue,
+          angle:       intake.angle      ?? "",
+          keyPoints:   intake.keyPoints  ?? "",
         }),
       });
       const data = await res.json();
-      if (Array.isArray(data.titles)) setSuggestedTitles(data.titles);
+      if (Array.isArray(data.titles) && data.titles.length > 0) setSuggestedTitles(data.titles);
     } catch { /* ignore */ }
     finally { setSuggestingTitles(false); }
   }

@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes — required for multi-stage Opus pipeline
+export const maxDuration = 900; // 15 minutes — multi-stage pipeline can be lengthy for long-form content
 
 import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
@@ -70,6 +70,11 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
+      // Keepalive heartbeat to prevent proxy/CDN timeouts during long AI calls
+      const heartbeat = setInterval(() => {
+        send({ type: "heartbeat" });
+      }, 15_000);
+
       try {
         // ── Stage 1: Plan ────────────────────────────────────────────────
         send({ type: "stage", step: 1, total: 3, label: "Planning structure..." });
@@ -115,6 +120,8 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         console.error("Generation pipeline error:", err);
         send({ type: "error", message: "Generation failed. Please try again." });
+      } finally {
+        clearInterval(heartbeat);
       }
 
       controller.close();

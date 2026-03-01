@@ -692,9 +692,14 @@ export async function planContent(
   // Build system prompt with cache_control on the stable voice + samples block
   // so the API can reuse KV cache when subsequent pipeline calls share this prefix
   const voicePlanBlock = `You are ghost-writing a ${resolveTypeLabel(interview)}. The piece must be indistinguishable from this author's own work. Study the voice profile and samples below until you can hear them in your head. Every structural decision in your plan must serve this specific author's voice.
+
+CRITICAL — VOICE HIERARCHY: The author's OVERALL voice (summary, tone, sentence structure, vocabulary, rhetorical devices) is your PRIMARY guide. It overrides everything else. Format-specific hints below are secondary — use them only when they don't conflict with the author's core voice. If a format guideline would make the piece sound less like this author, ignore it. The goal is this author's voice in this format, not a generic version of this format.
+
+CRITICAL — PLAN FOR IMPERFECTION: If this author's writing is raw, casual, or grammatically loose, plan for that. Do not plan a polished, structured piece for an author who writes in fragments and stream-of-consciousness. The plan should reflect how THIS author would actually structure their thinking, not how a writing textbook would.
 ${examplesBlock}
-**Author voice summary:** ${voiceProfile.rawSummary}
-${authorContextBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}`;
+**Author voice summary (THIS IS YOUR NORTH STAR):** ${voiceProfile.rawSummary}
+${authorContextBlock}${topicInsightsBlock}
+${categoryInsightBlock || guidelinesBlock ? `**Secondary format hints (use lightly — never let these override the author's core voice):**${categoryInsightBlock}${guidelinesBlock}` : ""}${favoriteWordsBlock}`;
 
   const userPrompt = `Produce the structural plan. Do not write the piece — plan only.
 
@@ -812,7 +817,11 @@ export async function draftContent(
 
 Read the voice profile and writing samples below. Internalize the rhythm, the word choices, the sentence lengths, the way they open paragraphs, the way they close them. Then write as them.
 
-## Author Voice Profile
+CRITICAL — VOICE HIERARCHY: The author's overall voice profile below is your PRIMARY guide. It defines how this person writes across ALL formats. The format-specific hints at the bottom are secondary — light suggestions, not mandates. If following a format guideline would make the piece sound less like this specific author, ignore the guideline. Your job is to sound like THIS PERSON, not to produce a textbook example of this format.
+
+CRITICAL — IMPERFECT IS AUTHENTIC: Do NOT write with perfect grammar, flawless sentence structure, or textbook-correct prose unless the author's samples demonstrate that style. Real humans write with sentence fragments, start sentences with "And" or "But", use run-ons, skip transitions, leave thoughts slightly unfinished, and break grammar rules for rhythm and emphasis. If this author's samples show imperfect patterns — fragments, casual grammar, unconventional punctuation, abrupt shifts — MIRROR THOSE. Perfect prose is one of the most obvious AI tells. Match the author's actual level of polish, not an idealized version of it. A separate humanizer pass will run after you — your job is voice fidelity first, not grammatical correctness.
+
+## Author Voice Profile (PRIMARY — this defines the voice)
 
 **Tone:** ${voiceProfile.tone}
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
@@ -824,7 +833,8 @@ Read the voice profile and writing samples below. Internalize the rhythm, the wo
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in your output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${examplesSection}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}`;
+${examplesSection}${topicInsightsBlock}
+${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (use lightly — the voice profile above always wins)\n${categoryInsightBlock}${guidelinesBlock}` : ""}`;
 
   const rulesBlock = `## Forbidden — zero tolerance. Any of these in the output is an automatic failure.
 - Opener clichés: "In today's fast-paced world", "In the digital age", "It goes without saying", "In an era where"
@@ -839,6 +849,7 @@ ${examplesSection}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}
 - Em dash overuse: more than 1-2 em dashes in the entire piece is too many
 - Rule of three: do not group ideas into threes ("X, Y, and Z") unless the author demonstrably does this
 - Synonym cycling: do not use four different words for the same concept across consecutive sentences
+- Over-polished prose: if this author writes casually, with fragments, loose grammar, or raw energy, do NOT clean it up into textbook English. Perfect grammar is an AI tell. Match the author's actual level of polish.
 
 ## Factual Integrity — this overrides everything above
 You are writing under a real person's name. Think about what you actually know vs. what you're guessing.
@@ -1063,11 +1074,13 @@ EM DASH RULE (absolute): Replace virtually ALL em dashes (—) with commas, peri
 
 Do not replace AI patterns with bland, voiceless prose. That is equally unacceptable. Replace them with THIS AUTHOR'S voice. Read the profile and excerpts below. That is how the output must read — like this specific person sat down and wrote it.
 
+PRESERVE AUTHENTIC IMPERFECTION: Do NOT "fix" grammar, sentence fragments, casual constructions, or unconventional punctuation that matches this author's actual style. If the author writes with sentence fragments, run-ons, starts sentences with conjunctions, or uses loose grammar for rhythm, those are FEATURES of their voice, not bugs to correct. Overly polished, grammatically perfect prose is itself an AI tell. Your job is to remove AI patterns while keeping (or restoring) the author's natural level of polish, however imperfect that is. When in doubt, lean toward the rawer, more human version.
+
 While humanizing, also watch for fabricated specifics — numbers, statistics, percentages, study citations, or data points that look suspiciously precise and were not provided as context. If you spot what appears to be an invented figure, replace it with honest placeholder language (e.g., "your recent results," "the data you mentioned," "[specific number]"). Do not let fabricated data survive into the final output.
 
 Output the final text only. No commentary. No process notes. No preamble.
 
-## Author Voice Profile
+## Author Voice Profile (PRIMARY — this is the voice you are restoring)
 **Tone:** ${voiceProfile.tone}
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
 **Vocabulary Style:** ${voiceProfile.vocabularyStyle}
@@ -1078,7 +1091,8 @@ Output the final text only. No commentary. No process notes. No preamble.
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in the output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}`,
+${fingerprintBlock}${topicInsightsBlock}${favoriteWordsBlock}${authorContextBlock}
+${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (reference lightly — the voice profile above always takes priority)\n${categoryInsightBlock}${guidelinesBlock}` : ""}`,
     },
   ];
 
@@ -1209,7 +1223,8 @@ If you need to rewrite a sentence, use the author's voice from the profile below
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
 **Vocabulary:** ${voiceProfile.vocabularyStyle}
 **Things to Avoid (if ANY of these appear, fix them immediately):** ${voiceProfile.thingsToAvoid.join("; ")}
-${samplesBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
+${samplesBlock}${topicInsightsBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
+${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (reference lightly — the overall voice profile always wins)\n${categoryInsightBlock}${guidelinesBlock}` : ""}
 Your review must check:
 1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
 2. AI contamination — if any AI patterns survived the humanizer, destroy them. But do NOT introduce new ones in your fixes.

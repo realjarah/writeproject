@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 900; // 15 minutes — deep-tier pipelines (research papers, whitepapers) can run 9+ AI stages
 
 import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
@@ -101,14 +101,14 @@ interface TransitionConfig {
 const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> = {
   light: {
     "drafting->reviewing": {
-      baseMs: 6000, jitterMs: 5000,
+      baseMs: 2000, jitterMs: 1500,
       messages: [
         "Reading draft back…",
         "Checking voice fidelity…",
       ],
     },
     "reviewing->humanizing": {
-      baseMs: 6000, jitterMs: 5000,
+      baseMs: 2000, jitterMs: 1500,
       messages: [
         "Reviewed and refined…",
         "Preparing final polish…",
@@ -117,7 +117,7 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
   },
   standard: {
     "planning->drafting": {
-      baseMs: 8000, jitterMs: 7000,
+      baseMs: 2500, jitterMs: 2000,
       messages: [
         "Reviewing your voice patterns…",
         "Mapping structure to your style…",
@@ -125,7 +125,7 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       ],
     },
     "research->drafting": {
-      baseMs: 8000, jitterMs: 7000,
+      baseMs: 2500, jitterMs: 2000,
       messages: [
         "Synthesizing research findings…",
         "Mapping structure to your style…",
@@ -133,7 +133,7 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       ],
     },
     "drafting->reviewing": {
-      baseMs: 8000, jitterMs: 7000,
+      baseMs: 2500, jitterMs: 2000,
       messages: [
         "Reading draft back…",
         "Checking voice fidelity…",
@@ -141,7 +141,7 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       ],
     },
     "reviewing->humanizing": {
-      baseMs: 8000, jitterMs: 7000,
+      baseMs: 2500, jitterMs: 2000,
       messages: [
         "Reviewed and refined…",
         "Checking tone against your voice…",
@@ -151,25 +151,23 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
   },
   deep: {
     "research->drafting_1": {
-      baseMs: 12000, jitterMs: 8000,
+      baseMs: 3000, jitterMs: 2000,
       messages: [
         "Reviewing your voice patterns…",
-        "Cross-referencing brief with style notes…",
         "Synthesizing research findings…",
         "Preparing draft approach…",
       ],
     },
     "proposing->drafting_2": {
-      baseMs: 14000, jitterMs: 8000,
+      baseMs: 3000, jitterMs: 2000,
       messages: [
         "Analyzing first draft structure…",
-        "Identifying areas for variation…",
         "Mapping alternative direction to your voice…",
         "Setting up second draft…",
       ],
     },
     "checking->reviewing": {
-      baseMs: 10000, jitterMs: 8000,
+      baseMs: 2500, jitterMs: 2000,
       messages: [
         "Reading draft back…",
         "Checking voice fidelity…",
@@ -177,7 +175,7 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       ],
     },
     "reviewing->humanizing": {
-      baseMs: 10000, jitterMs: 8000,
+      baseMs: 2500, jitterMs: 2000,
       messages: [
         "Reviewed and refined…",
         "Checking tone against your voice…",
@@ -186,6 +184,21 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
     },
   },
 };
+
+/**
+ * SSE keepalive: sends a comment line every 15s to prevent proxy/CDN timeouts
+ * during long AI calls. Returns a stop function.
+ */
+function startHeartbeat(
+  send: (data: object) => void,
+  isAborted: () => boolean
+): () => void {
+  const interval = setInterval(() => {
+    if (isAborted()) { clearInterval(interval); return; }
+    send({ type: "heartbeat" });
+  }, 15_000);
+  return () => clearInterval(interval);
+}
 
 /**
  * Deliberate delay between pipeline stages. Sends cycling sub-step messages
@@ -351,6 +364,8 @@ export async function GET(
       };
 
       const isAborted = () => abortController.signal.aborted;
+
+      const stopHeartbeat = startHeartbeat(send, isAborted);
 
       try {
         // Send pipeline configuration to client
@@ -591,7 +606,7 @@ export async function GET(
           .catch(console.error);
         send({ type: "error", message: "Ghostwriting failed. Please try again." });
       } finally {
-        // No file cleanup needed — binary content is inline base64, not uploaded.
+        stopHeartbeat();
       }
 
       controller.close();
