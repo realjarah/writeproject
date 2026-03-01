@@ -685,13 +685,13 @@ export default function VoicePage() {
                           </ul>
                         )}
                         {/* Merge contentGuidelines into sub-voice card */}
-                        {profile.analysis.contentGuidelines?.[cat]?.length > 0 && (
+                        {(profile.analysis.contentGuidelines?.[cat]?.length ?? 0) > 0 && (
                           <div className="space-y-1 border-t border-black/[0.04] dark:border-white/[0.04] pt-2 mt-1">
                             <div className="text-[10px] font-semibold text-black/[0.30] dark:text-white/[0.30] uppercase tracking-widest">
                               Guidelines
                             </div>
                             <ul className="space-y-1">
-                              {profile.analysis.contentGuidelines[cat].map((g, i) => (
+                              {profile.analysis.contentGuidelines![cat].map((g, i) => (
                                 <li key={i} className="text-[11px] text-black/[0.45] dark:text-white/[0.45] flex gap-1.5">
                                   <span className="text-black/[0.20] dark:text-white/[0.20] shrink-0">-</span>
                                   {g}
