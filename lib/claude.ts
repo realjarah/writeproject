@@ -846,7 +846,7 @@ CRITICAL — VOICE HIERARCHY: The author's OVERALL voice (summary, tone, sentenc
 CRITICAL — PLAN FOR IMPERFECTION: If this author's writing is raw, casual, or grammatically loose, plan for that. Do not plan a polished, structured piece for an author who writes in fragments and stream-of-consciousness. The plan should reflect how THIS author would actually structure their thinking, not how a writing textbook would.
 ${examplesBlock}
 **Author voice summary (THIS IS YOUR NORTH STAR):** ${voiceProfile.rawSummary}
-${authorContextBlock}${topicInsightsBlock}
+${authorContextBlock}${subVoiceBlock}
 ${categoryInsightBlock || guidelinesBlock ? `**Secondary format hints (use lightly — never let these override the author's core voice):**${categoryInsightBlock}${guidelinesBlock}` : ""}${favoriteWordsBlock}`;
 
   const userPrompt = `Produce the structural plan. Do not write the piece — plan only.
@@ -983,7 +983,7 @@ CRITICAL — IMPERFECT IS AUTHENTIC: Do NOT write with perfect grammar, flawless
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in your output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${examplesSection}${topicInsightsBlock}
+${examplesSection}${subVoiceBlock}
 ${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (use lightly — the voice profile above always wins)\n${categoryInsightBlock}${guidelinesBlock}` : ""}`;
 
   const rulesBlock = `## Forbidden — zero tolerance. Any of these in the output is an automatic failure.
@@ -1253,8 +1253,6 @@ Output the final text only. No commentary. No process notes. No preamble.
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in the output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${fingerprintBlock}${topicInsightsBlock}${favoriteWordsBlock}${authorContextBlock}
-${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (reference lightly — the voice profile above always takes priority)\n${categoryInsightBlock}${guidelinesBlock}` : ""}`,
 ${fingerprintBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}
 
 ## MANDATORY VERIFICATION CHECKLIST
@@ -1400,8 +1398,6 @@ If you need to rewrite a sentence, use the author's voice from the profile below
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
 **Vocabulary:** ${voiceProfile.vocabularyStyle}
 **Things to Avoid (if ANY of these appear, fix them immediately):** ${voiceProfile.thingsToAvoid.join("; ")}
-${samplesBlock}${topicInsightsBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
-${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (reference lightly — the overall voice profile always wins)\n${categoryInsightBlock}${guidelinesBlock}` : ""}
 ${samplesBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
 Your review must check:
 1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
