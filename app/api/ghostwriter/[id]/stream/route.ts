@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 900; // 15 minutes — deep-tier pipelines (research papers, whitepapers) can run 9+ AI stages
+export const maxDuration = 800; // Vercel Pro plan max — deep-tier pipelines (research papers, whitepapers) can run 9+ AI stages
 
 import { NextRequest } from "next/server";
 import { readFileSync } from "fs";

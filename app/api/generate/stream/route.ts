@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 900; // 15 minutes — multi-stage pipeline can be lengthy for long-form content
+export const maxDuration = 800; // Vercel Pro plan max — multi-stage pipeline can be lengthy for long-form content
 
 import { NextRequest } from "next/server";
 import { readFileSync } from "fs";
