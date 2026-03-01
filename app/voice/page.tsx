@@ -48,6 +48,14 @@ interface PendingSample {
   error?: string;
 }
 
+interface SubVoiceAnalysis {
+  summary: string;
+  toneShift: string;
+  structuralPatterns: string;
+  vocabularyNotes: string;
+  keyGuidelines: string[];
+}
+
 interface VoiceProfile {
   analysis: {
     tone: string;
@@ -59,6 +67,12 @@ interface VoiceProfile {
     commonPatterns: string[];
     thingsToAvoid: string[];
     rawSummary: string;
+    humanImperfections?: string;
+    authenticQuirks?: string;
+    emotionalPatterns?: string;
+    transitionStyle?: string;
+    contentGuidelines?: Record<string, string[]>;
+    subVoices?: Record<string, SubVoiceAnalysis>;
   };
   updatedAt: string;
 }
@@ -601,6 +615,72 @@ export default function VoicePage() {
                       >
                         {t}
                       </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Human voice markers ──────────────────────────── */}
+              {(profile.analysis.humanImperfections || profile.analysis.authenticQuirks || profile.analysis.emotionalPatterns || profile.analysis.transitionStyle) && (
+                <div className="space-y-3 border-t border-black/[0.06] dark:border-white/[0.05] pt-4">
+                  <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
+                    What makes your writing human
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      ["Imperfections", profile.analysis.humanImperfections],
+                      ["Quirks", profile.analysis.authenticQuirks],
+                      ["Emotional patterns", profile.analysis.emotionalPatterns],
+                      ["Transitions", profile.analysis.transitionStyle],
+                    ].filter(([, val]) => val).map(([label, val]) => (
+                      <div key={label} className="space-y-0.5">
+                        <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
+                          {label}
+                        </div>
+                        <div className="text-xs text-black/[0.55] dark:text-white/[0.55]">{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Per-format sub-voices ────────────────────────── */}
+              {profile.analysis.subVoices && Object.keys(profile.analysis.subVoices).length > 0 && (
+                <div className="space-y-3 border-t border-black/[0.06] dark:border-white/[0.05] pt-4">
+                  <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
+                    Voice by format
+                  </div>
+                  <div className="space-y-3">
+                    {Object.entries(profile.analysis.subVoices).map(([cat, sv]) => (
+                      <div
+                        key={cat}
+                        className="bg-black/[0.03] dark:bg-[#161616] border border-black/[0.06] dark:border-white/[0.05] rounded-lg p-3 space-y-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                            style={{ color: groupColor(cat), borderColor: groupColor(cat) + "55", backgroundColor: groupColor(cat) + "15" }}
+                          >
+                            {CONTENT_TYPE_LABELS[cat] ?? cat}
+                          </span>
+                          {sv.toneShift && (
+                            <span className="text-[10px] text-black/[0.35] dark:text-white/[0.35] italic">{sv.toneShift}</span>
+                          )}
+                        </div>
+                        {sv.summary && (
+                          <p className="text-xs text-black/[0.55] dark:text-white/[0.55]">{sv.summary}</p>
+                        )}
+                        {sv.keyGuidelines?.length > 0 && (
+                          <ul className="space-y-1">
+                            {sv.keyGuidelines.map((g, i) => (
+                              <li key={i} className="text-[11px] text-black/[0.45] dark:text-white/[0.45] flex gap-1.5">
+                                <span className="text-black/[0.20] dark:text-white/[0.20] shrink-0">-</span>
+                                {g}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
