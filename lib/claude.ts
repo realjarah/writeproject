@@ -94,13 +94,23 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, maxRetries = 3)
   throw lastErr; // unreachable, but TypeScript needs it
 }
 
-/** Best-effort repair of LLM-produced JSON before parsing. */
+/** Best-effort repair of LLM-produced JSON before parsing.
+ *  Handles reasoning models that output thinking/explanation around the JSON. */
 function repairJson(text: string): string {
   let s = text
     // Strip markdown code fences
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/, "")
     .trim();
+
+  // Extract JSON object from surrounding text (reasoning models often
+  // output explanation before/after the JSON)
+  const firstBrace = s.indexOf("{");
+  const lastBrace = s.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    s = s.slice(firstBrace, lastBrace + 1);
+  }
+
   // Remove trailing commas before } or ]
   s = s.replace(/,\s*([}\]])/g, "$1");
   // Strip control characters that break JSON strings (keep \n \r \t)
@@ -166,14 +176,19 @@ Rules:
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_tokens: 48000,
+    max_tokens: 32000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
   }), "analyzeVoice");
 
-  const raw = res.choices[0].message.content ?? "";
+  // Reasoning models may put the answer in content or reasoning_content
+  const msg = res.choices[0].message;
+  const raw = msg.content ?? msg.reasoning_content ?? "";
+  if (!raw) {
+    throw new Error(`[analyzeVoice] Empty response from Grok. finish_reason: ${res.choices[0].finish_reason}`);
+  }
   return JSON.parse(repairJson(raw)) as VoiceAnalysis;
 }
 
@@ -228,7 +243,8 @@ Return ONLY valid JSON:
     ],
   }), `analyzeSubVoice:${category}`);
 
-  const raw = res.choices[0].message.content ?? "";
+  const subMsg = res.choices[0].message;
+  const raw = subMsg.content ?? subMsg.reasoning_content ?? "";
   return JSON.parse(repairJson(raw)) as SubVoiceAnalysis;
 }
 
