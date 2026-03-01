@@ -50,9 +50,36 @@ Rules:
 
     const text = (result.text ?? "").trim();
 
-    const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-    const parsed = JSON.parse(clean);
-    return NextResponse.json({ titles: parsed.titles ?? [] });
+    let clean = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```\s*$/i, "")
+      .trim();
+
+    // Extract JSON object if surrounded by explanation text
+    const firstBrace = clean.indexOf("{");
+    const lastBrace = clean.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      clean = clean.slice(firstBrace, lastBrace + 1);
+    }
+
+    // Remove trailing commas before } or ]
+    clean = clean.replace(/,\s*([}\]])/g, "$1");
+
+    // If JSON is still malformed (e.g. unterminated strings), try to
+    // extract titles with a regex fallback
+    let titles: string[];
+    try {
+      const parsed = JSON.parse(clean);
+      titles = parsed.titles ?? [];
+    } catch {
+      // Fallback: pull quoted strings from the array
+      const matches = clean.match(/"([^"]{3,})"/g);
+      titles = matches
+        ? matches.map((m) => m.slice(1, -1)).filter((t) => t.toLowerCase() !== "titles").slice(0, 4)
+        : [];
+    }
+
+    return NextResponse.json({ titles });
   } catch (err) {
     console.error("[suggest-titles] Failed:", err);
     return NextResponse.json({ titles: [], error: "Title suggestion failed" }, { status: 200 });

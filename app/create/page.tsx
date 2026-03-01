@@ -177,9 +177,12 @@ export default function CreatePage() {
     }
     const subVoices = analysis.subVoices ?? {};
     const subVoice = subVoices[contentType];
+    const guidelines = analysis.contentGuidelines?.[contentType];
+    // Voice is available if we have a dedicated sub-voice OR format-specific guidelines
+    const hasFormatVoice = !!subVoice || (Array.isArray(guidelines) && guidelines.length > 0);
     setSubVoiceStatus({
       hasProfile: true,
-      subVoiceAvailable: !!subVoice,
+      subVoiceAvailable: hasFormatVoice,
       subVoiceSummary: subVoice?.summary,
       trainedCategories: Object.keys(subVoices),
     });

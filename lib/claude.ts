@@ -151,11 +151,11 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "punctuationHabits": "how they use punctuation - em dashes, ellipses, semicolons, etc.",
   "paragraphStyle": "paragraph length, transitions, how they open and close paragraphs",
   "rhetoricalDevices": "rhetorical moves they make - analogies, questions, callbacks, lists, etc.",
-  "commonPatterns": ["specific recurring phrases or structural patterns", "another pattern"],
+  "commonPatterns": ["recurring structural or phrasing patterns described abstractly", "another pattern"],
   "thingsToAvoid": ["writing patterns NOT present in their work that should be avoided", "another thing to avoid"],
   "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference",
-  "humanImperfections": "grammar rules this author breaks on purpose or by habit - fragments, run-ons, comma splices, starting with conjunctions, etc. Be specific.",
-  "authenticQuirks": "unique tics - trademark phrases, overused words, unexpected metaphors, idiosyncratic formatting, distinctive word combos",
+  "humanImperfections": "grammar rules this author breaks on purpose or by habit - fragments, run-ons, comma splices, starting with conjunctions, etc.",
+  "authenticQuirks": "unique tics - the types of patterns they exhibit, described abstractly without quoting specific words or phrases from the samples",
   "emotionalPatterns": "how they handle emotional intensity vs analytical passages - sudden shifts, understatement, humor as deflection, etc.",
   "transitionStyle": "how they connect ideas - abrupt shifts, callbacks, stream-of-consciousness, smooth transitions, or no transitions at all",
   "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
@@ -167,7 +167,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 Rules:
 - Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
 - Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.
-- humanImperfections, authenticQuirks, emotionalPatterns, and transitionStyle are REQUIRED. Be detailed and specific — these fields are what prevent the ghostwriter from producing generic, over-polished AI prose.`;
+- humanImperfections, authenticQuirks, emotionalPatterns, and transitionStyle are REQUIRED. Be detailed and specific — these fields are what prevent the ghostwriter from producing generic, over-polished AI prose.
+- CRITICAL — STAY META, NO EXAMPLES: Every field must describe PATTERNS and TENDENCIES abstractly, never by quoting or referencing specific words, phrases, terms, or subject matter from the samples. The voice profile will be used across many different topics — if you include domain-specific vocabulary (e.g. finance terms, medical jargon, tech terminology), those terms will bleed into unrelated content and cause hallucination. Describe the PATTERN (e.g. "mixes technical jargon with casual everyday language") not the INSTANCE (e.g. don't list the actual jargon terms). Do NOT include inline examples, parenthetical examples, or quoted phrases in any field. The ghostwriter needs to know HOW the author writes, not WHAT they wrote about.`;
 
   // Grok 4.1 reasoning: 2M context window lets us feed ALL samples at once
   // without truncation. High reasoning budget lets it deeply analyze patterns
@@ -231,7 +232,9 @@ Return ONLY valid JSON:
   "structuralPatterns": "structural tendencies specific to their ${categoryLabel} writing",
   "vocabularyNotes": "vocabulary or register shifts in this format",
   "keyGuidelines": ["4-6 specific, actionable guidelines for ghostwriting ${categoryLabel} content as this author"]
-}`;
+}
+
+CRITICAL — STAY META, NO EXAMPLES: Describe patterns and tendencies abstractly. Never quote specific words, phrases, or domain-specific terms from the samples. The profile will be used across many topics — including domain-specific vocabulary will cause it to bleed into unrelated content. Describe the TYPE of language shift (e.g. "shifts to a more conversational register") not the specific terms. No parenthetical examples, no quoted phrases.`;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
