@@ -1,19 +1,22 @@
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { analyzeVoice } from "@/lib/claude";
+import { analyzeVoiceWithSubVoices } from "@/lib/claude";
 import { getUserId } from "@/lib/session";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const selectedCategories: string[] = body.selectedCategories ?? [];
 
   const samples = await prisma.voiceSample.findMany({
     where: { userId },
     orderBy: { createdAt: "asc" },
-    take: 100,
+    take: 500,
   });
 
   if (samples.length === 0) {
@@ -23,24 +26,46 @@ export async function POST() {
     );
   }
 
-  try {
-    const analysis = await analyzeVoice(
-      samples.map((s) => ({ content: s.content, category: s.category, notes: s.notes }))
-    );
+  const totalWords = samples.reduce((sum, s) => sum + s.wordCount, 0);
+  const sampleCount = samples.length;
 
-    await prisma.voiceProfile.upsert({
-      where: { userId },
-      create: { userId, analysis: JSON.stringify(analysis) },
-      update: { analysis: JSON.stringify(analysis) },
+  // Set status to analyzing
+  await prisma.voiceProfile.upsert({
+    where: { userId },
+    create: { userId, analysis: "{}", status: "analyzing", totalWords, sampleCount },
+    update: { status: "analyzing", totalWords, sampleCount },
+  });
+
+  // Fire analysis in background (non-blocking)
+  analyzeVoiceWithSubVoices(
+    samples.map((s) => ({ content: s.content, category: s.category, notes: s.notes })),
+    selectedCategories
+  )
+    .then(async (analysis) => {
+      await prisma.voiceProfile.upsert({
+        where: { userId },
+        create: {
+          userId,
+          analysis: JSON.stringify(analysis),
+          status: "done",
+          totalWords,
+          sampleCount,
+        },
+        update: {
+          analysis: JSON.stringify(analysis),
+          status: "done",
+          totalWords,
+          sampleCount,
+        },
+      });
+    })
+    .catch(async (err) => {
+      console.error("[voice/analyze] Failed:", err);
+      await prisma.voiceProfile.update({
+        where: { userId },
+        data: { status: "error" },
+      }).catch(() => {});
     });
 
-    return NextResponse.json(analysis);
-  } catch (err) {
-    console.error("[voice/analyze] Voice analysis failed:", err);
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json(
-      { error: `Voice analysis failed: ${msg}. Please try again.` },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({ status: "analyzing", totalWords, sampleCount });
 }

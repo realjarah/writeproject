@@ -1,0 +1,18 @@
+export const dynamic = "force-dynamic";
+
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { getUserId } from "@/lib/session";
+
+export async function GET() {
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const profile = await prisma.voiceProfile.findUnique({
+    where: { userId },
+    select: { status: true, totalWords: true, sampleCount: true },
+  });
+
+  if (!profile) return NextResponse.json({ status: "pending" });
+  return NextResponse.json(profile);
+}

@@ -9,12 +9,14 @@ export type {
   GenerationContext,
   InterviewAnswers,
   VoiceAnalysis,
+  SubVoiceAnalysis,
   LabeledSample,
 } from "./content-types";
 export { CONTENT_TYPE_LABELS, CONTENT_TYPE_GROUPS } from "./content-types";
 
 import type {
   VoiceAnalysis,
+  SubVoiceAnalysis,
   LabeledSample,
   ContextItem,
   GenerationContext,
@@ -138,16 +140,12 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
   "contentGuidelines": {
     "[contentType]": ["6–8 specific, actionable guidelines bridging THIS author's voice with that format's conventions. Each must be specific to this author's actual patterns—not generic writing advice. A ghostwriter must be able to apply each one immediately."]
-  },
-  "topicInsights": {
-    "[broad topic]": "How this author specifically approaches this subject area — recurring angles, framing, terminology, emotional register, and argumentative patterns they use when writing about this topic, regardless of format."
   }
 }
 
 Rules:
 - Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
-- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.
-- topicInsights: Identify recurring subject areas / themes across samples. Use BROAD topic labels (e.g. "health & fitness" not "testosterone", "AI & technology" not "ChatGPT", "leadership & management" not "remote work"). Include topics that appear in 2+ samples across ANY format. For each, describe the author's specific angle, framing, and voice when writing about that subject. Omit the field entirely if no recurring topics are detected.`;
+- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.`;
 
   // Grok 4.1 reasoning: 2M context window lets us feed ALL samples at once
   // without truncation. High reasoning budget lets it deeply analyze patterns
@@ -156,7 +154,7 @@ Rules:
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_tokens: 16000,
+    max_tokens: 32000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -165,6 +163,99 @@ Rules:
 
   const raw = res.choices[0].message.content ?? "";
   return JSON.parse(repairJson(raw)) as VoiceAnalysis;
+}
+
+/**
+ * Analyze how the author's voice manifests in a specific content format.
+ * Uses a dedicated Grok call focused on only that category's samples.
+ */
+export async function analyzeSubVoice(
+  category: string,
+  samples: LabeledSample[],
+  mainVoiceSummary: string
+): Promise<SubVoiceAnalysis> {
+  const categorySamples = samples.filter(s => s.category === category);
+  if (categorySamples.length === 0) {
+    return { summary: "", toneShift: "", structuralPatterns: "", vocabularyNotes: "", keyGuidelines: [] };
+  }
+
+  const samplesText = categorySamples
+    .map((s, i) => {
+      let header = `--- Sample ${i + 1} ---`;
+      if (s.notes) header += `\nAuthor's note: "${s.notes}"`;
+      return `${header}\n${s.content}`;
+    })
+    .join("\n\n");
+
+  const categoryLabel = CONTENT_TYPE_LABELS[category] ?? category;
+
+  const systemPrompt = `You are a writing style analyst specializing in format-specific voice analysis. You have already analyzed this author's overall voice. Now you need to understand how their voice specifically manifests when writing ${categoryLabel} content.`;
+
+  const userPrompt = `The author's overall voice summary: "${mainVoiceSummary}"
+
+Below are their ${categoryLabel} writing samples. Analyze how their voice specifically shows up in this format.
+
+${samplesText}
+
+Return ONLY valid JSON:
+{
+  "summary": "2-3 sentence description of how this author writes ${categoryLabel} content specifically",
+  "toneShift": "how their tone shifts (if at all) when writing ${categoryLabel} vs their general voice",
+  "structuralPatterns": "structural tendencies specific to their ${categoryLabel} writing",
+  "vocabularyNotes": "vocabulary or register shifts in this format",
+  "keyGuidelines": ["4-6 specific, actionable guidelines for ghostwriting ${categoryLabel} content as this author"]
+}`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
+    model: XAI_WRITING_MODEL,
+    max_tokens: 8000,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  }), `analyzeSubVoice:${category}`);
+
+  const raw = res.choices[0].message.content ?? "";
+  return JSON.parse(repairJson(raw)) as SubVoiceAnalysis;
+}
+
+/**
+ * Run main voice analysis + parallel per-category sub-voice analysis.
+ * Returns a unified VoiceAnalysis with subVoices populated.
+ */
+export async function analyzeVoiceWithSubVoices(
+  samples: LabeledSample[],
+  selectedCategories: string[]
+): Promise<VoiceAnalysis> {
+  const mainAnalysis = await analyzeVoice(samples);
+
+  // Only run sub-voice calls for categories that actually have samples
+  const categoriesWithSamples = selectedCategories.filter(cat =>
+    samples.some(s => s.category === cat)
+  );
+
+  if (categoriesWithSamples.length > 0) {
+    const subVoiceResults = await Promise.all(
+      categoriesWithSamples.map(async (category) => {
+        try {
+          const subVoice = await analyzeSubVoice(category, samples, mainAnalysis.rawSummary);
+          return [category, subVoice] as const;
+        } catch (err) {
+          console.warn(`[analyzeSubVoice] Failed for ${category}:`, err);
+          return null;
+        }
+      })
+    );
+
+    const subVoices: Record<string, SubVoiceAnalysis> = {};
+    for (const result of subVoiceResults) {
+      if (result) subVoices[result[0]] = result[1];
+    }
+    mainAnalysis.subVoices = subVoices;
+  }
+
+  return mainAnalysis;
 }
 
 
@@ -619,19 +710,24 @@ Be specific and factual. Reference sources inline (e.g. "According to [Source], 
   return result.text || "Research could not be completed.";
 }
 
-// ── Topic insights helper ────────────────────────────────────────────────────
+// ── Sub-voice helper ─────────────────────────────────────────────────────────
 
 /**
- * Build a prompt block containing all topic insights from the voice profile.
- * All topics are included — the model decides which are relevant to the current piece.
+ * Build a prompt block containing the per-format sub-voice profile for the current content type.
  */
-function buildTopicInsightsBlock(voiceProfile: VoiceAnalysis): string {
-  const topics = voiceProfile.topicInsights;
-  if (!topics || Object.keys(topics).length === 0) return "";
-  const lines = Object.entries(topics).map(
-    ([topic, insight]) => `- **${topic}:** ${insight}`
-  );
-  return `\n**How this author approaches familiar topics (use any that are relevant):**\n${lines.join("\n")}\n`;
+function buildSubVoiceBlock(voiceProfile: VoiceAnalysis, contentType: string): string {
+  const subVoice = voiceProfile.subVoices?.[contentType];
+  if (!subVoice) return "";
+  const lines = [
+    `Summary: ${subVoice.summary}`,
+    `Tone shift: ${subVoice.toneShift}`,
+    `Structural patterns: ${subVoice.structuralPatterns}`,
+    `Vocabulary notes: ${subVoice.vocabularyNotes}`,
+    subVoice.keyGuidelines.length > 0
+      ? `Key guidelines:\n${subVoice.keyGuidelines.map(g => `- ${g}`).join("\n")}`
+      : "",
+  ].filter(Boolean);
+  return `\n**Format-specific voice profile for ${CONTENT_TYPE_LABELS[contentType] ?? contentType}:**\n${lines.join("\n")}\n`;
 }
 
 // ── Multi-stage pipeline ─────────────────────────────────────────────────────
@@ -679,7 +775,7 @@ export async function planContent(
     ? `\n**How this author's voice shows up in ${resolveTypeLabel(interview)}:** ${categoryInsight}\n`
     : "";
 
-  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
   const examplesBlock = sampleExamples?.length
     ? `\n**Author's Actual Writing (study before planning — match this voice exactly):**\n${
@@ -704,7 +800,7 @@ export async function planContent(
   const voicePlanBlock = `You are ghost-writing a ${resolveTypeLabel(interview)}. The piece must be indistinguishable from this author's own work. Study the voice profile and samples below until you can hear them in your head. Every structural decision in your plan must serve this specific author's voice.
 ${examplesBlock}
 **Author voice summary:** ${voiceProfile.rawSummary}
-${authorContextBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}`;
+${authorContextBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}`;
 
   const userPrompt = `Produce the structural plan. Do not write the piece — plan only.
 
@@ -800,7 +896,7 @@ export async function draftContent(
     ? `\n## How This Author Writes ${resolveTypeLabel(interview)}\n${categoryInsight}\n`
     : "";
 
-  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
   // Full samples for first draft, condensed fingerprint for follow-up drafts
   const examplesSection = sampleExamples?.length
@@ -836,7 +932,7 @@ Read the voice profile and writing samples below. Internalize the rhythm, the wo
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in your output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${examplesSection}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}`;
+${examplesSection}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}`;
 
   const rulesBlock = `## Forbidden — zero tolerance. Any of these in the output is an automatic failure.
 - Opener clichés: "In today's fast-paced world", "In the digital age", "It goes without saying", "In an era where"
@@ -1056,7 +1152,7 @@ export async function humanizeContent(
   const categoryInsightBlock = categoryInsight
     ? `\n## How This Author Writes ${typeLabel}\n${categoryInsight}\n`
     : "";
-  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, contentType);
   const fingerprintBlock = sampleExamples?.length
     ? buildVoiceFingerprint(sampleExamples)
     : "";
@@ -1091,7 +1187,7 @@ This text is going to be published under a real person's name. If it reads like 
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in the output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${fingerprintBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}
+${fingerprintBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}
 
 ## MANDATORY VERIFICATION CHECKLIST
 
@@ -1199,7 +1295,7 @@ export async function selfReviewDraft(
     ? `\n## How This Author Writes ${resolveTypeLabel(interview)}\n${categoryInsight}\n`
     : "";
 
-  const topicInsightsBlock = buildTopicInsightsBlock(voiceProfile);
+  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
   // Use condensed voice fingerprint for self-review (enough to verify voice fidelity)
   const samplesBlock = sampleExamples?.length
@@ -1236,7 +1332,7 @@ If you need to rewrite a sentence, use the author's voice from the profile below
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
 **Vocabulary:** ${voiceProfile.vocabularyStyle}
 **Things to Avoid (if ANY of these appear, fix them immediately):** ${voiceProfile.thingsToAvoid.join("; ")}
-${samplesBlock}${categoryInsightBlock}${topicInsightsBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
+${samplesBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
 Your review must check:
 1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
 2. AI contamination — if any AI patterns survived the humanizer, destroy them. But do NOT introduce new ones in your fixes.

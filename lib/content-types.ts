@@ -82,6 +82,14 @@ export interface InterviewAnswers {
   wordCountTarget?: string;
 }
 
+export interface SubVoiceAnalysis {
+  summary: string;
+  toneShift: string;
+  structuralPatterns: string;
+  vocabularyNotes: string;
+  keyGuidelines: string[];
+}
+
 export interface VoiceAnalysis {
   tone: string;
   sentenceStructure: string;
@@ -95,9 +103,8 @@ export interface VoiceAnalysis {
   categoryInsights?: Record<string, string>;
   // Per-format guidelines generated on demand
   contentGuidelines?: Record<string, string[]>;
-  // Broad topic insights — how the author approaches recurring subject areas
-  // (e.g. "health & fitness", "AI & technology") regardless of format
-  topicInsights?: Record<string, string>;
+  // Per-category sub-voice descriptions
+  subVoices?: Record<string, SubVoiceAnalysis>;
 }
 
 export interface LabeledSample {

@@ -59,11 +59,14 @@ model VoiceSample {
 }
 
 model VoiceProfile {
-  id        Int      @id @default(autoincrement())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  analysis  String   // JSON: style traits, patterns, vocab notes
-  updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  analysis    String   // JSON: style traits, patterns, vocab notes, subVoices
+  status      String   @default("pending") // pending | analyzing | done | error
+  totalWords  Int      @default(0)
+  sampleCount Int      @default(0)
+  updatedAt   DateTime @updatedAt
 }
 
 model GeneratedContent {
