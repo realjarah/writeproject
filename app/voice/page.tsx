@@ -71,6 +71,7 @@ interface VoiceProfile {
     authenticQuirks?: string;
     emotionalPatterns?: string;
     transitionStyle?: string;
+    categoryInsights?: Record<string, string>;
     contentGuidelines?: Record<string, string[]>;
     subVoices?: Record<string, SubVoiceAnalysis>;
   };
@@ -667,6 +668,9 @@ export default function VoicePage() {
                             <span className="text-[10px] text-black/[0.35] dark:text-white/[0.35] italic">{sv.toneShift}</span>
                           )}
                         </div>
+                        {profile.analysis.categoryInsights?.[cat] && (
+                          <p className="text-[11px] text-black/[0.40] dark:text-white/[0.40] italic">{profile.analysis.categoryInsights[cat]}</p>
+                        )}
                         {sv.summary && (
                           <p className="text-xs text-black/[0.55] dark:text-white/[0.55]">{sv.summary}</p>
                         )}
@@ -680,8 +684,83 @@ export default function VoicePage() {
                             ))}
                           </ul>
                         )}
+                        {/* Merge contentGuidelines into sub-voice card */}
+                        {profile.analysis.contentGuidelines?.[cat]?.length > 0 && (
+                          <div className="space-y-1 border-t border-black/[0.04] dark:border-white/[0.04] pt-2 mt-1">
+                            <div className="text-[10px] font-semibold text-black/[0.30] dark:text-white/[0.30] uppercase tracking-widest">
+                              Guidelines
+                            </div>
+                            <ul className="space-y-1">
+                              {profile.analysis.contentGuidelines[cat].map((g, i) => (
+                                <li key={i} className="text-[11px] text-black/[0.45] dark:text-white/[0.45] flex gap-1.5">
+                                  <span className="text-black/[0.20] dark:text-white/[0.20] shrink-0">-</span>
+                                  {g}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     ))}
+                    {/* Show contentGuidelines for categories without a sub-voice */}
+                    {profile.analysis.contentGuidelines && Object.entries(profile.analysis.contentGuidelines)
+                      .filter(([cat]) => !profile.analysis.subVoices?.[cat])
+                      .filter(([, guidelines]) => guidelines.length > 0)
+                      .map(([cat, guidelines]) => (
+                        <div
+                          key={cat}
+                          className="bg-black/[0.03] dark:bg-[#161616] border border-black/[0.06] dark:border-white/[0.05] rounded-lg p-3 space-y-2"
+                        >
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                            style={{ color: groupColor(cat), borderColor: groupColor(cat) + "55", backgroundColor: groupColor(cat) + "15" }}
+                          >
+                            {CONTENT_TYPE_LABELS[cat] ?? cat}
+                          </span>
+                          <ul className="space-y-1">
+                            {guidelines.map((g, i) => (
+                              <li key={i} className="text-[11px] text-black/[0.45] dark:text-white/[0.45] flex gap-1.5">
+                                <span className="text-black/[0.20] dark:text-white/[0.20] shrink-0">-</span>
+                                {g}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Show contentGuidelines section if there are guidelines but NO subVoices at all */}
+              {!profile.analysis.subVoices && profile.analysis.contentGuidelines && Object.keys(profile.analysis.contentGuidelines).length > 0 && (
+                <div className="space-y-3 border-t border-black/[0.06] dark:border-white/[0.05] pt-4">
+                  <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
+                    Voice by format
+                  </div>
+                  <div className="space-y-3">
+                    {Object.entries(profile.analysis.contentGuidelines)
+                      .filter(([, guidelines]) => guidelines.length > 0)
+                      .map(([cat, guidelines]) => (
+                        <div
+                          key={cat}
+                          className="bg-black/[0.03] dark:bg-[#161616] border border-black/[0.06] dark:border-white/[0.05] rounded-lg p-3 space-y-2"
+                        >
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                            style={{ color: groupColor(cat), borderColor: groupColor(cat) + "55", backgroundColor: groupColor(cat) + "15" }}
+                          >
+                            {CONTENT_TYPE_LABELS[cat] ?? cat}
+                          </span>
+                          <ul className="space-y-1">
+                            {guidelines.map((g, i) => (
+                              <li key={i} className="text-[11px] text-black/[0.45] dark:text-white/[0.45] flex gap-1.5">
+                                <span className="text-black/[0.20] dark:text-white/[0.20] shrink-0">-</span>
+                                {g}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}
