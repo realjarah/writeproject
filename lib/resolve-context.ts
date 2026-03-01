@@ -59,11 +59,12 @@ export async function fetchUrlAsText(url: string): Promise<string | null> {
     const res = await fetch(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (compatible; WriteGhost/1.0; +content-fetch)",
-        Accept: "text/html,text/plain,*/*",
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
       },
       redirect: "follow",
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       console.warn(`[fetchUrlAsText] HTTP ${res.status} for ${url}`);
@@ -72,13 +73,14 @@ export async function fetchUrlAsText(url: string): Promise<string | null> {
 
     const contentType = res.headers.get("content-type") ?? "";
     let text: string;
-    if (contentType.includes("text/html")) {
+    if (contentType.includes("text/html") || contentType.includes("application/xhtml")) {
       const html = await res.text();
       text = htmlToText(html);
-    } else if (contentType.includes("text/")) {
+    } else if (contentType.includes("text/") || contentType.includes("application/json") || contentType.includes("application/xml")) {
       text = (await res.text()).trim();
     } else {
-      return null; // binary or unknown
+      console.warn(`[fetchUrlAsText] Unsupported content-type "${contentType}" for ${url}`);
+      return null;
     }
 
     // Truncate huge pages to prevent blowing the context window
