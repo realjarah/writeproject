@@ -143,30 +143,35 @@ Before producing any output, you MUST spend extensive time in your reasoning/thi
 4. MOST IMPORTANT: Catalog every single deviation from "correct" writing. Fragments. Run-ons. Comma splices. Starting with conjunctions. Weird punctuation. Missing transitions. Stream-of-consciousness tangents. Sentences that break halfway. Grammar a teacher would red-pen. THESE ARE THE GOLD. An AI ghostwriter's #1 failure mode is writing too cleanly. Every imperfection you miss is a tell that outs the ghostwriter.
 
 IMPERFECTION IS THE SIGNAL:
-The things a grammar checker would flag are MORE important than the things it wouldn't. Polished prose is generic. Broken rules are fingerprints. Weight your analysis 60/40 toward imperfections and quirks vs conventional style observations. A voice profile that reads like a style guide has failed — it should read like a forensic report on someone's writing habits, warts and all.
+The things a grammar checker would flag are MORE important than the things it wouldn't. Polished prose is generic. Broken rules are fingerprints. A voice profile that reads like a style guide has failed — it should read like a forensic report on someone's writing habits, warts and all.
 
-BREVITY:
-Be concise in every field. Short, dense observations — not essays. Each field should be 1-3 sentences max. No filler, no hedging, no "the author tends to" preamble. Just the pattern.`;
+EVERY FIELD IS FORENSIC:
+Apply the same exhaustive rigor to EVERY field — tone, sentence structure, vocabulary, punctuation, paragraph style, rhetorical devices, emotional patterns, transitions. Each one is a dimension of the voice fingerprint. A detailed imperfections section paired with a lazy "conversational and friendly" tone field gives the ghostwriter a lopsided profile. Go deep everywhere.
+
+DEPTH OVER BREVITY:
+Be dense and exhaustive in every field — not just imperfections. Catalog every pattern you find. No filler, no hedging, no "the author tends to" preamble. Just the patterns, all of them. A field with 2 observations when 10 exist is a failed field. The ghostwriter only knows what you tell them.`;
 
   const userPrompt = `Analyze the following writing samples and extract a voice profile for ghostwriting.
 ${categorySection}
 ${samplesText}
 
-Return ONLY valid JSON (no markdown, no extra text):
+Return ONLY valid JSON (no markdown, no extra text).
+EVERY field below must be forensically detailed — catalog every pattern you find, not just the obvious ones. Treat each field like the imperfections field: exhaustive, specific, dense. A sparse field is a failed field.
+
 {
-  "tone": "1-2 sentences. Overall tone and personality.",
-  "sentenceStructure": "1-2 sentences. Length, complexity, rhythm.",
-  "vocabularyStyle": "1-2 sentences. Register level, complexity mix. NO domain-specific terms.",
-  "punctuationHabits": "1-2 sentences. Punctuation patterns.",
-  "paragraphStyle": "1-2 sentences. Length, transitions, openings/closings.",
-  "rhetoricalDevices": "1-2 sentences. Rhetorical moves — analogies, questions, callbacks, lists, etc.",
-  "commonPatterns": ["abstract structural/phrasing patterns — 3-5 items max"],
-  "thingsToAvoid": ["patterns absent from this author's work — 3-5 items max"],
-  "rawSummary": "2-3 sentence plain English summary of their writing style",
+  "tone": "Catalog the full tonal range. What's the default register? Where does it shift — when do they get serious, playful, cutting, earnest? How do they handle authority vs vulnerability? Map the emotional texture, not just 'conversational and friendly'.",
+  "sentenceStructure": "Exhaustive structural fingerprint. Average sentence length and range (short punchy vs long winding). How do they vary rhythm — do they stack short sentences then hit a long one? Do they front-load or back-load the key idea? Sentence fragments used as emphasis? Compound sentences chained with commas vs periods? Map the full rhythmic signature.",
+  "vocabularyStyle": "Full register map. Where do they sit on formal-casual spectrum and when do they break from it? Do they mix registers (technical + slang in same paragraph)? Latinate vs Anglo-Saxon word choices? Do they coin words, verb nouns, use intentional malapropisms? Abstract vs concrete language ratio. NO domain-specific terms.",
+  "punctuationHabits": "Catalog every punctuation pattern. Em-dash usage (paired or unpaired? frequency?). Ellipsis placement and purpose. Semicolon frequency. Serial comma or not. Exclamation marks — how often and where? Parenthetical asides — how nested? Colon usage for lists vs emphasis. Question marks in non-questions. Every mark is signal.",
+  "paragraphStyle": "Full structural map. Average paragraph length and variation. How do they open paragraphs — topic sentence, anecdote, question, continuation? How do they close — resolution, cliffhanger, trailing off? One-sentence paragraphs for emphasis? How dense are their paragraphs vs airy?",
+  "rhetoricalDevices": "Exhaustive catalog. Analogies/metaphors — how often, how elaborate, from what domains? Rhetorical questions — genuine or setup? Lists — inline or formatted, parallel structure or loose? Repetition for emphasis (anaphora, epistrophe)? Direct address to reader? Callbacks to earlier points? Hypotheticals? Rule of three? Contrast/antithesis? Understatement vs hyperbole preference?",
+  "commonPatterns": ["abstract structural/phrasing patterns — 5-8 items, be thorough"],
+  "thingsToAvoid": ["patterns absent from this author's work — 5-8 items, be thorough"],
+  "rawSummary": "3-5 sentence plain English summary capturing the essence of their writing voice — make it vivid enough that a ghostwriter could start writing after reading just this",
   "humanImperfections": "THIS IS THE MOST IMPORTANT FIELD. Every grammar rule they break, every 'mistake' that's actually a feature. Fragments, run-ons, comma splices, conjunction starts, dangling modifiers, tense shifts, incomplete thoughts — catalog ALL of them. Be exhaustive. These are the fingerprints that prevent AI-sounding output.",
-  "authenticQuirks": "Behavioral tics and patterns described abstractly. How they handle emphasis, their rhythm breaks, structural weirdness, formatting habits. NO quoted phrases or domain terms.",
-  "emotionalPatterns": "How they shift between emotional and analytical register. Abruptness, deflection, understatement, escalation patterns.",
-  "transitionStyle": "How they connect (or don't connect) ideas. Abrupt jumps, callbacks, stream-of-consciousness, non-sequiturs.",
+  "authenticQuirks": "Exhaustive behavioral catalog. How do they handle emphasis — caps, italics, repetition, punctuation, short paragraphs? Where does their rhythm deliberately break? Structural weirdness — non-standard formatting, unconventional section breaks, list abuse or avoidance? Signature moves they repeat across samples. Verbal tics in written form. NO quoted phrases or domain terms.",
+  "emotionalPatterns": "Full emotional architecture. How do they shift between emotional and analytical register — abruptly or gradually? Do they telegraph emotion or let it surface through word choice? Understatement vs directness. Deflection with humor. How do they handle vulnerability, conviction, uncertainty? Do they build to emotional peaks or stay flat? Sarcasm markers.",
+  "transitionStyle": "Complete transition map. How do they connect (or don't connect) ideas? Abrupt jumps vs smooth bridges. Do they use explicit transition words or just trust the reader? Callbacks to earlier points. Stream-of-consciousness drift. Non-sequiturs that work. How do they handle paragraph-to-paragraph flow vs section-to-section flow? Do they signal topic shifts or just cut?",
   "categoryInsights": { "blog": "voice in long-form", "thread": "social/thread style" },
   "contentGuidelines": {
     "[contentType]": ["4-6 actionable guidelines. Must describe abstract voice patterns for this format, NOT content-specific instructions. A guideline that only works for one topic is a bad guideline."]
@@ -176,8 +181,8 @@ Return ONLY valid JSON (no markdown, no extra text):
 Rules:
 - categoryInsights: Only include keys for formats in the samples. Omit entirely if one format.
 - contentGuidelines: Only for formats in samples. 4-6 strings each. Must be about HOW they write, not WHAT they write about.
-- humanImperfections and authenticQuirks carry the most weight. Spend the most reasoning time on these. A profile that misses imperfections is worse than useless — it will produce sterile AI prose.
-- BREVITY: Every field 1-3 sentences max (except humanImperfections which should be thorough). Dense observations, not paragraphs.
+- humanImperfections and authenticQuirks carry the most weight, but EVERY field matters. A thin analysis in any field produces a thin imitation. Spend reasoning time on all fields, not just imperfections.
+- DENSITY NOT BREVITY: Each field should be as thorough as the imperfections field — catalog every pattern you find. Dense, specific observations. No filler or hedging, but also no artificially truncating your analysis to save space. If you found 12 punctuation patterns, list all 12.
 - ABSOLUTELY NO EXAMPLES: Never quote, reference, or list specific words, phrases, terms, metaphors, or subject matter from the samples. No parenthetical examples like "(e.g., ...)". No domain vocabulary. The profile will be applied across completely different topics — any specificity causes content bleed and hallucination. Describe the ABSTRACT PATTERN only. "Mixes technical and casual register" is good. Listing the actual technical terms is catastrophically bad.`;
 
   // Grok 4.1 reasoning: 2M context window lets us feed ALL samples at once.
