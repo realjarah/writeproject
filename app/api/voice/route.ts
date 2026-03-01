@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
+import { classifyCategory } from "@/lib/classifyCategory";
+import type { SampleCategory } from "@/lib/detectCategory";
 import { getUserId } from "@/lib/session";
 
 export async function GET() {
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
   }
 
   const wordCount = content.trim().split(/\s+/).length;
-  const resolvedCategory: SampleCategory = category || detectCategory(content);
+  const resolvedCategory: SampleCategory = category || await classifyCategory(content);
 
   const sample = await prisma.voiceSample.create({
     data: {
