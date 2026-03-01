@@ -1653,12 +1653,20 @@ export async function conductResearchGrok(
 
 Your job is to build a comprehensive, fact-checked research foundation. Use web search aggressively — don't settle for one source when three would be stronger.
 
-RESEARCH PROTOCOL:
-1. Start with the core topic — search for authoritative overviews, recent data, key statistics
-2. Go deeper on specific claims — find primary sources, actual studies, named experts
-3. Look for counterarguments and alternative perspectives — strong writing acknowledges complexity
-4. Find recent developments (last 12 months) that the writer should know about
-5. Cross-reference key claims across multiple sources — if only one source says it, flag it as unverified
+REASONING PROTOCOL — USE YOUR FULL THINKING BUDGET:
+Before producing any output, reason extensively about the research strategy. Do NOT rush to search. Think first:
+1. What are the core factual claims this piece will need? What data would make it credible?
+2. What are the best search queries to find PRIMARY sources (not blog summaries)? Plan at least 3-5 targeted queries.
+3. After each search result, evaluate: Is this source authoritative? Is it current? Does it conflict with other findings? What gaps remain?
+4. Before finalizing, ask: "If a fact-checker reviewed the piece written from this brief, would every claim hold up?" If any claim only has one weak source, search again.
+5. Cross-reference key statistics across multiple sources. If numbers conflict, present the range and note which source is most authoritative.
+
+RESEARCH EXECUTION:
+- Search for authoritative overviews first, then drill into specific claims
+- Find primary sources: actual studies, official reports, named experts with credentials
+- Look for counterarguments and alternative perspectives — strong writing acknowledges complexity
+- Find recent developments (last 12 months) that the writer should know about
+- Cross-reference key claims across multiple sources — if only one source says it, flag it as unverified
 
 OUTPUT FORMAT — Structured markdown brief:
 - Key facts, figures, and data points WITH inline source attribution ("According to [Source Name], ...")
@@ -1678,7 +1686,7 @@ RULES:
 - Format clearly with headers and bullets. The ghostwriter will use this directly as context.`;
 
   return withRetry(
-    () => grokWithWebSearch(instructions, prompt, 16000),
+    () => grokWithWebSearch(instructions, prompt, 64000),
     "conductResearchGrok"
   );
 }
@@ -1701,11 +1709,19 @@ export async function checkFabrications(
 
   const instructions = `You are a fact-checker reviewing a draft before publication under a real person's name. Your job is to find and flag any fabricated specifics — invented statistics, fake studies, made-up quotes, wrong dates, or claims that don't hold up.
 
-VERIFICATION PROTOCOL:
-1. Scan the draft for every specific factual claim: numbers, percentages, statistics, study citations, named sources, dates, company names, product names, historical events, scientific claims
-2. For each claim, search the web to verify it
-3. Classify each claim as: VERIFIED (found corroborating source), UNVERIFIABLE (can't confirm or deny), or FABRICATED (contradicted by evidence or no evidence exists)
-4. Replace FABRICATED claims with honest placeholder language the author can fill in
+REASONING PROTOCOL — USE YOUR FULL THINKING BUDGET:
+Before producing any output, you MUST reason extensively. This is a high-stakes task — a fabricated statistic published under someone's name damages their credibility. Think step by step:
+1. Read the ENTIRE draft first. On this pass, highlight every specific factual claim — numbers, percentages, statistics, study citations, named sources, dates, company names, product details, historical events, scientific claims. Build a mental inventory.
+2. Separate claims into categories: (a) opinion/perspective (leave alone), (b) common knowledge (leave alone), (c) verifiable specifics (must check). Most AI-fabricated claims are in category (c) — they LOOK authoritative but were generated to sound convincing.
+3. For each verifiable claim, reason about what search query would definitively confirm or deny it. Then search.
+4. After searching, for each claim ask: "Did I find this EXACT statistic from a credible source?" Close isn't good enough — "23% growth" and "24% growth" are different facts. If you found close-but-different, the original is likely fabricated.
+5. Pay special attention to the telltale signs of AI fabrication: suspiciously round numbers, studies with no findable author, statistics that perfectly support the argument, named experts who don't appear to exist.
+
+VERIFICATION CLASSIFICATION:
+- VERIFIED: Found this exact claim from a credible primary source
+- CORRECTABLE: Claim is close but slightly wrong (wrong year, wrong percentage) — fix with correct data
+- FABRICATED: Contradicted by evidence OR no evidence exists anywhere — replace with placeholder
+- OPINION: Not a factual claim — leave alone
 
 RULES:
 - Opinion, perspective, and argument do NOT need verification — only specific factual claims
@@ -1731,7 +1747,7 @@ Draft to fact-check:
 ${draft}`;
 
   try {
-    const result = await grokWithWebSearch(instructions, userPrompt, 32000);
+    const result = await grokWithWebSearch(instructions, userPrompt, 64000);
     const parsed = JSON.parse(repairJson(result));
     return {
       cleanDraft: parsed.cleanDraft || draft,
@@ -1831,16 +1847,22 @@ export async function assessBriefQuality(
 
   const systemPrompt = `You predict whether a ghostwriting brief will produce strong output or weak output. You've seen thousands of briefs — you know what works and what doesn't.
 
-REASONING PROTOCOL:
-Think step by step about every dimension:
-1. Is the topic specific enough to write about? "Marketing" is too vague. "Why B2B SaaS companies should stop gating content" is specific.
-2. Does the angle give the ghostwriter a clear thesis or argument? An angle-less piece becomes a Wikipedia summary.
-3. Are key points substantive or just topic labels? "Talk about pricing" vs "Argue that value-based pricing outperforms per-seat for tools under $50/mo"
-4. Does this content type need data/research? A personal essay doesn't. A technical whitepaper does.
-5. Is there a mismatch between the content type and the brief's depth? A 3000-word research paper with a one-line topic will produce filler.
-6. Is there enough context to support factual claims? If the topic implies statistics but no context provides them, the AI will fabricate.
+REASONING PROTOCOL — USE YOUR FULL THINKING BUDGET:
+Before producing any output, reason deeply about every dimension of this brief. Do NOT rush to a score. Think step by step:
+1. Is the topic specific enough to write about? "Marketing" is too vague. "Why B2B SaaS companies should stop gating content" is specific. A vague topic forces the AI to invent an angle, which always sounds generic.
+2. Does the angle give the ghostwriter a clear thesis or argument? An angle-less piece becomes a Wikipedia summary. The angle is the difference between "here are some thoughts on X" and "here's why X matters and what to do about it."
+3. Are key points substantive or just topic labels? "Talk about pricing" vs "Argue that value-based pricing outperforms per-seat for tools under $50/mo" — the first produces filler, the second produces argument.
+4. Does this content type need data/research? A personal essay doesn't. A technical whitepaper does. Match the content type to what's available.
+5. Is there a mismatch between the content type and the brief's depth? A 3000-word research paper with a one-line topic will produce filler. A tweet thread with 500 words of key points will produce a novel crammed into tweets.
+6. Is there enough context to support factual claims? If the topic implies statistics but no context provides them, the AI will fabricate. This is the #1 quality failure mode.
+7. Does the voice profile suggest this author writes this content type well? A casual, fragment-heavy writer assigned a formal whitepaper will produce a voice mismatch.
 
-SCORE: 1-10 where 10 is a brief that will definitely produce strong output and 1 will definitely produce weak output.`;
+SCORING CALIBRATION:
+- 9-10: Specific topic, clear angle, substantive key points, appropriate context. Will definitely produce strong output.
+- 7-8: Solid brief with minor gaps. Will produce good output that might need light editing.
+- 5-6: Notable weaknesses — vague angle, missing context for a data-heavy topic, or mismatch between format and depth.
+- 3-4: Significant problems. Multiple missing elements will force the AI to fill gaps with generic content.
+- 1-2: Brief is so thin the AI will essentially be inventing everything. Result will be generic and probably fabricated.`;
 
   const userPrompt = `Content type: ${typeLabel}
 Topic: ${interview.topic}
@@ -1865,8 +1887,8 @@ If score >= 7, return empty warnings array. Only warn about things that will act
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res: any = await withRetry(() => getXai().chat.completions.create({
-      model: "grok-4-1-fast-non-reasoning",
-      max_tokens: 2048,
+      model: XAI_WRITING_MODEL,
+      max_completion_tokens: 16000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -1900,10 +1922,13 @@ export async function scoreVoiceFidelity(
 
   const systemPrompt = `You are a voice authenticity auditor. You've studied this author's writing extensively and can identify when prose doesn't match their voice. Your job is to score a finished draft on voice fidelity and flag every sentence that doesn't sound like this person.
 
-REASONING PROTOCOL:
-Read the entire draft twice:
-1. First pass: overall impression. Does it FEEL like this author? Gut reaction.
-2. Second pass: sentence-by-sentence. For each sentence, ask: "Would this specific human write this sentence exactly this way?" If no, flag it and explain why.
+REASONING PROTOCOL — USE YOUR FULL THINKING BUDGET:
+Before producing any output, you MUST spend extensive time reasoning. This is the quality gate — everything downstream depends on your accuracy. Think step by step:
+1. First pass — read the ENTIRE draft. Overall impression: does it FEEL like this author? What's your gut reaction? Note the overall rhythm, register, energy level. Does it match the voice summary?
+2. Second pass — go sentence by sentence. For EACH sentence, ask: "Would this specific human write this sentence exactly this way?" Check against every dimension: word choice (their vocabulary vs generic), sentence length (their rhythm vs uniform), punctuation (their habits vs standard), register (their formality level vs AI-polished), imperfections (are their characteristic "mistakes" present or has everything been cleaned up?).
+3. Check structural patterns: Do the paragraph lengths match their style? Do transitions match their transition style? Does the opening sound like how THEY start pieces? Does the closing sound like how THEY end?
+4. The most common failure mode: the piece is "good writing" but sounds like ANY good writer, not THIS specific writer. Generic excellence is a voice failure. Look for that.
+5. Check for residual AI patterns that survived humanization: em dash overuse, rule-of-three groupings, synonym cycling, hollow transitions, over-polished grammar where this author writes rough.
 
 SCORING GUIDE:
 - 90-100: Indistinguishable from the author. A reader who knows them would not suspect AI.
@@ -1944,7 +1969,7 @@ Be ruthless. If the piece sounds like polished AI prose where the author writes 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res: any = await withRetry(() => getXai().chat.completions.create({
       model: XAI_WRITING_MODEL,
-      max_completion_tokens: 32000,
+      max_completion_tokens: 64000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
