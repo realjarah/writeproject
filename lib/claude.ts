@@ -89,6 +89,20 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, maxRetries = 3)
   throw lastErr; // unreachable, but TypeScript needs it
 }
 
+/** Best-effort repair of LLM-produced JSON before parsing. */
+function repairJson(text: string): string {
+  let s = text
+    // Strip markdown code fences
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim();
+  // Remove trailing commas before } or ]
+  s = s.replace(/,\s*([}\]])/g, "$1");
+  // Strip control characters that break JSON strings (keep \n \r \t)
+  s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+  return s;
+}
+
 export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnalysis> {
   const samplesText = samples
     .map((s, i) => {
@@ -150,9 +164,7 @@ Rules:
   }), "analyzeVoice");
 
   const raw = res.choices[0].message.content ?? "";
-  // Strip markdown code fences if the model wraps the JSON despite instructions
-  const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-  return JSON.parse(text) as VoiceAnalysis;
+  return JSON.parse(repairJson(raw)) as VoiceAnalysis;
 }
 
 
@@ -1004,11 +1016,7 @@ Return ONLY valid JSON (no markdown, no prose, no code fences):
 
   const text = result.text ?? "";
   try {
-    const clean = text
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```\s*$/, "")
-      .trim();
-    return JSON.parse(clean);
+    return JSON.parse(repairJson(text));
   } catch {
     // Fallback uses the author's actual rhetorical devices instead of a
     // generic direction that any writer could follow
@@ -1337,11 +1345,7 @@ Does this plan need web research before drafting?`,
 
   const text = result.text ?? "";
   try {
-    const clean = text
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```\s*$/, "")
-      .trim();
-    return JSON.parse(clean);
+    return JSON.parse(repairJson(text));
   } catch {
     return { needed: false, queries: [] };
   }
