@@ -25,14 +25,17 @@ import type {
 import { CONTENT_TYPE_LABELS } from "./content-types";
 
 // ── Provider clients (lazy — Next.js evaluates modules at build time) ────────
-// Opus: humanizer, self-review, draft comparison (voice + quality layer)
+// 3-agent architecture:
+//   Agent 1 (Grok): Voice analyzer — extracts rich voice profile from samples
+//   Agent 2 (Opus): Writer — plans + drafts using voice profile only (no raw samples)
+//   Agent 3 (Opus): Editor — self-review + humanizer using voice profile only
 let _anthropic: Anthropic;
 function getAnthropic() {
   if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   return _anthropic;
 }
 
-// Grok: voice analysis, planning (non-light), drafting (2M context)
+// Grok: voice analysis (2M context for reading all samples at once)
 let _xai: OpenAI;
 function getXai() {
   if (!_xai) _xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
@@ -91,13 +94,23 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, maxRetries = 3)
   throw lastErr; // unreachable, but TypeScript needs it
 }
 
-/** Best-effort repair of LLM-produced JSON before parsing. */
+/** Best-effort repair of LLM-produced JSON before parsing.
+ *  Handles reasoning models that output thinking/explanation around the JSON. */
 function repairJson(text: string): string {
   let s = text
     // Strip markdown code fences
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/, "")
     .trim();
+
+  // Extract JSON object from surrounding text (reasoning models often
+  // output explanation before/after the JSON)
+  const firstBrace = s.indexOf("{");
+  const lastBrace = s.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    s = s.slice(firstBrace, lastBrace + 1);
+  }
+
   // Remove trailing commas before } or ]
   s = s.replace(/,\s*([}\]])/g, "$1");
   // Strip control characters that break JSON strings (keep \n \r \t)
@@ -120,7 +133,11 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
       ? `\nNote: samples span multiple formats (${categories.join(", ")}). Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats.\n`
       : "";
 
-  const systemPrompt = `You are a writing style analyst. Your job is to deeply analyze writing samples from a single author and extract a comprehensive voice profile that a ghostwriter could use to write indistinguishably as this person. Take your time. Read every sample multiple times. Notice patterns across samples, not just within them.`;
+  const systemPrompt = `You are a writing style analyst. Your job is to deeply analyze writing samples from a single author and extract a comprehensive voice profile that a ghostwriter could use to write indistinguishably as this person. Take your time. Read every sample multiple times. Notice patterns across samples, not just within them.
+
+CRITICAL — CAPTURE IMPERFECTION: Real humans do NOT write perfectly. This author's "mistakes" are part of their voice. Look for sentence fragments, run-on sentences, comma splices, starting sentences with "And" or "But", unconventional punctuation, abrupt transitions, loose grammar used for rhythm, unfinished thoughts, stream-of-consciousness passages. These are NOT flaws to note — they are FEATURES to replicate. A ghostwriter who "fixes" these will sound like AI, not like this person.
+
+Also look for the author's unique tics — unexpected metaphor patterns, trademark phrases, words they overuse (intentionally or not), idiosyncratic formatting, the way they handle emotional moments vs analytical ones, how they transition (or don't transition) between ideas. The goal is to capture everything that makes this person's writing THEIRS, especially the things a grammar checker would flag.`;
 
   const userPrompt = `Analyze the following writing samples from a single author and extract a detailed voice profile that could be used to ghost-write in their exact style.
 ${categorySection}
@@ -137,6 +154,10 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "commonPatterns": ["specific recurring phrases or structural patterns", "another pattern"],
   "thingsToAvoid": ["writing patterns NOT present in their work that should be avoided", "another thing to avoid"],
   "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference",
+  "humanImperfections": "grammar rules this author breaks on purpose or by habit - fragments, run-ons, comma splices, starting with conjunctions, etc. Be specific.",
+  "authenticQuirks": "unique tics - trademark phrases, overused words, unexpected metaphors, idiosyncratic formatting, distinctive word combos",
+  "emotionalPatterns": "how they handle emotional intensity vs analytical passages - sudden shifts, understatement, humor as deflection, etc.",
+  "transitionStyle": "how they connect ideas - abrupt shifts, callbacks, stream-of-consciousness, smooth transitions, or no transitions at all",
   "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
   "contentGuidelines": {
     "[contentType]": ["6–8 specific, actionable guidelines bridging THIS author's voice with that format's conventions. Each must be specific to this author's actual patterns—not generic writing advice. A ghostwriter must be able to apply each one immediately."]
@@ -145,7 +166,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 
 Rules:
 - Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
-- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.`;
+- Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.
+- humanImperfections, authenticQuirks, emotionalPatterns, and transitionStyle are REQUIRED. Be detailed and specific — these fields are what prevent the ghostwriter from producing generic, over-polished AI prose.`;
 
   // Grok 4.1 reasoning: 2M context window lets us feed ALL samples at once
   // without truncation. High reasoning budget lets it deeply analyze patterns
@@ -161,7 +183,12 @@ Rules:
     ],
   }), "analyzeVoice");
 
-  const raw = res.choices[0].message.content ?? "";
+  // Reasoning models may put the answer in content or reasoning_content
+  const msg = res.choices[0].message;
+  const raw = msg.content ?? msg.reasoning_content ?? "";
+  if (!raw) {
+    throw new Error(`[analyzeVoice] Empty response from Grok. finish_reason: ${res.choices[0].finish_reason}`);
+  }
   return JSON.parse(repairJson(raw)) as VoiceAnalysis;
 }
 
@@ -216,7 +243,8 @@ Return ONLY valid JSON:
     ],
   }), `analyzeSubVoice:${category}`);
 
-  const raw = res.choices[0].message.content ?? "";
+  const subMsg = res.choices[0].message;
+  const raw = subMsg.content ?? subMsg.reasoning_content ?? "";
   return JSON.parse(repairJson(raw)) as SubVoiceAnalysis;
 }
 
@@ -589,26 +617,6 @@ function buildBinaryBlocks(context: GenerationContext): any[] {
   return blocks;
 }
 
-// Returns OpenAI-compatible image content parts for Grok API calls.
-// Only images are included — PDFs are handled via the text context block.
-function buildGrokImageBlocks(
-  context: GenerationContext
-): Array<{ type: "image_url"; image_url: { url: string } }> {
-  const blocks: Array<{ type: "image_url"; image_url: { url: string } }> = [];
-  for (const item of context.items) {
-    if (!item.data || !item.mediaType) continue;
-    if (item.mediaType.startsWith("image/")) {
-      blocks.push({
-        type: "image_url",
-        image_url: { url: `data:${item.mediaType};base64,${item.data}` },
-      });
-    }
-    // PDFs: the text context block (buildContextBlock) includes their content.
-    // Grok's Files API requires a separate upload flow — not supported here yet.
-  }
-  return blocks;
-}
-
 // ── Stage budgets (scales with format complexity / output length) ─────────────
 
 interface StageBudget { maxTokens: number; thinkingBudget: number }
@@ -684,28 +692,31 @@ export const LIGHT_TYPES = new Set([
   "ai_prompt", "notes", "list", "ad_copy",
 ]);
 
-// ── Voice fingerprint (condensed samples for follow-up calls) ────────────────
+// ── Enriched voice block (replaces raw samples in all downstream agents) ─────
 
 /**
- * Build a condensed "voice fingerprint" from writing samples.
- * Includes short representative excerpts (opening + closing of each sample)
- * instead of full text. Used in draft calls where the plan stage already
- * absorbed the complete samples.
+ * Build the enriched voice profile block for system prompts.
+ * Uses structured voice analysis fields instead of raw writing samples
+ * to prevent content contamination (the AI copying sample content into
+ * unrelated articles instead of just absorbing the style).
  */
-export function buildVoiceFingerprint(
-  samples: { content: string; category: string }[]
-): string {
-  if (!samples.length) return "";
+function buildEnrichedVoiceBlock(voiceProfile: VoiceAnalysis): string {
+  const sections: string[] = [];
 
-  const excerpts = samples.map((s, i) => {
-    const words = s.content.trim().split(/\s+/);
-    // Take first ~80 words and last ~40 words as representative excerpts
-    const opening = words.slice(0, 80).join(" ");
-    const closing = words.length > 150 ? "\n[…]\n" + words.slice(-40).join(" ") : "";
-    return `### Excerpt ${i + 1} [${s.category}]\n${opening}${closing}`;
-  });
+  if (voiceProfile.humanImperfections) {
+    sections.push(`**Human Imperfections (PRESERVE these — they are the voice, not bugs to fix):**\n${voiceProfile.humanImperfections}`);
+  }
+  if (voiceProfile.authenticQuirks) {
+    sections.push(`**Authentic Quirks (what makes this author unmistakably THEM):**\n${voiceProfile.authenticQuirks}`);
+  }
+  if (voiceProfile.emotionalPatterns) {
+    sections.push(`**Emotional Patterns:**\n${voiceProfile.emotionalPatterns}`);
+  }
+  if (voiceProfile.transitionStyle) {
+    sections.push(`**Transition Style:**\n${voiceProfile.transitionStyle}`);
+  }
 
-  return `\n## Voice Excerpts (representative openings/closings from the author's writing)\n${excerpts.join("\n\n")}\n`;
+  return sections.length > 0 ? `\n${sections.join("\n\n")}\n` : "";
 }
 
 // ── Research ─────────────────────────────────────────────────────────────────
@@ -799,7 +810,6 @@ export async function planContent(
   voiceProfile: VoiceAnalysis,
   interview: InterviewAnswers,
   context?: GenerationContext,
-  sampleExamples?: { content: string; category: string }[],
   favoriteWords?: { word: string; definition: string }[],
   authorContext?: string
 ): Promise<string> {
@@ -819,13 +829,7 @@ export async function planContent(
 
   const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
-  const examplesBlock = sampleExamples?.length
-    ? `\n**Author's Actual Writing (study before planning — match this voice exactly):**\n${
-        sampleExamples
-          .map((s, i) => `### Sample ${i + 1} [${s.category}]\n${s.content}`)
-          .join("\n\n")
-      }\n`
-    : "";
+  const enrichedVoiceBlock = buildEnrichedVoiceBlock(voiceProfile);
 
   const favoriteWordsBlock = favoriteWords?.length
     ? `\n**Author's Favorite Words (use only when they fit naturally — never force them):**\n${
@@ -839,14 +843,14 @@ export async function planContent(
 
   // Build system prompt with cache_control on the stable voice + samples block
   // so the API can reuse KV cache when subsequent pipeline calls share this prefix
-  const voicePlanBlock = `You are ghost-writing a ${resolveTypeLabel(interview)}. The piece must be indistinguishable from this author's own work. Study the voice profile and samples below until you can hear them in your head. Every structural decision in your plan must serve this specific author's voice.
+  const voicePlanBlock = `You are ghost-writing a ${resolveTypeLabel(interview)}. The piece must be indistinguishable from this author's own work. Study the voice profile below until you can hear them in your head. Every structural decision in your plan must serve this specific author's voice.
 
-CRITICAL — VOICE HIERARCHY: The author's OVERALL voice (summary, tone, sentence structure, vocabulary, rhetorical devices) is your PRIMARY guide. It overrides everything else. Format-specific hints below are secondary — use them only when they don't conflict with the author's core voice. If a format guideline would make the piece sound less like this author, ignore it. The goal is this author's voice in this format, not a generic version of this format.
+CRITICAL — VOICE HIERARCHY: The author's OVERALL voice (summary, tone, sentence structure, vocabulary, rhetorical devices, imperfections, quirks) is your PRIMARY guide. It overrides everything else. Format-specific hints below are secondary — use them only when they don't conflict with the author's core voice. If a format guideline would make the piece sound less like this author, ignore it. The goal is this author's voice in this format, not a generic version of this format.
 
-CRITICAL — PLAN FOR IMPERFECTION: If this author's writing is raw, casual, or grammatically loose, plan for that. Do not plan a polished, structured piece for an author who writes in fragments and stream-of-consciousness. The plan should reflect how THIS author would actually structure their thinking, not how a writing textbook would.
-${examplesBlock}
+CRITICAL — PLAN FOR IMPERFECTION: If this author's voice profile shows raw, casual, or grammatically loose writing, plan for that. Do not plan a polished, structured piece for an author who writes in fragments and stream-of-consciousness. The plan should reflect how THIS author would actually structure their thinking, not how a writing textbook would. Their imperfections and quirks are part of the plan.
+
 **Author voice summary (THIS IS YOUR NORTH STAR):** ${voiceProfile.rawSummary}
-${authorContextBlock}${topicInsightsBlock}
+${enrichedVoiceBlock}${authorContextBlock}${subVoiceBlock}
 ${categoryInsightBlock || guidelinesBlock ? `**Secondary format hints (use lightly — never let these override the author's core voice):**${categoryInsightBlock}${guidelinesBlock}` : ""}${favoriteWordsBlock}`;
 
   const userPrompt = `Produce the structural plan. Do not write the piece — plan only.
@@ -891,40 +895,49 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
     return result.text ?? "";
   }
 
-  // Standard / deep tier: Grok — reasoning model with 2M context
-  const grokImages = context ? buildGrokImageBlocks(context) : [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userContent: any = grokImages.length > 0
-    ? [{ type: "text", text: userPrompt }, ...grokImages]
-    : userPrompt;
+  // Standard / deep tier: Opus — extended thinking for deep structural planning
+  const planBinaryBlocks = context ? buildBinaryBlocks(context) : [];
+  const planBetaHeaders = getBetaHeaders(planBinaryBlocks);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res: any = await withRetry(() => getXai().chat.completions.create({
-    model: XAI_WRITING_MODEL,
-    max_tokens: planBudget.maxTokens,
-    messages: [
-      { role: "system", content: voicePlanBlock },
-      { role: "user", content: userContent },
-    ],
-  }), "planContent/grok");
+  const planMessageContent =
+    planBinaryBlocks.length > 0
+      ? [{ type: "text", text: userPrompt }, ...planBinaryBlocks]
+      : userPrompt;
 
-  return res.choices[0].message.content ?? "";
+  const planReqOptions = Object.keys(planBetaHeaders).length > 0
+    ? { headers: planBetaHeaders }
+    : {};
+
+  const thinkingBudget = Math.min(planBudget.thinkingBudget, planBudget.maxTokens - 1);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => (getAnthropic().messages.create as any)(
+    {
+      model: "claude-opus-4-6",
+      max_tokens: planBudget.maxTokens,
+      thinking: { type: "enabled", budget_tokens: thinkingBudget },
+      system: [{ type: "text", text: voicePlanBlock, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: planMessageContent }],
+    },
+    planReqOptions
+  ), "planContent/opus");
+
+  return extractText(res.content) || "";
 }
 
 /**
- * Stage 2 — Draft
+ * Stage 2 — Draft (Writer Agent — Opus)
  * Writes the raw first draft against the plan with full voice fidelity.
+ * Uses the enriched voice profile exclusively — no raw writing samples
+ * to prevent content contamination.
  *
- * @param isFollowup — If true, uses condensed voice fingerprint (excerpts) instead
- *   of full samples, and a reduced thinking budget. Used for draft 2 in deep tier
- *   where the plan stage already absorbed the complete samples.
+ * @param isFollowup — If true, uses reduced thinking budget. Used for
+ *   draft 2 in deep tier where the plan already provided structure.
  */
 export async function draftContent(
   voiceProfile: VoiceAnalysis,
   interview: InterviewAnswers,
   plan: string,
   context?: GenerationContext,
-  sampleExamples?: { content: string; category: string }[],
   favoriteWords?: { word: string; definition: string }[],
   authorContext?: string,
   isFollowup?: boolean
@@ -945,16 +958,7 @@ export async function draftContent(
 
   const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
-  // Full samples for first draft, condensed fingerprint for follow-up drafts
-  const examplesSection = sampleExamples?.length
-    ? isFollowup
-      ? buildVoiceFingerprint(sampleExamples)
-      : `\n## Author's Actual Writing Samples (absorb these — write with the exact same voice)\n${
-          sampleExamples
-            .map((s, i) => `### Example ${i + 1} [${s.category}]\n${s.content}`)
-            .join("\n\n")
-        }\n`
-    : "";
+  const enrichedVoiceBlock = buildEnrichedVoiceBlock(voiceProfile);
 
   const wordCountLine = interview.wordCountTarget
     ? `Target length: ${interview.wordCountTarget}. `
@@ -965,11 +969,11 @@ export async function draftContent(
   // can reuse the KV cache from previous pipeline stages.
   const voiceBlock = `You are ghost-writing a ${resolveTypeLabel(interview)}. The output must be indistinguishable from this author's own work. Not "inspired by" their voice. Not "in the style of." Identical. If a reader who knows this author's writing can tell an AI wrote it, you have failed.
 
-Read the voice profile and writing samples below. Internalize the rhythm, the word choices, the sentence lengths, the way they open paragraphs, the way they close them. Then write as them.
+Read the voice profile below. Internalize the rhythm, the word choices, the sentence lengths, the way they open paragraphs, the way they close them. Then write as them.
 
 CRITICAL — VOICE HIERARCHY: The author's overall voice profile below is your PRIMARY guide. It defines how this person writes across ALL formats. The format-specific hints at the bottom are secondary — light suggestions, not mandates. If following a format guideline would make the piece sound less like this specific author, ignore the guideline. Your job is to sound like THIS PERSON, not to produce a textbook example of this format.
 
-CRITICAL — IMPERFECT IS AUTHENTIC: Do NOT write with perfect grammar, flawless sentence structure, or textbook-correct prose unless the author's samples demonstrate that style. Real humans write with sentence fragments, start sentences with "And" or "But", use run-ons, skip transitions, leave thoughts slightly unfinished, and break grammar rules for rhythm and emphasis. If this author's samples show imperfect patterns — fragments, casual grammar, unconventional punctuation, abrupt shifts — MIRROR THOSE. Perfect prose is one of the most obvious AI tells. Match the author's actual level of polish, not an idealized version of it. A separate humanizer pass will run after you — your job is voice fidelity first, not grammatical correctness.
+CRITICAL — IMPERFECT IS AUTHENTIC: Do NOT write with perfect grammar, flawless sentence structure, or textbook-correct prose unless the voice profile says this author writes that way. Real humans write with sentence fragments, start sentences with "And" or "But", use run-ons, skip transitions, leave thoughts slightly unfinished, and break grammar rules for rhythm and emphasis. The "Human Imperfections" and "Authentic Quirks" sections below describe exactly how THIS author breaks rules — replicate those patterns. Perfect prose is one of the most obvious AI tells. Match the author's actual level of polish, not an idealized version of it.
 
 ## Author Voice Profile (PRIMARY — this defines the voice)
 
@@ -983,7 +987,7 @@ CRITICAL — IMPERFECT IS AUTHENTIC: Do NOT write with perfect grammar, flawless
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in your output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${examplesSection}${topicInsightsBlock}
+${enrichedVoiceBlock}${subVoiceBlock}
 ${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (use lightly — the voice profile above always wins)\n${categoryInsightBlock}${guidelinesBlock}` : ""}`;
 
   const rulesBlock = `## Forbidden — zero tolerance. Any of these in the output is an automatic failure.
@@ -1031,27 +1035,36 @@ ${plan}
 ${contextBlock}
 Write the piece. Match the author's voice exactly. Every sentence must sound like them, not like you.`;
 
-  // Grok: core writing engine — reasoning model with 2M context
-  const grokImages = context ? buildGrokImageBlocks(context) : [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userContent: any = grokImages.length > 0
-    ? [{ type: "text", text: userPrompt }, ...grokImages]
-    : userPrompt;
+  // Opus: core writing engine — extended thinking for voice-faithful drafting
+  const draftBinaryBlocks = context ? buildBinaryBlocks(context) : [];
+  const draftBetaHeaders = getBetaHeaders(draftBinaryBlocks);
+
+  const draftMessageContent =
+    draftBinaryBlocks.length > 0
+      ? [{ type: "text", text: userPrompt }, ...draftBinaryBlocks]
+      : userPrompt;
+
+  const draftReqOptions = Object.keys(draftBetaHeaders).length > 0
+    ? { headers: draftBetaHeaders }
+    : {};
 
   const budgets = getStageBudgets(interview.contentType);
   const draftBudget = isFollowup ? budgets.draftFollowup : budgets.draft;
+  const draftThinkingBudget = Math.min(draftBudget.thinkingBudget, draftBudget.maxTokens - 1);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res: any = await withRetry(() => getXai().chat.completions.create({
-    model: XAI_WRITING_MODEL,
-    max_tokens: draftBudget.maxTokens,
-    messages: [
-      { role: "system", content: systemText },
-      { role: "user", content: userContent },
-    ],
-  }), "draftContent");
+  const res: any = await withRetry(() => (getAnthropic().messages.create as any)(
+    {
+      model: "claude-opus-4-6",
+      max_tokens: draftBudget.maxTokens,
+      thinking: { type: "enabled", budget_tokens: draftThinkingBudget },
+      system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: draftMessageContent }],
+    },
+    draftReqOptions
+  ), "draftContent/opus");
 
-  return res.choices[0].message.content ?? "";
+  return extractText(res.content) || "";
 }
 
 /**
@@ -1188,7 +1201,6 @@ export async function humanizeContent(
   voiceProfile: VoiceAnalysis,
   humanizerInstructions: string,
   contentType: string = "blog",
-  sampleExamples?: { content: string; category: string }[],
   favoriteWords?: { word: string; definition: string }[],
   authorContext?: string,
   onPassStart?: (pass: number, total: number) => void
@@ -1206,9 +1218,7 @@ export async function humanizeContent(
     ? `\n## How This Author Writes ${typeLabel}\n${categoryInsight}\n`
     : "";
   const subVoiceBlock = buildSubVoiceBlock(voiceProfile, contentType);
-  const fingerprintBlock = sampleExamples?.length
-    ? buildVoiceFingerprint(sampleExamples)
-    : "";
+  const enrichedVoiceBlock = buildEnrichedVoiceBlock(voiceProfile);
   const favoriteWordsBlock = favoriteWords?.length
     ? `\n## Author's Favorite Words (use naturally when they fit — never force)\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}\n`
     : "";
@@ -1253,9 +1263,7 @@ Output the final text only. No commentary. No process notes. No preamble.
 ${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
 **Things to Avoid (if ANY of these appear in the output, you have failed):**
 ${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${fingerprintBlock}${topicInsightsBlock}${favoriteWordsBlock}${authorContextBlock}
-${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (reference lightly — the voice profile above always takes priority)\n${categoryInsightBlock}${guidelinesBlock}` : ""}`,
-${fingerprintBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}
+${enrichedVoiceBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}
 
 ## MANDATORY VERIFICATION CHECKLIST
 
@@ -1345,7 +1353,6 @@ export async function selfReviewDraft(
   interview: InterviewAnswers,
   editingPreferences?: string,
   context?: GenerationContext,
-  sampleExamples?: { content: string; category: string }[],
   favoriteWords?: { word: string; definition: string }[],
   authorContext?: string
 ): Promise<string> {
@@ -1365,10 +1372,7 @@ export async function selfReviewDraft(
 
   const subVoiceBlock = buildSubVoiceBlock(voiceProfile, interview.contentType);
 
-  // Use condensed voice fingerprint for self-review (enough to verify voice fidelity)
-  const samplesBlock = sampleExamples?.length
-    ? buildVoiceFingerprint(sampleExamples)
-    : "";
+  const enrichedVoiceBlock = buildEnrichedVoiceBlock(voiceProfile);
 
   const favoriteWordsBlock = favoriteWords?.length
     ? `\n## Author's Favorite Words\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}\n`
@@ -1400,9 +1404,7 @@ If you need to rewrite a sentence, use the author's voice from the profile below
 **Sentence Structure:** ${voiceProfile.sentenceStructure}
 **Vocabulary:** ${voiceProfile.vocabularyStyle}
 **Things to Avoid (if ANY of these appear, fix them immediately):** ${voiceProfile.thingsToAvoid.join("; ")}
-${samplesBlock}${topicInsightsBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
-${categoryInsightBlock || guidelinesBlock ? `## Secondary Format Hints (reference lightly — the overall voice profile always wins)\n${categoryInsightBlock}${guidelinesBlock}` : ""}
-${samplesBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
+${enrichedVoiceBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
 Your review must check:
 1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
 2. AI contamination — if any AI patterns survived the humanizer, destroy them. But do NOT introduce new ones in your fixes.

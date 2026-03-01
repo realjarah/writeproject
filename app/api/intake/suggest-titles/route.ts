@@ -22,6 +22,7 @@ const TITLE_STYLE_BY_GROUP: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
+  try {
   const { contentType, topic, angle, keyPoints } = await req.json();
   if (!topic) {
     return NextResponse.json({ error: "topic required" }, { status: 400 });

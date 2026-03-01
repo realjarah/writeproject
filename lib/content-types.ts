@@ -140,6 +140,14 @@ export interface VoiceAnalysis {
   commonPatterns: string[];
   thingsToAvoid: string[];
   rawSummary: string;
+  // Human imperfections that ARE the voice — fragments, run-ons, grammar breaks, etc.
+  humanImperfections?: string;
+  // Unique writing tics — unexpected metaphors, trademark phrases, idiosyncratic choices
+  authenticQuirks?: string;
+  // How the author handles emotional intensity and shifts
+  emotionalPatterns?: string;
+  // How the author connects ideas between sentences and paragraphs
+  transitionStyle?: string;
   categoryInsights?: Record<string, string>;
   // Per-format guidelines generated on demand
   contentGuidelines?: Record<string, string[]>;
