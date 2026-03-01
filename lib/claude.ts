@@ -144,10 +144,10 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "commonPatterns": ["specific recurring phrases or structural patterns", "another pattern"],
   "thingsToAvoid": ["writing patterns NOT present in their work that should be avoided", "another thing to avoid"],
   "rawSummary": "a 2-3 sentence plain English summary of their writing style for easy reference",
-  "humanImperfections": "Grammatical and structural 'imperfections' that ARE this author's voice. Sentence fragments, run-ons, comma splices, starting with conjunctions, loose grammar for rhythm, unfinished thoughts, unconventional punctuation usage. These must be PRESERVED in ghostwritten output — they are what makes the writing sound human. Be specific about what rules this author breaks and how.",
-  "authenticQuirks": "Unique writing tics and habits — unexpected metaphor patterns, trademark phrases, words they overuse, idiosyncratic formatting choices, how they break conventional rules, surprising word combinations, distinctive ways they emphasize or de-emphasize. The things that make you go 'yep, that's them.'",
-  "emotionalPatterns": "How the author handles emotional intensity — do they build to peaks or stay level? Sudden shifts or gradual? Understatement vs overstatement? How do analytical sections differ from emotional ones? Do they use humor as deflection?",
-  "transitionStyle": "How the author connects ideas between sentences and paragraphs — smooth logical transitions, abrupt topic shifts, callbacks to earlier points, stream-of-consciousness flow, no transitions at all? How do they signal a new thought?",
+  "humanImperfections": "grammar rules this author breaks on purpose or by habit - fragments, run-ons, comma splices, starting with conjunctions, etc. Be specific.",
+  "authenticQuirks": "unique tics - trademark phrases, overused words, unexpected metaphors, idiosyncratic formatting, distinctive word combos",
+  "emotionalPatterns": "how they handle emotional intensity vs analytical passages - sudden shifts, understatement, humor as deflection, etc.",
+  "transitionStyle": "how they connect ideas - abrupt shifts, callbacks, stream-of-consciousness, smooth transitions, or no transitions at all",
   "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
   "contentGuidelines": {
     "[contentType]": ["6–8 specific, actionable guidelines bridging THIS author's voice with that format's conventions. Each must be specific to this author's actual patterns—not generic writing advice. A ghostwriter must be able to apply each one immediately."]
@@ -166,7 +166,7 @@ Rules:
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_tokens: 32000,
+    max_tokens: 48000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
