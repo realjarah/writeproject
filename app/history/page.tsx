@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
 
 interface HistoryItem {
   id: number;
@@ -9,12 +10,6 @@ interface HistoryItem {
   content: string;
   createdAt: string;
 }
-
-const typeLabels: Record<string, string> = {
-  blog: "Blog post",
-  social: "Social post",
-  caption: "Caption",
-};
 
 export default function HistoryPage() {
   const [items, setItems] = useState<HistoryItem[]>([]);
@@ -74,7 +69,7 @@ export default function HistoryPage() {
                 <div className="space-y-0.5 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-black/[0.35] dark:text-white/[0.35] bg-black/[0.08] dark:bg-[#222] px-2 py-0.5 rounded-md">
-                      {typeLabels[item.contentType] ?? item.contentType}
+                      {CONTENT_TYPE_LABELS[item.contentType] ?? item.contentType}
                     </span>
                     <span className="text-xs text-black/[0.35] dark:text-white/[0.35]">
                       {new Date(item.createdAt).toLocaleDateString(undefined, {

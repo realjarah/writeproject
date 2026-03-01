@@ -3,17 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { detectCategory, type SampleCategory } from "@/lib/detectCategory";
 import ReadinessBar from "@/components/ReadinessBar";
-import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_LABELS } from "@/lib/content-types";
-
-// Color per group — used in sample list badges and the mastery grid
-const GROUP_COLORS: Record<string, string> = {
-  "Writing":              "#60a5fa",
-  "Business":             "#34d399",
-  "Career":               "#a78bfa",
-  "Academic & Technical": "#fb923c",
-  "Short-form":           "#f472b6",
-  "Spoken word":          "#facc15",
-};
+import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_LABELS, GROUP_COLORS } from "@/lib/content-types";
 
 function groupColor(type: string): string {
   for (const g of CONTENT_TYPE_GROUPS) {
@@ -134,6 +124,11 @@ export default function VoicePage() {
     load();
   }
 
+  // Client-side size limits (match server: 30MB b64 ≈ 22MB binary PDF, 20MB b64 ≈ 15MB binary DOCX)
+  const MAX_PDF_SIZE = 22 * 1024 * 1024;
+  const MAX_DOCX_SIZE = 15 * 1024 * 1024;
+  const MAX_TEXT_SIZE = 500 * 1024; // 500KB for plain text
+
   function handleFile(file: File) {
     setFileError("");
     const inferredTitle = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
@@ -141,6 +136,20 @@ export default function VoicePage() {
     const isPdf  = file.type === "application/pdf" || file.name.endsWith(".pdf");
     const isDocx = file.name.endsWith(".docx") ||
       file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+    // Validate file size before reading into memory
+    if (isPdf && file.size > MAX_PDF_SIZE) {
+      setFileError("PDF too large (max 22MB).");
+      return;
+    }
+    if (isDocx && file.size > MAX_DOCX_SIZE) {
+      setFileError("DOCX too large (max 15MB).");
+      return;
+    }
+    if (!isPdf && !isDocx && file.size > MAX_TEXT_SIZE) {
+      setFileError("Text file too large (max 500KB).");
+      return;
+    }
 
     if (!isPdf && !isDocx) {
       // Plain text — instant, no API call
