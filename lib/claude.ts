@@ -396,8 +396,7 @@ export async function uploadFile(
  * Used so text-only models (Grok) can see PDF context during planning/drafting.
  */
 async function extractPdfText(fileId: string, fileName?: string): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = await (getAnthropic().messages.create as any)(
+  const text = await streamToText(
     {
       model: "claude-sonnet-4-6",
       max_tokens: 16000,
@@ -418,14 +417,11 @@ async function extractPdfText(fileId: string, fileName?: string): Promise<string
         },
       ],
     },
-    { headers: { "anthropic-beta": FILES_API_BETA } }
+    { headers: { "anthropic-beta": FILES_API_BETA } },
+    "extractPdfText"
   );
 
-  return (message.content as Anthropic.TextBlock[])
-    .filter((b: Anthropic.TextBlock) => b.type === "text")
-    .map((b: Anthropic.TextBlock) => b.text)
-    .join("")
-    .trim();
+  return text.trim();
 }
 
 /**
@@ -833,6 +829,31 @@ function extractText(content: any[]): string {
 }
 
 /**
+ * Stream an Anthropic request and collect the full text response.
+ * Uses messages.stream instead of messages.create to avoid the SDK's
+ * 10-minute timeout on long-running Opus + extended thinking calls.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function streamToText(params: any, reqOptions?: any, label?: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stream: any = await withRetry(
+    () => (getAnthropic().messages.stream as any)(params, reqOptions),
+    label ?? "streamToText"
+  );
+
+  let text = "";
+  for await (const chunk of stream) {
+    if (
+      chunk.type === "content_block_delta" &&
+      chunk.delta.type === "text_delta"
+    ) {
+      text += chunk.delta.text;
+    }
+  }
+  return text;
+}
+
+/**
  * Stage 1 — Plan
  * Thinks deeply about structure, arc, and voice before a word is written.
  */
@@ -939,8 +960,7 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
     : {};
 
   const thinkingBudget = Math.min(planBudget.thinkingBudget, planBudget.maxTokens - 1);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res: any = await withRetry(() => (getAnthropic().messages.create as any)(
+  return await streamToText(
     {
       model: "claude-opus-4-6",
       max_tokens: planBudget.maxTokens,
@@ -948,10 +968,9 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
       system: [{ type: "text", text: voicePlanBlock, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: planMessageContent }],
     },
-    planReqOptions
-  ), "planContent/opus");
-
-  return extractText(res.content) || "";
+    planReqOptions,
+    "planContent/opus"
+  ) || "";
 }
 
 /**
@@ -1082,8 +1101,7 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
   const draftBudget = isFollowup ? budgets.draftFollowup : budgets.draft;
   const draftThinkingBudget = Math.min(draftBudget.thinkingBudget, draftBudget.maxTokens - 1);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res: any = await withRetry(() => (getAnthropic().messages.create as any)(
+  return await streamToText(
     {
       model: "claude-opus-4-6",
       max_tokens: draftBudget.maxTokens,
@@ -1091,10 +1109,9 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
       system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: draftMessageContent }],
     },
-    draftReqOptions
-  ), "draftContent/opus");
-
-  return extractText(res.content) || "";
+    draftReqOptions,
+    "draftContent/opus"
+  ) || "";
 }
 
 /**
@@ -1146,16 +1163,13 @@ Output ONLY the final piece. Nothing else.`;
   // Opus with extended thinking: this is a voice-fidelity judgment that
   // determines what goes into the humanizer. Worth the quality investment.
   const thinkingBudget = Math.min(Math.ceil(draftBudget.thinkingBudget / 2), 32000, draftBudget.maxTokens - 1);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
+  return await streamToText({
     model: "claude-opus-4-6",
     max_tokens: draftBudget.maxTokens,
     thinking: { type: "enabled", budget_tokens: thinkingBudget },
     system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userPrompt }],
-  }), "compareAndSelectBestDraft");
-
-  return extractText(res.content) || "";
+  }, undefined, "compareAndSelectBestDraft") || "";
 }
 
 /**
@@ -1467,8 +1481,7 @@ ${draft}`;
     : {};
 
   // Opus: self-review is the last defense for voice fidelity + fabrication checking
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res: any = await withRetry(() => (getAnthropic().messages.create as any)(
+  const result = await streamToText(
     {
       model: "claude-opus-4-6",
       max_tokens: budget.maxTokens,
@@ -1476,10 +1489,11 @@ ${draft}`;
       system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: messageContent }],
     },
-    reqOptions
-  ), "selfReviewDraft");
+    reqOptions,
+    "selfReviewDraft"
+  );
 
-  return extractText(res.content) || draft;
+  return result || draft;
 }
 
 // ── Research assessment ───────────────────────────────────────────────────────
