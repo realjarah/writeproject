@@ -73,6 +73,12 @@ export async function POST(
           send({ type: "chunk", text: chunk });
         }
 
+        // Guard: humanizer stream produced no text — fall back to revised draft
+        if (!finalContent.trim()) {
+          console.error("[revise] Humanizer produced empty output — falling back to revised draft");
+          finalContent = revised;
+        }
+
         // Persist humanized revised draft
         await prisma.ghostwriterJob.update({
           where: { id: jobId },

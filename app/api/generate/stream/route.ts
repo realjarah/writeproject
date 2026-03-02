@@ -93,6 +93,12 @@ export async function POST(req: NextRequest) {
           send({ type: "chunk", text });
         }
 
+        // Guard: humanizer stream produced no text — fall back to raw draft
+        if (!finalContent.trim()) {
+          console.error("[generate/stream] Humanizer produced empty output — falling back to raw draft");
+          finalContent = draft;
+        }
+
         // Save to DB (fire and forget — includes signature if provided)
         const dbContent = signatureContent
           ? `${finalContent}\n\n${signatureContent}`
@@ -119,6 +125,7 @@ export async function POST(req: NextRequest) {
           || errMsg.includes("failed silently");
         send({ type: "error", message: isKnownError ? errMsg : "Generation failed. Please try again." });
       } finally {
+        clearInterval(heartbeat);
         // Clean up any files uploaded to the Files API
         if (resolvedContext) {
           deleteUploadedFiles(resolvedContext).catch(console.error);

@@ -351,6 +351,8 @@ export async function GET(
         }
       }, timeoutMs);
 
+      const stopHeartbeat = startHeartbeat(send, isAborted);
+
       try {
         // Send pipeline configuration to client
         send({ type: "pipeline", steps: pipelineSteps, tier });
@@ -552,6 +554,14 @@ export async function GET(
         }
         if (isAborted()) { controller.close(); return; }
 
+        // Guard: humanizer stream produced no text (e.g. model spent all
+        // tokens on thinking). Fall back to the pre-humanizer draft rather
+        // than saving empty content as the final output.
+        if (!finalContent.trim()) {
+          console.error("[stream] Humanizer produced empty output — falling back to reviewed draft");
+          finalContent = reviewedDraft;
+        }
+
         // ── Done ─────────────────────────────────────────────────────────
         const dbContent = signatureContent
           ? `${finalContent}\n\n${signatureContent}`
@@ -595,6 +605,7 @@ export async function GET(
           .catch(console.error);
         send({ type: "error", message: userMsg });
       } finally {
+        stopHeartbeat();
         clearTimeout(timeoutTimer);
         // Clean up any files uploaded to the Files API
         if (resolvedContext) {
