@@ -892,7 +892,12 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
         maxOutputTokens: planBudget.maxTokens,
       },
     }), "planContent/light");
-    return result.text ?? "";
+    const lightPlan = result.text ?? "";
+    if (!lightPlan.trim()) {
+      console.error("[planContent/light] Gemini returned empty plan.");
+      throw new Error("Planning stage produced no output. Please try again.");
+    }
+    return lightPlan;
   }
 
   // Standard / deep tier: Opus — extended thinking for deep structural planning
@@ -921,7 +926,12 @@ Do not plan a generic article. Plan THIS author's article. If the plan could bel
     planReqOptions
   ), "planContent/opus");
 
-  return extractText(res.content) || "";
+  const planText = extractText(res.content);
+  if (!planText.trim()) {
+    console.error("[planContent] Opus returned empty plan. stop_reason:", res.stop_reason);
+    throw new Error("Planning stage produced no output. The AI model may be overloaded — please try again.");
+  }
+  return planText;
 }
 
 /**
@@ -1064,7 +1074,12 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
     draftReqOptions
   ), "draftContent/opus");
 
-  return extractText(res.content) || "";
+  const draftText = extractText(res.content);
+  if (!draftText.trim()) {
+    console.error("[draftContent] Opus returned empty draft. stop_reason:", res.stop_reason, "content blocks:", res.content?.length);
+    throw new Error("Drafting stage produced no output. The AI model may have spent its full budget on internal reasoning. Please try again.");
+  }
+  return draftText;
 }
 
 /**
@@ -1125,7 +1140,13 @@ Output ONLY the final piece. Nothing else.`;
     messages: [{ role: "user", content: userPrompt }],
   }), "compareAndSelectBestDraft");
 
-  return extractText(res.content) || "";
+  const selectedText = extractText(res.content);
+  if (!selectedText.trim()) {
+    console.error("[compareAndSelectBestDraft] Opus returned empty selection. stop_reason:", res.stop_reason);
+    // Fallback to first draft rather than passing empty content downstream
+    return drafts[0] || "";
+  }
+  return selectedText;
 }
 
 /**
@@ -1205,6 +1226,10 @@ export async function humanizeContent(
   authorContext?: string,
   onPassStart?: (pass: number, total: number) => void
 ): Promise<ReadableStream<Uint8Array>> {
+  if (!draft.trim()) {
+    throw new Error("Humanizer received an empty draft. The drafting stage may have failed silently.");
+  }
+
   const typeLabel = CONTENT_TYPE_LABELS[contentType] ?? contentType;
 
   // Voice context so the humanizer replaces AI patterns with the author's

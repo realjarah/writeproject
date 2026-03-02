@@ -580,10 +580,20 @@ export async function GET(
         if (isAborted()) { controller.close(); return; }
         console.error("Ghostwriter pipeline error:", err);
         const msg = err instanceof Error ? err.message : "Unknown error";
+        // Use the actual error message for known pipeline failures (empty draft,
+        // overloaded model) so the user understands what happened. Fall back to
+        // generic message only for truly unknown errors.
+        const isKnownPipelineError = msg.includes("produced no output")
+          || msg.includes("empty draft")
+          || msg.includes("failed silently")
+          || msg.includes("timed out");
+        const userMsg = isKnownPipelineError
+          ? msg
+          : "Ghostwriting failed. Please try again.";
         await prisma.ghostwriterJob
           .update({ where: { id: jobId }, data: { status: "error", errorMsg: msg } })
           .catch(console.error);
-        send({ type: "error", message: "Ghostwriting failed. Please try again." });
+        send({ type: "error", message: userMsg });
       } finally {
         clearTimeout(timeoutTimer);
         // Clean up any files uploaded to the Files API

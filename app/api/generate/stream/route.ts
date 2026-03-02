@@ -113,7 +113,11 @@ export async function POST(req: NextRequest) {
         send({ type: "done" });
       } catch (err) {
         console.error("Generation pipeline error:", err);
-        send({ type: "error", message: "Generation failed. Please try again." });
+        const errMsg = err instanceof Error ? err.message : "";
+        const isKnownError = errMsg.includes("produced no output")
+          || errMsg.includes("empty draft")
+          || errMsg.includes("failed silently");
+        send({ type: "error", message: isKnownError ? errMsg : "Generation failed. Please try again." });
       } finally {
         // Clean up any files uploaded to the Files API
         if (resolvedContext) {
