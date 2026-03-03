@@ -24,12 +24,24 @@ import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
 
 // Approximate word count range per content type (min, max).
 const WORD_RANGES: Record<string, [number, number]> = {
-  blog: [600, 1400], essay: [500, 2000], newsletter: [200, 1000],
-  whitepaper: [1500, 10000], email: [50, 400], report: [500, 4000],
-  press_release: [300, 600], proposal: [500, 3000], case_study: [800, 2500],
-  resume: [300, 800], cover_letter: [250, 400], research: [1500, 20000],
-  technical: [500, 10000], social: [20, 300], caption: [10, 100],
-  text_message: [5, 50], speech: [500, 2500], script: [500, 3000],
+  // Personal
+  notes: [50, 500], list: [20, 300], ai_prompt: [50, 500], letter: [200, 800],
+  thank_you_note: [50, 200], review: [100, 500], bio: [50, 300], text_message: [5, 50],
+  // Social Media
+  social: [20, 300], twitter_thread: [200, 2000], caption: [10, 100],
+  // Professional
+  email: [50, 400], proposal: [500, 3000], cover_letter: [250, 400], resume: [300, 800],
+  press_release: [300, 600], scope_of_work: [500, 2000], rfp: [500, 3000],
+  // Business
+  business_plan: [1500, 10000], report: [500, 4000], case_study: [800, 2500], handbook: [1000, 10000],
+  // Marketing & Content
+  blog: [600, 1400], newsletter: [200, 1000], ad_copy: [25, 200], product_description: [50, 300],
+  // Education
+  lesson_plan: [300, 1000], course: [500, 10000], guide: [500, 2000],
+  // Academic & Technical
+  research: [1500, 20000], technical: [500, 10000], whitepaper: [1500, 10000],
+  // Creative & Spoken
+  essay: [500, 2000], speech: [500, 2500], script: [500, 3000],
 };
 
 function wordCount(text: string) {

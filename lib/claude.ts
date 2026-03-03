@@ -128,10 +128,23 @@ export async function analyzeVoice(samples: LabeledSample[]): Promise<VoiceAnaly
     .join("\n\n");
 
   const categories = Array.from(new Set(samples.map((s) => s.category)));
+  const categoryKeyList = categories
+    .map((c) => `"${c}" (${CONTENT_TYPE_LABELS[c] ?? c})`)
+    .join(", ");
   const categorySection =
     categories.length > 1
-      ? `\nNote: samples span multiple formats (${categories.join(", ")}). Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats.\n`
+      ? `\nNote: samples span multiple formats: ${categoryKeyList}. Include a "categoryInsights" field with per-format style notes where the author's voice shifts noticeably between formats. Use EXACTLY the category keys listed above — not synonyms, not abbreviations.\n`
       : "";
+
+  // Build example categoryInsights using the actual categories from the samples
+  const exampleCategoryInsights = categories.length > 1
+    ? `"categoryInsights": { ${categories.slice(0, 3).map(c => `"${c}": "how their voice shows up specifically in ${CONTENT_TYPE_LABELS[c] ?? c} writing"`).join(", ")} }`
+    : `"categoryInsights": {}`;
+
+  // Build example contentGuidelines using actual categories
+  const exampleContentGuidelines = categories.length > 0
+    ? `"contentGuidelines": { ${categories.slice(0, 2).map(c => `"${c}": ["6–8 specific, actionable guidelines bridging THIS author's voice with ${CONTENT_TYPE_LABELS[c] ?? c} conventions"]`).join(", ")} }`
+    : `"contentGuidelines": {}`;
 
   const systemPrompt = `You are a writing style analyst. Your job is to deeply analyze writing samples from a single author and extract a comprehensive voice profile that a ghostwriter could use to write indistinguishably as this person. Take your time. Read every sample multiple times. Notice patterns across samples, not just within them.
 
@@ -158,13 +171,12 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   "authenticQuirks": "unique tics - trademark phrases, overused words, unexpected metaphors, idiosyncratic formatting, distinctive word combos",
   "emotionalPatterns": "how they handle emotional intensity vs analytical passages - sudden shifts, understatement, humor as deflection, etc.",
   "transitionStyle": "how they connect ideas - abrupt shifts, callbacks, stream-of-consciousness, smooth transitions, or no transitions at all",
-  "categoryInsights": { "blog": "how their voice shows up specifically in long-form", "thread": "their thread/social style", "caption": "their caption style" },
-  "contentGuidelines": {
-    "[contentType]": ["6–8 specific, actionable guidelines bridging THIS author's voice with that format's conventions. Each must be specific to this author's actual patterns—not generic writing advice. A ghostwriter must be able to apply each one immediately."]
-  }
+  ${exampleCategoryInsights},
+  ${exampleContentGuidelines}
 }
 
 Rules:
+- CRITICAL: The keys in categoryInsights and contentGuidelines MUST use EXACTLY the category keys from the sample headers above (${categories.map(c => `"${c}"`).join(", ")}). Do not invent keys, abbreviate them, or use synonyms. "twitter_thread" not "thread". "social" not "tweet". "text_message" not "text". Use the exact strings.
 - Only include keys in categoryInsights that are represented in the samples. Omit the field entirely if only one format is present.
 - Only include keys in contentGuidelines for formats actually represented in the samples. Each value is an array of 6–8 strings. Guidelines must reflect this author's specific tendencies—not boilerplate format advice.
 - humanImperfections, authenticQuirks, emotionalPatterns, and transitionStyle are REQUIRED. Be detailed and specific — these fields are what prevent the ghostwriter from producing generic, over-polished AI prose.`;
