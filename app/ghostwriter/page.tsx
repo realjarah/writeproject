@@ -120,10 +120,6 @@ export default function GhostwriterPage() {
   const [markdownId,  setMarkdownId]  = useState<number | null>(null);
   const [copiedId,    setCopiedId]    = useState<number | null>(null);
 
-  const [feedbackMap,  setFeedbackMap]  = useState<Record<number, string>>({});
-  const [revisingId,   setRevisingId]   = useState<number | null>(null);
-  const [liveRevision, setLiveRevision] = useState<string>("");
-
   // Download dropdown
   const [downloadDropdownId, setDownloadDropdownId] = useState<number | null>(null);
   // Save as template
@@ -236,53 +232,6 @@ export default function GhostwriterPage() {
     }
   }
 
-  async function applyFeedback(job: Job) {
-    const feedback = feedbackMap[job.id]?.trim();
-    if (!feedback || revisingId !== null) return;
-
-    setRevisingId(job.id);
-    setLiveRevision("");
-
-    try {
-      const res = await fetch(`/api/ghostwriter/${job.id}/revise`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ feedback }),
-      });
-      if (!res.ok) { setRevisingId(null); return; }
-
-      const reader = res.body!.getReader();
-      const dec    = new TextDecoder();
-      let buf = "";
-      let accumulated = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const msg = JSON.parse(line.slice(6));
-            if (msg.type === "chunk") {
-              accumulated += msg.text;
-              setLiveRevision(accumulated);
-            } else if (msg.type === "done") {
-              setJobs((prev) => prev.map((j) => j.id === job.id ? { ...j, finalDraft: msg.finalDraft } : j));
-              setFeedbackMap((prev) => { const n = { ...prev }; delete n[job.id]; return n; });
-            }
-          } catch { /* malformed */ }
-        }
-      }
-    } finally {
-      setRevisingId(null);
-      setLiveRevision("");
-    }
-  }
-
   async function archiveJob(id: number) {
     await fetch(`/api/ghostwriter/${id}`, {
       method: "PATCH",
@@ -300,8 +249,7 @@ export default function GhostwriterPage() {
   }
 
   async function copyDraft(job: Job) {
-    const text = revisingId === job.id ? liveRevision : job.finalDraft;
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(job.finalDraft);
     setCopiedId(job.id);
     setTimeout(() => setCopiedId(null), 2000);
   }
@@ -323,7 +271,7 @@ export default function GhostwriterPage() {
         <div>
           <h1 className="text-2xl font-bold text-black/90 dark:text-white">Ghostwriter</h1>
           <p className="text-black/[0.40] dark:text-white/[0.40] text-sm mt-1">
-            Completed drafts surface to the top — review, refine with feedback, then save to your archive.
+            Completed drafts surface to the top — review, copy, download, or archive.
           </p>
         </div>
         <Link
@@ -353,7 +301,6 @@ export default function GhostwriterPage() {
               const isError      = job.status === "error";
               const isQueued     = job.status === "queued";
               const isProcessing = ALL_ACTIVE_STATUSES.has(job.status);
-              const isRevising   = revisingId === job.id;
               const isStreaming   = isActive && liveContent.length > 0;
               const pos          = queuePos[job.id];
 
@@ -363,8 +310,7 @@ export default function GhostwriterPage() {
 
               const isExpanded   = expandedId === job.id;
               const isMarkdown   = markdownId === job.id;
-              const feedback     = feedbackMap[job.id] ?? "";
-              const displayDraft = isRevising ? liveRevision : (isStreaming ? liveContent : job.finalDraft);
+              const displayDraft = isStreaming ? liveContent : job.finalDraft;
 
               return (
                 <div
@@ -401,12 +347,6 @@ export default function GhostwriterPage() {
                           <span className="flex items-center gap-1.5 text-[11px] text-black/[0.55] dark:text-white/[0.55]">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" />
                             {isActive ? (currentSteps[currentStepIdx]?.label ?? "Processing…") : job.stepLabel}
-                          </span>
-                        )}
-                        {isRevising && (
-                          <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse inline-block" />
-                            Applying edits…
                           </span>
                         )}
                       </div>
@@ -662,42 +602,11 @@ export default function GhostwriterPage() {
                           />
                         ) : (
                           <pre className="text-sm text-black/[0.75] dark:text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
-                            {displayDraft || (isRevising ? "Writing…" : isStreaming ? "Starting…" : "")}
+                            {displayDraft || (isStreaming ? "Starting…" : "")}
                           </pre>
                         )}
                       </div>
 
-                      {/* Feedback (only when done, not while streaming) */}
-                      {isDone && (
-                        <div className="border-t border-black/[0.06] dark:border-white/[0.05] px-5 py-4 space-y-3">
-                          <p className="text-[11px] text-black/[0.35] dark:text-white/[0.35] font-medium uppercase tracking-widest">Refine this draft</p>
-                          <textarea
-                            value={feedback}
-                            onChange={(e) => setFeedbackMap((prev) => ({ ...prev, [job.id]: e.target.value }))}
-                            placeholder='Describe what to change — e.g. "Make the intro punchier" or "Remove the third bullet and add a closing question"'
-                            rows={3}
-                            disabled={isRevising}
-                            className="w-full bg-black/[0.04] dark:bg-[#111] border border-black/[0.10] dark:border-[#2a2a2a] focus:border-black/[0.22] dark:focus:border-white/[0.22] rounded-lg px-3 py-2.5 text-sm text-black/90 dark:text-white placeholder-black/[0.23] dark:placeholder-white/[0.23] resize-none focus:outline-none transition-colors disabled:opacity-50"
-                          />
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => applyFeedback(job)}
-                              disabled={!feedback.trim() || isRevising}
-                              className="bg-white text-black text-xs font-medium px-4 py-2 rounded-lg hover:bg-black/[0.08] dark:hover:bg-white/90 transition-colors disabled:opacity-40"
-                            >
-                              {isRevising ? "Applying…" : "Apply edits"}
-                            </button>
-                            {feedback.trim() && !isRevising && (
-                              <button
-                                onClick={() => setFeedbackMap((prev) => { const n = { ...prev }; delete n[job.id]; return n; })}
-                                className="text-black/[0.35] dark:text-white/[0.35] text-xs hover:text-black/55 dark:hover:text-white/55 transition-colors"
-                              >
-                                Clear
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
                     </div>
                     );
                   })()}
