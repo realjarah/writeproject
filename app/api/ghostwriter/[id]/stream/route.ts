@@ -2,14 +2,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 800; // Vercel Pro plan max — deep-tier pipelines (research papers, whitepapers) can run 9+ AI stages
 
 import { NextRequest } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/session";
 import {
   planContent,
   draftContent,
-  humanizeContent,
   compareAndSelectBestDraft,
   proposeDraftVariation,
   conductResearch,
@@ -26,8 +23,6 @@ import {
 } from "@/lib/claude";
 import { resolveContext } from "@/lib/resolve-context";
 import { CONTENT_TYPE_LABELS } from "@/lib/content-types";
-
-const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
 
 // Approximate word count range per content type (min, max).
 const WORD_RANGES: Record<string, [number, number]> = {
@@ -67,15 +62,13 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
       return [
         { key: "planning", label: `Planning your ${typeLabel}` },
         { key: "drafting", label: `Writing your ${typeLabel}` },
-        { key: "reviewing", label: "Re-reading as you" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "reviewing", label: "Final review as you" },
       ];
     case "standard":
       return [
         { key: "planning", label: `Planning your ${typeLabel}` },
         { key: "drafting", label: `Writing your ${typeLabel}` },
-        { key: "reviewing", label: "Re-reading as you" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "reviewing", label: "Final review as you" },
       ];
     case "deep":
       return [
@@ -86,8 +79,7 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "drafting_2", label: "Writing second draft" },
         { key: "comparing", label: "Comparing drafts against your voice" },
         { key: "checking", label: "Checking word count & structure" },
-        { key: "reviewing", label: "Re-reading as you" },
-        { key: "humanizing", label: `Polishing your ${typeLabel}` },
+        { key: "reviewing", label: "Final review as you" },
       ];
   }
 }
@@ -109,10 +101,6 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 500, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
-    "reviewing->humanizing": {
-      baseMs: 500, jitterMs: 500,
-      messages: ["Preparing final polish…"],
-    },
   },
   standard: {
     "planning->drafting": {
@@ -127,10 +115,6 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 800, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
-    "reviewing->humanizing": {
-      baseMs: 800, jitterMs: 500,
-      messages: ["Preparing final polish…"],
-    },
   },
   deep: {
     "research->drafting_1": {
@@ -144,10 +128,6 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
     "checking->reviewing": {
       baseMs: 800, jitterMs: 500,
       messages: ["Reviewing draft…"],
-    },
-    "reviewing->humanizing": {
-      baseMs: 800, jitterMs: 500,
-      messages: ["Preparing final polish…"],
     },
   },
 };
@@ -505,62 +485,26 @@ export async function GET(
           if (isAborted()) { controller.close(); return; }
         }
 
-        // ── Self-review (runs BEFORE humanizer — every type) ────────────
-        // Self-review checks voice fidelity, brief adherence, and fabrication.
-        // It runs on the raw draft so it can catch content issues before the
-        // humanizer does its final AI-pattern cleanup pass.
+        // ── Self-review (FINAL STAGE — voice fidelity, AI cleanup, fabrication) ──
         const reviewTransition = tier === "deep" ? "checking->reviewing" : "drafting->reviewing";
         await paceTransition(tier, reviewTransition, "reviewing", send, isAborted);
         if (isAborted()) { controller.close(); return; }
 
-        await setStep("reviewing", "Re-reading as you…");
-        let reviewedDraft = selected;
+        await setStep("reviewing", "Final review as you…");
+        let finalContent = selected;
         try {
           const reviewed = await selfReviewDraft(
             selected, voiceProfile, interview, editingPrefs,
             enrichedContext, favoriteWords, authorContext
           );
           if (reviewed && reviewed.trim()) {
-            reviewedDraft = reviewed;
+            finalContent = reviewed;
           }
         } catch { /* self-review failed — keep draft as-is */ }
         if (isAborted()) { controller.close(); return; }
 
-        // ── Humanize (ALWAYS last — streams final output to client) ─────
-        // The humanizer is the final gate. Nothing runs after it.
-        // Whatever AI patterns the drafter or self-review introduced, the
-        // humanizer kills them here.
-        await paceTransition(tier, "reviewing->humanizing", "humanizing", send, isAborted);
-        if (isAborted()) { controller.close(); return; }
-
-        await setStep("humanizing", `Polishing your ${typeLabel}…`);
-        const humanizedStream = await humanizeContent(
-          reviewedDraft, voiceProfile, HUMANIZER, interview.contentType,
-          favoriteWords, authorContext,
-          () => {
-            send({ type: "step", step: "humanizing", label: `Humanizing your ${typeLabel}…` });
-          }
-        );
-
-        let finalContent = "";
-        const reader = humanizedStream.getReader();
-        const dec = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = dec.decode(value, { stream: true });
-          finalContent += chunk;
-          send({ type: "chunk", text: chunk });
-        }
-        if (isAborted()) { controller.close(); return; }
-
-        // Guard: humanizer stream produced no text (e.g. model spent all
-        // tokens on thinking). Fall back to the pre-humanizer draft rather
-        // than saving empty content as the final output.
-        if (!finalContent.trim()) {
-          console.error("[stream] Humanizer produced empty output — falling back to reviewed draft");
-          finalContent = reviewedDraft;
-        }
+        // Send the final content to the client
+        send({ type: "chunk", text: finalContent });
 
         // ── Done ─────────────────────────────────────────────────────────
         const dbContent = signatureContent

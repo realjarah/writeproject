@@ -37,14 +37,14 @@ interface PipelineStep {
 const DEFAULT_STEPS: PipelineStep[] = [
   { key: "planning",    label: "Planning…" },
   { key: "drafting",    label: "Writing…" },
-  { key: "humanizing",  label: "Polishing…" },
+  { key: "reviewing",   label: "Final review…" },
 ];
 
 // Superset of all possible active step keys across all pipeline tiers
 const ALL_ACTIVE_STATUSES = new Set([
   "planning", "researching",
   "drafting", "drafting_1", "proposing", "drafting_2",
-  "comparing", "checking", "humanizing", "reviewing",
+  "comparing", "checking", "reviewing",
 ]);
 
 function getStepIndex(steps: PipelineStep[], status: string) {
@@ -134,7 +134,7 @@ export default function GhostwriterPage() {
 
   // Per-job pipeline steps (sent by the server at pipeline start)
   const [jobSteps, setJobSteps] = useState<Record<number, PipelineStep[]>>({});
-  // Accumulated streaming content during humanization
+  // Accumulated streaming content during final output
   const [liveContent, setLiveContent] = useState<string>("");
 
   const abortRef = useRef<AbortController | null>(null);
@@ -201,12 +201,12 @@ export default function GhostwriterPage() {
             } else if (msg.type === "step") {
               setLiveStep(msg.step);
               setJobs((prev) => prev.map((j) => j.id === id ? { ...j, status: msg.step, stepLabel: msg.label } : j));
-              // Reset live content when moving past humanizing (e.g. to reviewing)
+              // Reset live content when entering the reviewing step
               if (msg.step === "reviewing") {
                 setLiveContent("");
               }
             } else if (msg.type === "chunk") {
-              // Stream humanized content live
+              // Stream final content live
               setLiveContent((prev) => prev + msg.text);
               setExpandedId(id);
             } else if (msg.type === "done") {

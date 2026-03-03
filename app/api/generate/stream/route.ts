@@ -2,14 +2,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 800; // Vercel Pro plan max — multi-stage pipeline can be lengthy for long-form content
 
 import { NextRequest } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/session";
 import {
   planContent,
   draftContent,
-  humanizeContent,
   uploadContextFiles,
   deleteUploadedFiles,
   InterviewAnswers,
@@ -17,9 +14,6 @@ import {
   GenerationContext,
 } from "@/lib/claude";
 import { resolveContext } from "@/lib/resolve-context";
-
-// Load humanizer instructions once at module load (server-side only)
-const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
 
 export async function POST(req: NextRequest) {
   const userId = await getUserId();
@@ -71,33 +65,23 @@ export async function POST(req: NextRequest) {
 
       try {
         // ── Stage 1: Plan ────────────────────────────────────────────────
-        send({ type: "stage", step: 1, total: 3, label: "Planning structure..." });
+        send({ type: "stage", step: 1, total: 2, label: "Planning structure..." });
         const plan = await planContent(voiceProfile, interview, resolvedContext);
 
         // ── Stage 2: Draft ───────────────────────────────────────────────
-        send({ type: "stage", step: 2, total: 3, label: "Writing first draft..." });
+        send({ type: "stage", step: 2, total: 2, label: "Writing draft..." });
         const draft = await draftContent(voiceProfile, interview, plan, resolvedContext);
 
-        // ── Stage 3: Humanize (streams to client) ────────────────────────
-        send({ type: "stage", step: 3, total: 3, label: "Humanizing..." });
-        const humanizedStream = await humanizeContent(draft, voiceProfile, HUMANIZER, interview.contentType);
+        let finalContent = draft;
 
-        let finalContent = "";
-        const reader = humanizedStream.getReader();
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const text = decoder.decode(value, { stream: true });
-          finalContent += text;
-          send({ type: "chunk", text });
-        }
-
-        // Guard: humanizer stream produced no text — fall back to raw draft
+        // Guard: draft produced no text
         if (!finalContent.trim()) {
-          console.error("[generate/stream] Humanizer produced empty output — falling back to raw draft");
-          finalContent = draft;
+          console.error("[generate/stream] Draft produced empty output");
+          throw new Error("Drafting stage produced no output. Please try again.");
         }
+
+        // Send the final content to the client
+        send({ type: "chunk", text: finalContent });
 
         // Save to DB (fire and forget — includes signature if provided)
         const dbContent = signatureContent

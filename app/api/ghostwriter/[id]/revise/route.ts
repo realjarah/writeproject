@@ -1,17 +1,13 @@
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-import { readFileSync } from "fs";
-import { join } from "path";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { reviseDraft, humanizeContent } from "@/lib/claude";
+import { reviseDraft } from "@/lib/claude";
 import type { VoiceAnalysis } from "@/lib/claude";
 import { getUserId } from "@/lib/session";
 
-const HUMANIZER = readFileSync(join(process.cwd(), "lib/humanizer.md"), "utf-8");
-
-// POST — revise a finished draft, then humanize before returning
+// POST — revise a finished draft based on user feedback
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -25,10 +21,9 @@ export async function POST(
   const { feedback } = await req.json();
   if (!feedback?.trim()) return new Response("feedback is required", { status: 400 });
 
-  const [job, profileRow, favoriteWords] = await Promise.all([
+  const [job, profileRow] = await Promise.all([
     prisma.ghostwriterJob.findFirst({ where: { id: jobId, userId } }),
     prisma.voiceProfile.findUnique({ where: { userId } }),
-    prisma.favoriteWord.findMany({ where: { userId }, select: { word: true, definition: true } }),
   ]);
 
   if (!job) return new Response("Job not found", { status: 404 });
@@ -44,7 +39,7 @@ export async function POST(
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 
       try {
-        // Step 1: Apply feedback surgically (Gemini Flash — fast)
+        // Apply feedback surgically (Gemini Flash — fast)
         send({ type: "step", step: "revising", label: "Applying your feedback…" });
         const revised = await reviseDraft(
           job.finalDraft,
@@ -53,33 +48,12 @@ export async function POST(
           job.contentType
         );
 
-        // Step 2: Run humanizer on revised output (Opus — catches any AI
-        // patterns the revision introduced)
-        send({ type: "step", step: "humanizing", label: "Humanizing revised draft…" });
-        const humanizedStream = await humanizeContent(
-          revised, voiceProfile, HUMANIZER, job.contentType,
-          favoriteWords.length > 0 ? favoriteWords : undefined,
-        );
+        const finalContent = revised || job.finalDraft;
 
-        const reader = humanizedStream.getReader();
-        const dec = new TextDecoder();
-        let finalContent = "";
+        // Send the revised content
+        send({ type: "chunk", text: finalContent });
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = dec.decode(value, { stream: true });
-          finalContent += chunk;
-          send({ type: "chunk", text: chunk });
-        }
-
-        // Guard: humanizer stream produced no text — fall back to revised draft
-        if (!finalContent.trim()) {
-          console.error("[revise] Humanizer produced empty output — falling back to revised draft");
-          finalContent = revised;
-        }
-
-        // Persist humanized revised draft
+        // Persist revised draft
         await prisma.ghostwriterJob.update({
           where: { id: jobId },
           data: { finalDraft: finalContent },

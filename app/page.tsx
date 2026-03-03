@@ -90,14 +90,14 @@ const STATUS_DOT: Record<string, string> = {
   drafting_3: "bg-blue-400 animate-pulse",
   comparing:  "bg-purple-400 animate-pulse",
   checking:   "bg-yellow-400 animate-pulse",
-  humanizing: "bg-orange-400 animate-pulse",
+  reviewing: "bg-orange-400 animate-pulse",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   done: "Done", error: "Error", queued: "Queued",
   planning: "Planning…", drafting_1: "Drafting…", drafting_2: "Drafting…",
   drafting_3: "Drafting…", comparing: "Comparing…", checking: "Checking…",
-  humanizing: "Polishing…",
+  reviewing: "Reviewing…",
 };
 
 export default async function HomePage() {

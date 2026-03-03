@@ -28,7 +28,7 @@ import { CONTENT_TYPE_LABELS } from "./content-types";
 // 3-agent architecture:
 //   Agent 1 (Grok): Voice analyzer — extracts rich voice profile from samples
 //   Agent 2 (Opus): Writer — plans + drafts using voice profile only (no raw samples)
-//   Agent 3 (Opus): Editor — self-review + humanizer using voice profile only
+//   Agent 3 (Opus): Editor — self-review using voice profile only
 let _anthropic: Anthropic;
 function getAnthropic() {
   if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -625,57 +625,57 @@ interface StageBudgets {
   draft: StageBudget;
   /** Lower budget for follow-up drafts (draft 2 in deep tier) — plan + direction already provided */
   draftFollowup: StageBudget;
-  humanize: StageBudget;
+  review: StageBudget;
 }
 
 const STAGE_BUDGETS: Record<string, StageBudgets> = {
   // ── Very long-form (128k draft) ───────────────────────────────────────────
-  research:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
-  whitepaper:    { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
-  business_plan: { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
-  handbook:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, humanize: { maxTokens: 128000, thinkingBudget: 64000 } },
-  technical:     { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, humanize: { maxTokens: 100000, thinkingBudget: 48000 } },
-  course:        { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, humanize: { maxTokens: 100000, thinkingBudget: 48000 } },
+  research:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, review: { maxTokens: 128000, thinkingBudget: 64000 } },
+  whitepaper:    { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, review: { maxTokens: 128000, thinkingBudget: 64000 } },
+  business_plan: { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, review: { maxTokens: 128000, thinkingBudget: 64000 } },
+  handbook:      { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 64000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 32000 }, review: { maxTokens: 128000, thinkingBudget: 64000 } },
+  technical:     { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, review: { maxTokens: 100000, thinkingBudget: 48000 } },
+  course:        { plan: { maxTokens: 32000, thinkingBudget: 16000 }, draft: { maxTokens: 128000, thinkingBudget: 48000 }, draftFollowup: { maxTokens: 128000, thinkingBudget: 24000 }, review: { maxTokens: 100000, thinkingBudget: 48000 } },
   // ── Standard long-form (64k–80k draft) ────────────────────────────────────
-  case_study:    { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
-  report:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
-  rfp:           { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
-  scope_of_work: { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
-  guide:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
-  essay:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 64000,  thinkingBudget: 32000 } },
-  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, humanize: { maxTokens: 48000,  thinkingBudget: 32000 } },
-  speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 24000 } },
-  script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, humanize: { maxTokens: 48000,  thinkingBudget: 24000 } },
+  case_study:    { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, review: { maxTokens: 64000,  thinkingBudget: 32000 } },
+  report:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 80000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 80000,  thinkingBudget: 16000 }, review: { maxTokens: 64000,  thinkingBudget: 32000 } },
+  rfp:           { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, review: { maxTokens: 48000,  thinkingBudget: 32000 } },
+  scope_of_work: { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, review: { maxTokens: 48000,  thinkingBudget: 32000 } },
+  guide:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, review: { maxTokens: 48000,  thinkingBudget: 32000 } },
+  essay:         { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, review: { maxTokens: 64000,  thinkingBudget: 32000 } },
+  proposal:      { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 64000,  thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000,  thinkingBudget: 16000 }, review: { maxTokens: 48000,  thinkingBudget: 32000 } },
+  speech:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, review: { maxTokens: 48000,  thinkingBudget: 24000 } },
+  script:        { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 48000,  thinkingBudget: 24000 }, draftFollowup: { maxTokens: 48000,  thinkingBudget: 12000 }, review: { maxTokens: 48000,  thinkingBudget: 24000 } },
   // ── Medium (16k–32k draft) ────────────────────────────────────────────────
-  blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, draftFollowup: { maxTokens: 32000,  thinkingBudget: 10000 }, humanize: { maxTokens: 32000,  thinkingBudget: 24000 } },
-  newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, draftFollowup: { maxTokens: 24000,  thinkingBudget: 8000  }, humanize: { maxTokens: 24000,  thinkingBudget: 16000 } },
-  press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 12000 } },
-  lesson_plan:   { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 12000 } },
-  resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, humanize: { maxTokens: 16000,  thinkingBudget: 10000 } },
-  cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 10000 } },
+  blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, draftFollowup: { maxTokens: 32000,  thinkingBudget: 10000 }, review: { maxTokens: 32000,  thinkingBudget: 24000 } },
+  newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, draftFollowup: { maxTokens: 24000,  thinkingBudget: 8000  }, review: { maxTokens: 24000,  thinkingBudget: 16000 } },
+  press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, review: { maxTokens: 16000,  thinkingBudget: 12000 } },
+  lesson_plan:   { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, review: { maxTokens: 16000,  thinkingBudget: 12000 } },
+  resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, review: { maxTokens: 16000,  thinkingBudget: 10000 } },
+  cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, review: { maxTokens: 12000,  thinkingBudget: 10000 } },
   // ── Short (4k–8k draft) ───────────────────────────────────────────────────
-  letter:          { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
-  review:          { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
-  email:           { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, humanize: { maxTokens: 8000,   thinkingBudget: 8000  } },
-  bio:             { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
-  product_description: { plan: { maxTokens: 6000, thinkingBudget: 4000 }, draft: { maxTokens: 4000, thinkingBudget: 3000 }, draftFollowup: { maxTokens: 4000, thinkingBudget: 2000 }, humanize: { maxTokens: 4000, thinkingBudget: 8000 } },
-  list:            { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
-  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, humanize: { maxTokens: 4000,   thinkingBudget: 8000  } },
-  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, humanize: { maxTokens: 12000,  thinkingBudget: 16000 } },
+  letter:          { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, review: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  review:          { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, review: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  email:           { plan: { maxTokens: 8000,  thinkingBudget: 4000  }, draft: { maxTokens: 8000,   thinkingBudget: 4000  }, draftFollowup: { maxTokens: 8000,   thinkingBudget: 3000  }, review: { maxTokens: 8000,   thinkingBudget: 8000  } },
+  bio:             { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, review: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  product_description: { plan: { maxTokens: 6000, thinkingBudget: 4000 }, draft: { maxTokens: 4000, thinkingBudget: 3000 }, draftFollowup: { maxTokens: 4000, thinkingBudget: 2000 }, review: { maxTokens: 4000, thinkingBudget: 8000 } },
+  list:            { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, review: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  social:          { plan: { maxTokens: 6000,  thinkingBudget: 4000  }, draft: { maxTokens: 4000,   thinkingBudget: 3000  }, draftFollowup: { maxTokens: 4000,   thinkingBudget: 2000  }, review: { maxTokens: 4000,   thinkingBudget: 8000  } },
+  twitter_thread:  { plan: { maxTokens: 8000,  thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, review: { maxTokens: 12000,  thinkingBudget: 16000 } },
   // ── Very short (3k draft) ─────────────────────────────────────────────────
-  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
-  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
-  thank_you_note:  { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
-  ad_copy:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
-  ai_prompt:       { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
-  notes:           { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, humanize: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  caption:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, review: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  text_message:    { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, review: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  thank_you_note:  { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, review: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  ad_copy:         { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, review: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  ai_prompt:       { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, review: { maxTokens: 3000,   thinkingBudget: 6000  } },
+  notes:           { plan: { maxTokens: 4000,  thinkingBudget: 3000  }, draft: { maxTokens: 3000,   thinkingBudget: 2000  }, draftFollowup: { maxTokens: 3000,   thinkingBudget: 1500  }, review: { maxTokens: 3000,   thinkingBudget: 6000  } },
 };
 
 const DEFAULT_BUDGETS: StageBudgets = {
   plan:          { maxTokens: 16000, thinkingBudget: 10000 },
   draft:         { maxTokens: 48000, thinkingBudget: 24000 },
   draftFollowup: { maxTokens: 48000, thinkingBudget: 12000 },
-  humanize:      { maxTokens: 48000, thinkingBudget: 32000 },
+  review:      { maxTokens: 48000, thinkingBudget: 32000 },
 };
 
 export function getStageBudgets(contentType: string): StageBudgets {
@@ -1087,7 +1087,7 @@ Write the piece. Match the author's voice exactly. Every sentence must sound lik
  * Analyzes each draft against the voice profile and brief, then outputs the
  * best single piece (selected or synthesized from the strongest elements).
  * Uses Opus with extended thinking — this is a voice-fidelity judgment that
- * directly determines what gets humanized. Gemini Flash was too shallow here;
+ * directly determines final output quality. Gemini Flash was too shallow here;
  * it couldn't reliably distinguish voice authenticity between two drafts.
  */
 export async function compareAndSelectBestDraft(
@@ -1129,7 +1129,7 @@ Produce the final version. If it contains any AI patterns, remove them before ou
 Output ONLY the final piece. Nothing else.`;
 
   // Opus with extended thinking: this is a voice-fidelity judgment that
-  // determines what goes into the humanizer. Worth the quality investment.
+  // determines final output quality. Worth the quality investment.
   const thinkingBudget = Math.min(Math.ceil(draftBudget.thinkingBudget / 2), 32000, draftBudget.maxTokens - 1);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
@@ -1210,161 +1210,6 @@ Return ONLY valid JSON (no markdown, no prose, no code fences):
   }
 }
 
-/**
- * Stage 3 — Humanize
- * Single-pass humanizer with boosted thinking budget and structured verification.
- * Replaces the previous 3-pass approach which burned ~70% of pipeline time
- * and could undo its own fixes across passes.
- * Streams the output.
- */
-export async function humanizeContent(
-  draft: string,
-  voiceProfile: VoiceAnalysis,
-  humanizerInstructions: string,
-  contentType: string = "blog",
-  favoriteWords?: { word: string; definition: string }[],
-  authorContext?: string,
-  onPassStart?: (pass: number, total: number) => void
-): Promise<ReadableStream<Uint8Array>> {
-  if (!draft.trim()) {
-    throw new Error("Humanizer received an empty draft. The drafting stage may have failed silently.");
-  }
-
-  const typeLabel = CONTENT_TYPE_LABELS[contentType] ?? contentType;
-
-  // Voice context so the humanizer replaces AI patterns with the author's
-  // actual voice instead of generic prose
-  const guidelines = voiceProfile.contentGuidelines?.[contentType];
-  const guidelinesBlock = guidelines?.length
-    ? `\n## Format-Specific Guidelines (${typeLabel})\n${guidelines.map((g) => `- ${g}`).join("\n")}\n`
-    : "";
-  const categoryInsight = voiceProfile.categoryInsights?.[contentType];
-  const categoryInsightBlock = categoryInsight
-    ? `\n## How This Author Writes ${typeLabel}\n${categoryInsight}\n`
-    : "";
-  const subVoiceBlock = buildSubVoiceBlock(voiceProfile, contentType);
-  const enrichedVoiceBlock = buildEnrichedVoiceBlock(voiceProfile);
-  const favoriteWordsBlock = favoriteWords?.length
-    ? `\n## Author's Favorite Words (use naturally when they fit — never force)\n${favoriteWords.map((fw) => `- **${fw.word}**${fw.definition ? `: ${fw.definition}` : ""}`).join("\n")}\n`
-    : "";
-  const authorContextBlock = authorContext?.trim()
-    ? `\n## Author Background\n${authorContext.trim()}\n`
-    : "";
-
-  // System prompt: humanizer.md instructions + author voice profile + structured checklist
-  const systemPrompt = [
-    {
-      type: "text",
-      text: humanizerInstructions,
-      cache_control: { type: "ephemeral" },
-    },
-    {
-      type: "text",
-      text: `---
-
-This text is going to be published under a real person's name. If it reads like AI wrote it, their reputation is damaged. Treat this accordingly.
-
-Apply every single pattern from the humanizer guide above. Miss nothing. Every "furthermore", every rule-of-three, every hollow hedge, every generic conclusion, every synonym cycle, every copula avoidance ("serves as", "stands as"), every filler phrase — find it and kill it.
-
-EM DASH RULE (absolute): Replace virtually ALL em dashes (—) with commas, periods, colons, semicolons, or parentheses. At most ONE em dash may survive in the entire piece, and only if the author's punctuation habits explicitly favor them. When in doubt, remove the em dash. Do NOT introduce any new em dashes in your rewrites — this is the single most common AI tell and the one readers notice first.
-
-Do not replace AI patterns with bland, voiceless prose. That is equally unacceptable. Replace them with THIS AUTHOR'S voice. Read the profile and excerpts below. That is how the output must read — like this specific person sat down and wrote it.
-
-PRESERVE AUTHENTIC IMPERFECTION: Do NOT "fix" grammar, sentence fragments, casual constructions, or unconventional punctuation that matches this author's actual style. If the author writes with sentence fragments, run-ons, starts sentences with conjunctions, or uses loose grammar for rhythm, those are FEATURES of their voice, not bugs to correct. Overly polished, grammatically perfect prose is itself an AI tell. Your job is to remove AI patterns while keeping (or restoring) the author's natural level of polish, however imperfect that is. When in doubt, lean toward the rawer, more human version.
-
-While humanizing, also watch for fabricated specifics — numbers, statistics, percentages, study citations, or data points that look suspiciously precise and were not provided as context. If you spot what appears to be an invented figure, replace it with honest placeholder language (e.g., "your recent results," "the data you mentioned," "[specific number]"). Do not let fabricated data survive into the final output.
-
-Output the final text only. No commentary. No process notes. No preamble.
-
-## Author Voice Profile (PRIMARY — this is the voice you are restoring)
-## Author Voice Profile
-**Tone:** ${voiceProfile.tone}
-**Sentence Structure:** ${voiceProfile.sentenceStructure}
-**Vocabulary Style:** ${voiceProfile.vocabularyStyle}
-**Punctuation Habits:** ${voiceProfile.punctuationHabits}
-**Paragraph Style:** ${voiceProfile.paragraphStyle}
-**Rhetorical Devices:** ${voiceProfile.rhetoricalDevices}
-**Recurring Patterns:**
-${voiceProfile.commonPatterns.map((p) => `- ${p}`).join("\n")}
-**Things to Avoid (if ANY of these appear in the output, you have failed):**
-${voiceProfile.thingsToAvoid.map((p) => `- ${p}`).join("\n")}
-${enrichedVoiceBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}
-
-## MANDATORY VERIFICATION CHECKLIST
-
-You MUST work through this checklist in your thinking before producing output.
-For each item, scan the ENTIRE draft, count occurrences, and fix every one.
-Do NOT skip items. Do NOT leave any for "later." There is no later.
-
-**PASS 1 — Find and destroy AI patterns:**
-[ ] Count em dashes (—). Replace ALL with commas, periods, colons, semicolons, or parentheses. Maximum 1 surviving em dash in the entire piece, and only if the author's punctuation habits explicitly favor them.
-[ ] Find every instance of: "furthermore", "moreover", "additionally", "in addition" used as paragraph/sentence openers. Remove or rewrite each one.
-[ ] Find every instance of: "delve", "underscore", "leverage" (metaphor), "utilize", "facilitate", "navigate" (metaphor), "foster", "garner", "showcase", "pivotal", "crucial", "landscape" (abstract), "tapestry" (abstract), "testament", "vibrant", "enhance". Replace each with plain language or the author's actual vocabulary.
-[ ] Find copula avoidance: "serves as", "stands as", "marks a", "represents a", "boasts", "features a". Replace with "is", "are", "has".
-[ ] Find hollow hedges: "It's worth noting", "It's important to note", "One might argue", "It's crucial to understand", "Needless to say". Delete or rewrite.
-[ ] Find filler phrases: "In order to", "Due to the fact that", "At this point in time", "has the ability to", "In the event that". Simplify each.
-[ ] Find rule-of-three groupings (X, Y, and Z patterns that feel forced). Break up any that aren't natural to the author.
-[ ] Find synonym cycling (same concept called by 4 different names across sentences). Pick one term and stick with it.
-[ ] Find generic conclusions: "the future looks bright", "exciting times ahead", "represents a major step", "continues to evolve". Replace with specifics or cut.
-[ ] Find negative parallelisms: "Not only X but Y", "It's not just X; it's Y". Simplify.
-[ ] Find -ing phrase padding: "highlighting...", "underscoring...", "reflecting...", "showcasing...", "contributing to...". Cut or rewrite as direct statements.
-[ ] Find collaborative artifacts: "Here's...", "I hope this helps", "Let me know", "Great question!". Delete.
-
-**PASS 2 — Verify formatting:**
-[ ] Remove emojis entirely.
-[ ] Convert title-case headings to sentence case.
-[ ] Replace curly quotes with straight quotes.
-[ ] Check for excessive boldface. Remove mechanical bolding.
-[ ] Convert inline-header vertical lists (bolded label + colon) to flowing prose where appropriate.
-
-**PASS 3 — Voice and fabrication audit:**
-[ ] Read the piece aloud mentally. Does every sentence sound like THIS author? Not "good writing." THIS author.
-[ ] Check for fabricated specifics: numbers, statistics, percentages, study citations, dates, or data points that look suspiciously precise and weren't in the provided context. Replace with honest placeholder language.
-[ ] Confirm sentence length variation matches the author's patterns.
-[ ] Confirm paragraph length matches the author's style.
-[ ] Check that the opening sounds like how this author starts pieces, not a generic hook.
-[ ] Check that the closing sounds like how this author ends pieces, not a generic wrap-up.
-
-**AFTER completing the checklist:** Output the final text only. No commentary. No process notes. No preamble. No checklist results.`,
-    },
-  ];
-
-  const { humanize: humanizeBudget } = getStageBudgets(contentType);
-  // Single pass gets 2x the original per-pass thinking budget.
-  // One deep pass with ample thinking outperforms 3 rushed passes that
-  // can undo each other's fixes.
-  const thinkingBudget = Math.min(humanizeBudget.thinkingBudget * 2, 128000, humanizeBudget.maxTokens - 1);
-
-  onPassStart?.(1, 1);
-
-  // Single streamed pass with structured checklist verification
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stream: any = await withRetry(() => (getAnthropic().messages.stream as any)({
-    model: "claude-opus-4-6",
-    max_tokens: humanizeBudget.maxTokens,
-    thinking: { type: "enabled", budget_tokens: thinkingBudget },
-    system: systemPrompt,
-    messages: [{
-      role: "user",
-      content: `Humanize this ${typeLabel}. Work through the MANDATORY VERIFICATION CHECKLIST in your thinking. For each checklist item, scan the entire text, find every instance, and fix it. Do not skip any item. Replace all AI patterns with this author's voice from the profile above. Output the cleaned text only.\n\n${draft}`,
-    }],
-  }), "humanizeContent");
-
-  return new ReadableStream({
-    async start(controller) {
-      for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
-        }
-      }
-      controller.close();
-    },
-  });
-}
-
 // ── Self-review ───────────────────────────────────────────────────────────────
 
 /**
@@ -1411,10 +1256,10 @@ export async function selfReviewDraft(
   const binaryBlocks = context ? buildBinaryBlocks(context) : [];
   const betaHeaders = getBetaHeaders(binaryBlocks);
 
-  const systemPrompt = `You are this author's editorial eye before the final humanization pass. Your job is to check voice fidelity, brief adherence, and fabrication — NOT to rewrite prose. Surgical fixes only.
+  const systemPrompt = `You are this author's editorial eye — the final pass before publication. Your job is to check voice fidelity, brief adherence, AI contamination, and fabrication. Surgical fixes only.
 
 CRITICAL — DO NOT INTRODUCE AI PATTERNS:
-The humanizer runs AFTER you. Any AI patterns in YOUR edits will survive into the final output. The following in your edits is a failure:
+This is the last stage before the piece is published. Any AI patterns in YOUR edits will be in the final output. The following in your edits is a failure:
 - Em dashes (—) — use commas, periods, colons, or semicolons instead. ZERO new em dashes.
 - "Furthermore," / "Moreover," / "Additionally," / "In addition," as paragraph openers
 - Hollow hedges: "It's worth noting," "One might argue," "It's important to note"
@@ -1432,11 +1277,11 @@ If you need to rewrite a sentence, use the author's voice from the profile below
 ${enrichedVoiceBlock}${categoryInsightBlock}${subVoiceBlock}${guidelinesBlock}${favoriteWordsBlock}${authorContextBlock}${editingBlock}
 Your review must check:
 1. Voice fidelity — does every sentence sound like this specific author? Not "good writing." This author.
-2. AI contamination — if any AI patterns survived the humanizer, destroy them. But do NOT introduce new ones in your fixes.
+2. AI contamination — find and destroy: em dash overuse, "furthermore"/"moreover"/"additionally" openers, copula avoidance ("serves as", "stands as"), hollow hedges, filler verbs ("delve", "underscore", "leverage", "utilize", "foster"), rule-of-three groupings, synonym cycling, generic conclusions, -ing phrase padding. Replace with this author's actual voice, not bland prose.
 3. Brief adherence — did it cover the topic, angle, and key points? Is anything missing or weak?
 4. Context usage — if supporting context was provided, did the draft use it? Are specifics woven in naturally?
 5. Fabrication check — look for specific numbers, statistics, percentages, study citations, named sources, dates, or data points. Cross-reference them against the supporting context. If a claim appears in the draft but NOT in the context, it was invented. Replace it with placeholder language the author can fill in (e.g., "your recent results," "[specific figure]"). This applies to every content type.
-6. Fix everything you find. Surgical fixes only — do not rewrite from scratch. Preserve the humanized phrasing wherever possible.
+6. Fix everything you find. Surgical fixes only — do not rewrite from scratch. Preserve the draft's phrasing wherever possible.
 
 Output ONLY the improved draft. Nothing else.`;
 
@@ -1450,7 +1295,7 @@ Draft to review:
 
 ${draft}`;
 
-  const { humanize: budget } = getStageBudgets(interview.contentType);
+  const { review: budget } = getStageBudgets(interview.contentType);
 
   const messageContent =
     binaryBlocks.length > 0
@@ -1461,13 +1306,13 @@ ${draft}`;
     ? { headers: betaHeaders }
     : {};
 
-  // Opus: self-review is the last defense for voice fidelity + fabrication checking
+  // Opus: self-review is the final pass — voice fidelity, AI pattern cleanup, and fabrication checking
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => (getAnthropic().messages.create as any)(
     {
       model: "claude-opus-4-6",
       max_tokens: budget.maxTokens,
-      thinking: { type: "enabled", budget_tokens: Math.min(Math.ceil(budget.thinkingBudget / 2), budget.maxTokens - 1) },
+      thinking: { type: "enabled", budget_tokens: Math.min(budget.thinkingBudget, budget.maxTokens - 1) },
       system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: messageContent }],
     },
@@ -1549,8 +1394,7 @@ Does this plan need web research before drafting?`,
 /**
  * Apply specific feedback to a finished draft.
  * Only makes the changes described — does not rewrite anything else.
- * Returns the revised text (non-streaming) so callers can pipe it
- * through the humanizer before presenting to the user.
+ * Returns the revised text (non-streaming).
  */
 export async function reviseDraft(
   draft: string,
@@ -1558,7 +1402,7 @@ export async function reviseDraft(
   voiceProfile: VoiceAnalysis,
   contentType: string = "blog"
 ): Promise<string> {
-  const { humanize: budget } = getStageBudgets(contentType);
+  const { review: budget } = getStageBudgets(contentType);
 
   const systemPrompt = `Apply ONLY the changes described in the feedback. Touch nothing else. Do not rewrite, restructure, or "improve" anything the feedback does not mention. Preserve the author's voice, phrasing, and formatting exactly as-is for everything not covered.
 
@@ -1571,8 +1415,7 @@ Output the complete revised draft. Nothing else.`;
 
   const userPrompt = `Draft:\n\n${draft}\n\n---\n\nFeedback (apply these changes only):\n${feedback}\n\nRevised draft:`;
 
-  // Gemini Flash: surgical revision (collected, not streamed —
-  // the output goes through the humanizer before reaching the client)
+  // Gemini Flash: surgical revision (collected, not streamed)
   const result = await getGemini().models.generateContent({
     model: GEMINI_FAST_MODEL,
     contents: userPrompt,
