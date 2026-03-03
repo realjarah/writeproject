@@ -7,8 +7,6 @@ import { getUserId } from "@/lib/session";
 import {
   planContent,
   draftContent,
-  compareAndSelectBestDraft,
-  proposeDraftVariation,
   conductResearch,
   assessResearchNeeds,
   selfReviewDraft,
@@ -74,10 +72,7 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
       return [
         { key: "planning", label: `Planning your ${typeLabel}` },
         { key: "researching", label: "Researching your topic" },
-        { key: "drafting_1", label: "Writing first draft" },
-        { key: "proposing", label: "Studying draft — proposing variation" },
-        { key: "drafting_2", label: "Writing second draft" },
-        { key: "comparing", label: "Comparing drafts against your voice" },
+        { key: "drafting", label: `Writing your ${typeLabel}` },
         { key: "checking", label: "Checking word count & structure" },
         { key: "reviewing", label: "Final review as you" },
       ];
@@ -117,13 +112,13 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
     },
   },
   deep: {
-    "research->drafting_1": {
+    "research->drafting": {
       baseMs: 800, jitterMs: 500,
       messages: ["Preparing draft approach…"],
     },
-    "proposing->drafting_2": {
+    "planning->drafting": {
       baseMs: 800, jitterMs: 500,
-      messages: ["Setting up second draft…"],
+      messages: ["Mapping structure to your voice…"],
     },
     "checking->reviewing": {
       baseMs: 800, jitterMs: 500,
@@ -398,51 +393,24 @@ export async function GET(
         let selected: string;
 
         if (tier === "deep") {
-          // Pace before first Opus draft (research used Haiku/Sonnet, different rate pool)
-          await paceTransition(tier, "research->drafting_1", "drafting_1", send, isAborted);
+          // Pace before Opus draft
+          const didResearch = enrichedContext !== resolvedContext;
+          const deepTransition = didResearch ? "research->drafting" : "planning->drafting";
+          await paceTransition(tier, deepTransition, "drafting", send, isAborted);
           if (isAborted()) { controller.close(); return; }
 
-          // Draft 1 (full samples) → study it → propose 1 variation → draft 2 (fingerprint only)
-          await setStep("drafting_1", "Writing first draft…");
-          const draft1 = await draftContent(
+          // Single draft (full voice profile)
+          await setStep("drafting", `Writing your ${typeLabel}…`);
+          selected = await draftContent(
             voiceProfile, interview, plan, enrichedContext, favoriteWords, authorContext
           );
           if (isAborted()) { controller.close(); return; }
 
-          // Propose variation: Sonnet reads draft 1 + voice profile and suggests
-          // 1 alternative creative direction specific to this author
-          await setStep("proposing", "Studying draft — proposing variation…");
-          const variation = await proposeDraftVariation(
-            draft1, voiceProfile, interview, plan
-          );
-          if (isAborted()) { controller.close(); return; }
-
-          // Pace before second Opus draft
-          await paceTransition(tier, "proposing->drafting_2", "drafting_2", send, isAborted);
-          if (isAborted()) { controller.close(); return; }
-
-          // Draft 2 uses condensed voice fingerprint (isFollowup=true) + reduced thinking budget
-          await setStep("drafting_2", "Writing second draft…");
-          const interview2: InterviewAnswers = {
-            ...interview,
-            toneNotes: [interview.toneNotes, variation.direction]
-              .filter(Boolean).join(". "),
-          };
-          const draft2 = await draftContent(
-            voiceProfile, interview2, plan, enrichedContext, favoriteWords, authorContext, true
-          );
-          if (isAborted()) { controller.close(); return; }
-
-          // Persist raw drafts
+          // Persist raw draft
           await prisma.ghostwriterJob.update({
             where: { id: jobId },
-            data: { drafts: JSON.stringify([draft1, draft2]) },
+            data: { drafts: JSON.stringify([selected]) },
           });
-
-          // Compare & select best (Sonnet — analytical, not creative)
-          await setStep("comparing", "Comparing drafts against your voice…");
-          selected = await compareAndSelectBestDraft([draft1, draft2], voiceProfile, interview);
-          if (isAborted()) { controller.close(); return; }
 
           // Word count quality check
           await setStep("checking", "Checking word count & structure…");

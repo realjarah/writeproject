@@ -43,8 +43,8 @@ const DEFAULT_STEPS: PipelineStep[] = [
 // Superset of all possible active step keys across all pipeline tiers
 const ALL_ACTIVE_STATUSES = new Set([
   "planning", "researching",
-  "drafting", "drafting_1", "proposing", "drafting_2",
-  "comparing", "checking", "reviewing",
+  "drafting", "drafting_1",
+  "checking", "reviewing",
 ]);
 
 function getStepIndex(steps: PipelineStep[], status: string) {

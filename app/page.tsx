@@ -85,19 +85,16 @@ const STATUS_DOT: Record<string, string> = {
   error:      "bg-red-400",
   queued:     "bg-black/25 dark:bg-white/20",
   planning:   "bg-blue-400 animate-pulse",
+  drafting:   "bg-blue-400 animate-pulse",
   drafting_1: "bg-blue-400 animate-pulse",
-  drafting_2: "bg-blue-400 animate-pulse",
-  drafting_3: "bg-blue-400 animate-pulse",
-  comparing:  "bg-purple-400 animate-pulse",
   checking:   "bg-yellow-400 animate-pulse",
-  reviewing: "bg-orange-400 animate-pulse",
+  reviewing:  "bg-orange-400 animate-pulse",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   done: "Done", error: "Error", queued: "Queued",
-  planning: "Planning…", drafting_1: "Drafting…", drafting_2: "Drafting…",
-  drafting_3: "Drafting…", comparing: "Comparing…", checking: "Checking…",
-  reviewing: "Reviewing…",
+  planning: "Planning…", drafting: "Drafting…", drafting_1: "Drafting…",
+  checking: "Checking…", reviewing: "Reviewing…",
 };
 
 export default async function HomePage() {
@@ -312,7 +309,7 @@ export default async function HomePage() {
               {
                 step: "03",
                 title: "Get your draft",
-                desc: "The ghostwriter writes 3 drafts, picks the best, and delivers it polished.",
+                desc: "The ghostwriter writes your draft, reviews it as you, and delivers it polished.",
               },
             ].map(({ step, title, desc }) => (
               <div key={step} className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.07] dark:border-white/[0.06] rounded-xl p-5 space-y-2">
