@@ -648,18 +648,42 @@ function TrainTab() {
                   ["Punctuation", profile.analysis.punctuationHabits],
                   ["Paragraphs", profile.analysis.paragraphStyle],
                   ["Devices", profile.analysis.rhetoricalDevices],
-                ].map(([label, value]) => (
+                ].map(([label, value]) => value ? (
                   <div key={label} className="space-y-1">
                     <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">{label}</div>
                     <p className="text-xs text-black/45 dark:text-white/35 leading-relaxed">{value}</p>
                   </div>
-                ))}
+                ) : null)}
               </div>
+              {/* Enriched voice fields */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ["Human imperfections", profile.analysis.humanImperfections],
+                  ["Authentic quirks",    profile.analysis.authenticQuirks],
+                  ["Emotional patterns",  profile.analysis.emotionalPatterns],
+                  ["Transition style",    profile.analysis.transitionStyle],
+                ].map(([label, value]) => value ? (
+                  <div key={label} className="space-y-1">
+                    <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">{label}</div>
+                    <p className="text-xs text-black/45 dark:text-white/35 leading-relaxed">{value}</p>
+                  </div>
+                ) : null)}
+              </div>
+              {profile.analysis.commonPatterns?.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">Recurring patterns</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {profile.analysis.commonPatterns.map((p: string, i: number) => (
+                      <span key={i} className="text-[11px] text-black/40 dark:text-white/30 bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-full px-2.5 py-0.5">{p}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {profile.analysis.thingsToAvoid?.length > 0 && (
                 <div className="space-y-2">
                   <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">Things to avoid</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {profile.analysis.thingsToAvoid.map((t, i) => (
+                    {profile.analysis.thingsToAvoid.map((t: string, i: number) => (
                       <span key={i} className="text-[11px] text-black/40 dark:text-white/30 bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-full px-2.5 py-0.5">{t}</span>
                     ))}
                   </div>

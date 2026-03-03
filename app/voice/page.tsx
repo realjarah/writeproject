@@ -121,7 +121,8 @@ export default function VoicePage() {
       body: JSON.stringify({ title: sampleTitle, content: text, category: sampleCategory }),
     });
     resetForm();
-    load();
+    await load();
+    analyzeVoice(); // non-blocking re-analyze
   }
 
   // Client-side size limits (match server: 30MB b64 ≈ 22MB binary PDF, 20MB b64 ≈ 15MB binary DOCX)
@@ -193,7 +194,8 @@ export default function VoicePage() {
             body: JSON.stringify({ title: inferredTitle, content: data.text, category: cat }),
           });
           setPendingSamples((prev) => prev.filter((p) => p.tempId !== tempId));
-          load();
+          await load();
+          analyzeVoice(); // non-blocking re-analyze
         }
       } catch {
         setPendingSamples((prev) =>
@@ -238,7 +240,8 @@ export default function VoicePage() {
     });
     resetForm();
     setAdding(false);
-    load();
+    await load();
+    analyzeVoice(); // non-blocking re-analyze
   }
 
   async function deleteSample(id: number) {
@@ -570,22 +573,57 @@ export default function VoicePage() {
                   ["Sentences",   profile.analysis.sentenceStructure],
                   ["Vocabulary",  profile.analysis.vocabularyStyle],
                   ["Punctuation", profile.analysis.punctuationHabits],
-                ].map(([label, val]) => (
+                  ["Paragraphs",  profile.analysis.paragraphStyle],
+                  ["Devices",     profile.analysis.rhetoricalDevices],
+                ].map(([label, val]) => val ? (
                   <div key={label} className="space-y-0.5">
                     <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
                       {label}
                     </div>
                     <div className="text-xs text-black/[0.55] dark:text-white/[0.55]">{val}</div>
                   </div>
-                ))}
+                ) : null)}
               </div>
+              {/* Enriched voice fields */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ["Human imperfections", profile.analysis.humanImperfections],
+                  ["Authentic quirks",    profile.analysis.authenticQuirks],
+                  ["Emotional patterns",  profile.analysis.emotionalPatterns],
+                  ["Transition style",    profile.analysis.transitionStyle],
+                ].map(([label, val]) => val ? (
+                  <div key={label} className="space-y-0.5">
+                    <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
+                      {label}
+                    </div>
+                    <div className="text-xs text-black/[0.55] dark:text-white/[0.55]">{val}</div>
+                  </div>
+                ) : null)}
+              </div>
+              {profile.analysis.commonPatterns?.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
+                    Recurring patterns
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {profile.analysis.commonPatterns.map((p: string, i: number) => (
+                      <span
+                        key={i}
+                        className="text-[10px] bg-black/[0.06] dark:bg-[#1a1a1a] border border-black/[0.10] dark:border-[#2a2a2a] rounded px-2 py-0.5 text-black/[0.40] dark:text-white/[0.40]"
+                      >
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {profile.analysis.thingsToAvoid?.length > 0 && (
                 <div className="space-y-1.5">
                   <div className="text-[10px] font-semibold text-black/[0.35] dark:text-white/[0.35] uppercase tracking-widest">
                     Never do
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {profile.analysis.thingsToAvoid.map((t, i) => (
+                    {profile.analysis.thingsToAvoid.map((t: string, i: number) => (
                       <span
                         key={i}
                         className="text-[10px] bg-black/[0.06] dark:bg-[#1a1a1a] border border-black/[0.10] dark:border-[#2a2a2a] rounded px-2 py-0.5 text-black/[0.40] dark:text-white/[0.40]"
