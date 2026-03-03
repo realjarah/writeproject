@@ -10,6 +10,7 @@ import {
   conductResearch,
   assessResearchNeeds,
   selfReviewDraft,
+  humanize,
   uploadContextFiles,
   deleteUploadedFiles,
   LIGHT_TYPES,
@@ -73,12 +74,14 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "planning", label: `Planning your ${typeLabel}` },
         { key: "drafting", label: `Writing your ${typeLabel}` },
         { key: "reviewing", label: "Final review as you" },
+        { key: "humanizing", label: "Cleaning up AI tells" },
       ];
     case "standard":
       return [
         { key: "planning", label: `Planning your ${typeLabel}` },
         { key: "drafting", label: `Writing your ${typeLabel}` },
         { key: "reviewing", label: "Final review as you" },
+        { key: "humanizing", label: "Cleaning up AI tells" },
       ];
     case "deep":
       return [
@@ -87,6 +90,7 @@ function getPipelineSteps(tier: PipelineTier, interview: InterviewAnswers): { ke
         { key: "drafting", label: `Writing your ${typeLabel}` },
         { key: "checking", label: "Checking word count & structure" },
         { key: "reviewing", label: "Final review as you" },
+        { key: "humanizing", label: "Cleaning up AI tells" },
       ];
   }
 }
@@ -108,6 +112,10 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 500, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
+    "reviewing->humanizing": {
+      baseMs: 400, jitterMs: 300,
+      messages: ["Cleaning up…"],
+    },
   },
   standard: {
     "planning->drafting": {
@@ -122,6 +130,10 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
       baseMs: 800, jitterMs: 500,
       messages: ["Reviewing draft…"],
     },
+    "reviewing->humanizing": {
+      baseMs: 400, jitterMs: 300,
+      messages: ["Cleaning up…"],
+    },
   },
   deep: {
     "research->drafting": {
@@ -135,6 +147,10 @@ const TRANSITION_DELAYS: Record<PipelineTier, Record<string, TransitionConfig>> 
     "checking->reviewing": {
       baseMs: 800, jitterMs: 500,
       messages: ["Reviewing draft…"],
+    },
+    "reviewing->humanizing": {
+      baseMs: 400, jitterMs: 300,
+      messages: ["Cleaning up…"],
     },
   },
 };
@@ -481,6 +497,19 @@ export async function GET(
             finalContent = reviewed;
           }
         } catch { /* self-review failed — keep draft as-is */ }
+        if (isAborted()) { controller.close(); return; }
+
+        // ── Humanizer (clerical post-processing — em dashes, thesis repeat, titles) ──
+        await paceTransition(tier, "reviewing->humanizing", "humanizing", send, isAborted);
+        if (isAborted()) { controller.close(); return; }
+
+        await setStep("humanizing", "Cleaning up AI tells…");
+        try {
+          const humanized = await humanize(finalContent, interview.contentType);
+          if (humanized && humanized.trim()) {
+            finalContent = humanized;
+          }
+        } catch { /* humanizer failed — keep reviewed draft as-is */ }
         if (isAborted()) { controller.close(); return; }
 
         // Send the final content to the client

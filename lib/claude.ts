@@ -1334,6 +1334,175 @@ ${draft}`;
   return extractText(res.content) || draft;
 }
 
+// ── Humanizer (post-review clerical edits) ────────────────────────────────────
+// Three narrow, surgical passes that clean up common AI tells AFTER the
+// voice-faithful draft and self-review are complete. Each pass receives ONLY
+// the finalized text — no context, no voice profile, no brief.
+
+// Content types where em dashes are natural and expected (structured/list-heavy).
+const EM_DASH_SAFE_TYPES = new Set([
+  "lesson_plan", "course", "guide", "list", "notes",
+  "scope_of_work", "rfp", "handbook", "resume",
+]);
+
+/**
+ * Pass 1: Em-dash cleanup (Grok — fast, strict, no creative latitude).
+ * For prose-heavy types (blog, essay, newsletter, etc.), replaces em dashes
+ * with punctuation that reads as human. Skips structured types where dashes
+ * are conventional.
+ */
+export async function humanizeEmDashes(
+  content: string,
+  contentType: string,
+): Promise<string> {
+  if (EM_DASH_SAFE_TYPES.has(contentType)) return content;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
+    model: "grok-3-fast",
+    max_tokens: 16384,
+    temperature: 0,
+    messages: [
+      {
+        role: "system",
+        content: `You are a copy editor. You have ONE job: replace em dashes (—) and double hyphens (--) with more natural punctuation.
+
+Rules:
+- Replace each em dash with whichever of these fits the sentence best: a comma, a period (splitting into two sentences), a colon, a semicolon, or parentheses.
+- Choose the replacement that a human writer would most naturally use in that spot.
+- Do NOT change ANY other words, punctuation, formatting, or structure. Not a single word.
+- Do NOT add or remove content. Do NOT rephrase anything.
+- If the piece has zero em dashes, return it unchanged.
+
+Output ONLY the edited text. No commentary, no explanation.`,
+      },
+      { role: "user", content },
+    ],
+  }), "humanizeEmDashes");
+
+  return res.choices?.[0]?.message?.content?.trim() || content;
+}
+
+/**
+ * Pass 2: Thesis repetition reduction (Opus — needs reasoning to identify
+ * which instances of the same idea are redundant vs. essential).
+ * Finds where the AI has hammered the same core idea 4-7 times in slightly
+ * different words and reduces it to the 1-2 strongest instances.
+ */
+export async function humanizeThesisRepetition(
+  content: string,
+): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
+    model: "claude-opus-4-6",
+    max_tokens: 16384,
+    thinking: { type: "enabled", budget_tokens: 10000 },
+    messages: [
+      {
+        role: "user",
+        content: `You are a copy editor. You have ONE job: find and reduce thesis repetition.
+
+AI-written text has a specific tell: it takes the main argument or insight and rephrases it 4-7 times throughout the piece using slightly different words, metaphors, or framings. Each restatement sounds profound in isolation but collectively they make the piece feel circular and padded.
+
+Your task:
+1. Identify the core thesis/argument of this piece.
+2. Find every instance where that thesis is restated, rephrased, or echoed. List them in your thinking.
+3. Keep the 1-2 STRONGEST expressions of the thesis (usually the first clear statement and the closing). These are the load-bearing instances.
+4. For each redundant instance (the extra 3-5 restatements), do ONE of these:
+   - DELETE the sentence entirely if removing it doesn't break the paragraph flow.
+   - CONVERT it into a transitional sentence that moves the argument forward instead of circling back to the same point.
+5. When deleting, clean up the surrounding paragraph so it reads naturally without the removed sentence. If a paragraph becomes too thin after deletion, merge it with an adjacent one.
+
+CRITICAL CONSTRAINTS:
+- Do NOT rewrite sentences that aren't thesis restatements. Leave everything else untouched.
+- Do NOT change the opening or closing of the piece unless they are redundant echoes of each other.
+- Do NOT add new content. You are cutting and adjusting, not writing.
+- Do NOT change vocabulary, tone, or style in the sentences you keep. Preserve the author's voice exactly.
+- If the piece does NOT have thesis repetition (the idea appears only 1-2 times), return it unchanged.
+
+Output ONLY the edited text. No commentary, no explanation, no "Here's the edited version."
+
+THE PIECE:
+
+${content}`,
+      },
+    ],
+  }), "humanizeThesisRepetition");
+
+  return extractText(res.content) || content;
+}
+
+/**
+ * Pass 3: Title/heading cleanup (Grok — fast, strict, no creative latitude).
+ * Fixes AI-generated headings that are gimmicky, overly clever, or use
+ * cliché patterns (alliteration, puns, question-as-heading, "The X of Y").
+ */
+export async function humanizeTitles(
+  content: string,
+  contentType: string,
+): Promise<string> {
+  // Only relevant for formats that typically have headings
+  const HEADING_TYPES = new Set([
+    "blog", "newsletter", "essay", "report", "whitepaper", "research",
+    "technical", "guide", "case_study", "proposal", "course",
+    "twitter_thread", "handbook", "business_plan",
+  ]);
+  if (!HEADING_TYPES.has(contentType)) return content;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => getXai().chat.completions.create({
+    model: "grok-3-fast",
+    max_tokens: 16384,
+    temperature: 0,
+    messages: [
+      {
+        role: "system",
+        content: `You are a copy editor. You have ONE job: fix AI-sounding titles and headings.
+
+AI-generated headings have common tells:
+- Forced alliteration ("The Power of Persistence", "Building Better Bridges")
+- Gimmicky wordplay or puns that a human writer wouldn't actually use
+- Overly dramatic framing ("The Hidden Truth About...", "Why Everything You Know About X Is Wrong")
+- Formulaic patterns: "The X of Y", "Beyond the Z", "Rethinking X", "X: A Y"
+- Question-as-heading that sounds like clickbait ("What If We've Been Wrong All Along?")
+- Vague, abstract headings that could apply to anything ("A New Paradigm", "The Bigger Picture")
+
+For each heading/title (lines starting with # or ##) that has these tells:
+- Replace it with a plain, direct heading that simply describes what the section is about.
+- Good headings are specific and boring. "How oil prices predict inflation" not "The Hidden Engine of Everything."
+- Match the tone of the body text beneath the heading.
+
+CRITICAL CONSTRAINTS:
+- ONLY change lines that are markdown headings (# Title, ## Heading, ### Subheading).
+- Do NOT change ANY body text. Not a single word of non-heading content.
+- Do NOT add or remove headings. Same number in, same number out.
+- If a heading is already plain and direct, leave it alone.
+- If the piece has no headings, return it unchanged.
+
+Output ONLY the edited text. No commentary, no explanation.`,
+      },
+      { role: "user", content },
+    ],
+  }), "humanizeTitles");
+
+  return res.choices?.[0]?.message?.content?.trim() || content;
+}
+
+/**
+ * Run all humanizer passes in sequence. Each pass receives only the text
+ * from the previous pass — no context, voice profile, or brief.
+ */
+export async function humanize(
+  content: string,
+  contentType: string,
+): Promise<string> {
+  let result = content;
+  result = await humanizeEmDashes(result, contentType);
+  result = await humanizeThesisRepetition(result);
+  result = await humanizeTitles(result, contentType);
+  return result;
+}
+
 // ── Research assessment ───────────────────────────────────────────────────────
 
 /**

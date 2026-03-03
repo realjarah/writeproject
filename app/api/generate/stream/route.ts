@@ -7,6 +7,7 @@ import { getUserId } from "@/lib/session";
 import {
   planContent,
   draftContent,
+  humanize,
   uploadContextFiles,
   deleteUploadedFiles,
   InterviewAnswers,
@@ -65,11 +66,11 @@ export async function POST(req: NextRequest) {
 
       try {
         // ── Stage 1: Plan ────────────────────────────────────────────────
-        send({ type: "stage", step: 1, total: 2, label: "Planning structure..." });
+        send({ type: "stage", step: 1, total: 3, label: "Planning structure..." });
         const plan = await planContent(voiceProfile, interview, resolvedContext);
 
         // ── Stage 2: Draft ───────────────────────────────────────────────
-        send({ type: "stage", step: 2, total: 2, label: "Writing draft..." });
+        send({ type: "stage", step: 2, total: 3, label: "Writing draft..." });
         const draft = await draftContent(voiceProfile, interview, plan, resolvedContext);
 
         let finalContent = draft;
@@ -79,6 +80,15 @@ export async function POST(req: NextRequest) {
           console.error("[generate/stream] Draft produced empty output");
           throw new Error("Drafting stage produced no output. Please try again.");
         }
+
+        // ── Stage 3: Humanizer (clerical post-processing) ──────────────
+        send({ type: "stage", step: 3, total: 3, label: "Cleaning up AI tells..." });
+        try {
+          const humanized = await humanize(finalContent, interview.contentType);
+          if (humanized && humanized.trim()) {
+            finalContent = humanized;
+          }
+        } catch { /* humanizer failed — keep draft as-is */ }
 
         // Send the final content to the client
         send({ type: "chunk", text: finalContent });
