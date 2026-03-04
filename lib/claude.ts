@@ -1489,6 +1489,94 @@ Output ONLY the edited text. No commentary, no explanation.`,
 }
 
 /**
+ * Pass 4: AI rhetoric / "insight theater" cleanup (Opus — needs reasoning
+ * to distinguish genuine analysis from performative depth signaling).
+ * Catches the formulaic rhetorical moves that LLMs use to sound profound:
+ * dramatic reframing snowclones, faux-contrarian posturing, first-order vs.
+ * second-order rhetoric, and urgent/revelatory tone markers.
+ */
+export async function humanizeRhetoric(
+  content: string,
+): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
+    model: "claude-opus-4-6",
+    max_tokens: 16384,
+    thinking: { type: "enabled", budget_tokens: 10000 },
+    messages: [
+      {
+        role: "user",
+        content: `You are a copy editor. You have ONE job: find and flatten AI rhetoric patterns.
+
+LLMs produce a recognizable set of rhetorical moves that sound insightful in isolation but are actually formulaic engagement bait. These patterns make writing sound like a finance Twitter thread or a newsletter teaser, not like a real person thinking on the page. Find every instance and rewrite it as a plain, direct statement.
+
+THE PATTERNS TO FIND AND FIX:
+
+1. THE DRAMATIC REFRAMING SNOWCLONE
+   "This is NOT an X story. It's a Y story."
+   "This isn't about X. It's about Y."
+   "not just an economic one" / "not just X, it's Y"
+   Any version of "you think this is about [obvious thing], but it's REALLY about [sexier thing]."
+   → FIX: Just state the actual point directly. "Energy shocks destabilize politics" not "This isn't an economics story. It's a geopolitics story."
+
+2. THE FAUX-DEPTH HIERARCHY
+   "First-order analysis" / "second-order effects" / "downstream implications"
+   "Most people stop here" / "Most analysts miss this"
+   "The real story is..." / "The real question is..."
+   "What nobody is talking about..."
+   "Almost nobody is pricing this in"
+   Any version of "surface-level thinkers see X, but I see deeper Y."
+   → FIX: Delete the self-congratulatory framing. Just present the analysis. If the insight is good, it doesn't need a "most people are too dumb to see this" wrapper.
+
+3. THE FAUX-REVELATORY BUILDUP
+   "Here's what that actually means..." / "Here's the thing..."
+   "Let that sink in." / "Read that again."
+   "Think about that for a second."
+   "And this is where it gets interesting..."
+   "But here's the part nobody talks about..."
+   Dramatic one-sentence paragraphs used as mic-drops.
+   → FIX: Delete the theatrical prompt entirely and let the next sentence speak for itself. If the point is strong, it doesn't need a drumroll.
+
+4. THE CONTRARIAN POSTURE
+   "The consensus is wrong" / "conventional wisdom says X, but..."
+   "Everyone is focused on X. They should be watching Y."
+   "The market is sleeping on this"
+   "Wake up" language, explicit or implied.
+   → FIX: State your actual position without the "I alone see the truth" frame. Replace with a direct claim.
+
+5. DRAMATIC EMPHASIS AS SUBSTITUTE FOR ARGUMENT
+   Heavy caps/bold/italics used to make ordinary claims feel urgent.
+   "This. Changes. Everything." or similar staccato drama.
+   "Full stop." / "Period." as sentence enders for emphasis.
+   → FIX: Remove the emphasis formatting. If the sentence is strong without caps/bold/italics, it doesn't need them. If it's weak without them, the emphasis was doing the work and the sentence needs rewriting.
+
+HOW TO FIX:
+- For each instance, rewrite as a plain, direct statement that conveys the SAME information without the theatrical framing.
+- The goal is to keep the analytical content but strip the performative packaging.
+- A good test: would a senior analyst writing an internal memo use this phrasing? If not, flatten it.
+- Some instances should just be DELETED rather than rewritten — especially theatrical one-liners and "let that sink in" prompts. If removing the sentence loses zero information, delete it.
+
+CRITICAL CONSTRAINTS:
+- Do NOT change sentences that don't match these patterns. Leave normal analytical prose untouched.
+- Do NOT weaken the actual arguments or remove genuine insights. You're stripping the packaging, not the content.
+- Do NOT add new content or arguments.
+- Do NOT change the author's vocabulary, domain terms, or technical language.
+- Preserve paragraph structure unless you're deleting a theatrical one-liner that was its own paragraph.
+- If the piece has NONE of these patterns, return it unchanged.
+
+Output ONLY the edited text. No commentary, no explanation, no "Here's the edited version."
+
+THE PIECE:
+
+${content}`,
+      },
+    ],
+  }), "humanizeRhetoric");
+
+  return extractText(res.content) || content;
+}
+
+/**
  * Run all humanizer passes in sequence. Each pass receives only the text
  * from the previous pass — no context, voice profile, or brief.
  */
@@ -1499,6 +1587,7 @@ export async function humanize(
   let result = content;
   result = await humanizeEmDashes(result, contentType);
   result = await humanizeThesisRepetition(result);
+  result = await humanizeRhetoric(result);
   result = await humanizeTitles(result, contentType);
   return result;
 }
