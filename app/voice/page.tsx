@@ -59,6 +59,10 @@ interface VoiceProfile {
     commonPatterns: string[];
     thingsToAvoid: string[];
     rawSummary: string;
+    humanImperfections?: string;
+    authenticQuirks?: string;
+    emotionalPatterns?: string;
+    transitionStyle?: string;
   };
   updatedAt: string;
 }
