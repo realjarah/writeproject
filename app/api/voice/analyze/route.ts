@@ -11,13 +11,19 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const selectedCategories: string[] = body.selectedCategories ?? [];
 
   const samples = await prisma.voiceSample.findMany({
     where: { userId },
     orderBy: { createdAt: "asc" },
     take: 500,
   });
+
+  // If caller specified categories use those; otherwise derive from all
+  // unique categories present in the user's samples so sub-voice analysis
+  // always runs for every format the user has trained.
+  const selectedCategories: string[] = body.selectedCategories?.length
+    ? body.selectedCategories
+    : Array.from(new Set(samples.map((s) => s.category)));
 
   if (samples.length === 0) {
     return NextResponse.json(
