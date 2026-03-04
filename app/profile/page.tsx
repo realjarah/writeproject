@@ -53,6 +53,14 @@ interface Sample {
   createdAt: string;
 }
 
+interface SubVoiceAnalysis {
+  summary: string;
+  toneShift: string;
+  structuralPatterns: string;
+  vocabularyNotes: string;
+  keyGuidelines: string[];
+}
+
 interface VoiceProfile {
   analysis: {
     tone: string;
@@ -68,6 +76,9 @@ interface VoiceProfile {
     authenticQuirks?: string;
     emotionalPatterns?: string;
     transitionStyle?: string;
+    categoryInsights?: Record<string, string>;
+    contentGuidelines?: Record<string, string[]>;
+    subVoices?: Record<string, SubVoiceAnalysis>;
   };
   updatedAt: string;
 }
@@ -712,6 +723,65 @@ function TrainTab() {
                       <span key={i} className="text-[11px] text-black/40 dark:text-white/30 bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.08] dark:border-white/[0.07] rounded-full px-2.5 py-0.5">{t}</span>
                     ))}
                   </div>
+                </div>
+              )}
+              {/* Category-specific sub-voices */}
+              {profile.analysis.subVoices && Object.keys(profile.analysis.subVoices).length > 0 && (
+                <div className="space-y-3 pt-2 border-t border-black/[0.06] dark:border-white/[0.05]">
+                  <div className="text-[10px] font-semibold text-black/35 dark:text-white/25 uppercase tracking-widest">Format-specific voice profiles</div>
+                  {Object.entries(profile.analysis.subVoices).map(([category, sv]) => (
+                    <details key={category} className="group">
+                      <summary className="flex items-center gap-2 cursor-pointer select-none hover:bg-black/[0.02] dark:hover:bg-white/[0.02] rounded-lg px-2 py-1.5 -mx-2 transition-colors">
+                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: groupColor(category) }} />
+                        <span className="text-xs font-medium text-black/60 dark:text-white/50 capitalize">
+                          {CONTENT_TYPE_LABELS[category] ?? category}
+                        </span>
+                        <svg
+                          className="w-3 h-3 text-black/25 dark:text-white/20 transition-transform group-open:rotate-90 ml-auto"
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </summary>
+                      <div className="pl-5 pr-2 pb-2 space-y-2.5 mt-1">
+                        {sv.summary && (
+                          <p className="text-xs text-black/50 dark:text-white/40 leading-relaxed">{sv.summary}</p>
+                        )}
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {[
+                            ["Tone shift", sv.toneShift],
+                            ["Structure", sv.structuralPatterns],
+                            ["Vocabulary", sv.vocabularyNotes],
+                          ].map(([label, value]) => value ? (
+                            <div key={label} className="space-y-0.5">
+                              <div className="text-[10px] font-semibold text-black/30 dark:text-white/20 uppercase tracking-widest">{label}</div>
+                              <p className="text-[11px] text-black/40 dark:text-white/30 leading-relaxed">{value}</p>
+                            </div>
+                          ) : null)}
+                        </div>
+                        {sv.keyGuidelines?.length > 0 && (
+                          <div className="space-y-1">
+                            <div className="text-[10px] font-semibold text-black/30 dark:text-white/20 uppercase tracking-widest">Guidelines</div>
+                            <ul className="space-y-0.5">
+                              {sv.keyGuidelines.map((g: string, i: number) => (
+                                <li key={i} className="text-[11px] text-black/40 dark:text-white/30 leading-relaxed flex gap-1.5">
+                                  <span className="text-black/20 dark:text-white/15 mt-px flex-shrink-0">&bull;</span>
+                                  {g}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {/* Category insight if available */}
+                        {profile.analysis.categoryInsights?.[category] && (
+                          <div className="space-y-0.5">
+                            <div className="text-[10px] font-semibold text-black/30 dark:text-white/20 uppercase tracking-widest">Insight</div>
+                            <p className="text-[11px] text-black/40 dark:text-white/30 leading-relaxed italic">{profile.analysis.categoryInsights[category]}</p>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  ))}
                 </div>
               )}
             </div>
