@@ -1359,7 +1359,7 @@ export async function humanizeEmDashes(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
-    model: "grok-3-fast",
+    model: XAI_WRITING_MODEL,
     max_tokens: 16384,
     temperature: 0,
     messages: [
@@ -1451,7 +1451,7 @@ export async function humanizeTitles(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
-    model: "grok-3-fast",
+    model: XAI_WRITING_MODEL,
     max_tokens: 16384,
     temperature: 0,
     messages: [
