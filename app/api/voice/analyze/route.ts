@@ -42,36 +42,42 @@ export async function POST(req: NextRequest) {
     update: { status: "analyzing", totalWords, sampleCount },
   });
 
-  // Fire analysis in background (non-blocking)
-  analyzeVoiceWithSubVoices(
-    samples.map((s) => ({ content: s.content, category: s.category, notes: s.notes })),
-    selectedCategories
-  )
-    .then(async (analysis) => {
-      await prisma.voiceProfile.upsert({
-        where: { userId },
-        create: {
-          userId,
-          analysis: JSON.stringify(analysis),
-          status: "done",
-          totalWords,
-          sampleCount,
-        },
-        update: {
-          analysis: JSON.stringify(analysis),
-          status: "done",
-          totalWords,
-          sampleCount,
-        },
-      });
-    })
-    .catch(async (err) => {
-      console.error("[voice/analyze] Failed:", err);
-      await prisma.voiceProfile.update({
-        where: { userId },
-        data: { status: "error" },
-      }).catch(() => {});
+  // Await the full analysis inline — detached background promises get killed
+  // on Vercel serverless when the response is sent. By awaiting here the
+  // function stays alive for the full Grok call + sub-voice passes.
+  try {
+    const analysis = await analyzeVoiceWithSubVoices(
+      samples.map((s) => ({ content: s.content, category: s.category, notes: s.notes })),
+      selectedCategories
+    );
+
+    await prisma.voiceProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        analysis: JSON.stringify(analysis),
+        status: "done",
+        totalWords,
+        sampleCount,
+      },
+      update: {
+        analysis: JSON.stringify(analysis),
+        status: "done",
+        totalWords,
+        sampleCount,
+      },
     });
 
-  return NextResponse.json({ status: "analyzing", totalWords, sampleCount });
+    return NextResponse.json({ status: "done", totalWords, sampleCount });
+  } catch (err) {
+    console.error("[voice/analyze] Failed:", err);
+    await prisma.voiceProfile.update({
+      where: { userId },
+      data: { status: "error" },
+    }).catch(() => {});
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Voice analysis failed." },
+      { status: 500 }
+    );
+  }
 }

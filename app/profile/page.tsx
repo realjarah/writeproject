@@ -233,23 +233,44 @@ function TrainTab() {
     setInputMode("paste"); setUrlInput(""); setFetchError("");
   }
 
-  // Auto-analyze after adding a sample
-  async function triggerAnalyze() {
+  // Auto-analyze after adding a sample.
+  // Fires the POST (which now awaits the full Grok call server-side) and
+  // polls /api/voice/analyze/status so the UI stays responsive.
+  function triggerAnalyze() {
     setAnalyzing(true);
     setAnalyzeError("");
-    try {
-      const res = await fetch("/api/voice/analyze", { method: "POST" });
-      if (!res.ok) {
+
+    // Fire the analysis request — this will take 30-120s server-side
+    fetch("/api/voice/analyze", { method: "POST" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setAnalyzeError(data.error || "Re-analysis failed.");
+          setAnalyzing(false);
+        }
+        // If ok, the poll below will catch the "done" status
+      })
+      .catch(() => {
+        setAnalyzeError("Re-analysis failed.");
+        setAnalyzing(false);
+      });
+
+    // Poll for completion every 3s
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch("/api/voice/analyze/status");
         const data = await res.json();
-        setAnalyzeError(data.error || "Re-analysis failed.");
-      } else {
-        await load(); // reload profile
-      }
-    } catch {
-      setAnalyzeError("Re-analysis failed.");
-    } finally {
-      setAnalyzing(false);
-    }
+        if (data.status === "done") {
+          clearInterval(poll);
+          await load();
+          setAnalyzing(false);
+        } else if (data.status === "error") {
+          clearInterval(poll);
+          setAnalyzeError("Voice analysis failed. Please try again.");
+          setAnalyzing(false);
+        }
+      } catch { /* network error — keep polling */ }
+    }, 3000);
   }
 
   async function saveDirect(text: string, sampleTitle: string, sampleCategory: string) {

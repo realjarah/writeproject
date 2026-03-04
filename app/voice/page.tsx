@@ -257,17 +257,40 @@ export default function VoicePage() {
     load();
   }
 
-  async function analyzeVoice() {
+  function analyzeVoice() {
     setAnalyzing(true);
     setAnalyzeError("");
-    const res = await fetch("/api/voice/analyze", { method: "POST" });
-    if (!res.ok) {
-      const data = await res.json();
-      setAnalyzeError(data.error || "Analysis failed.");
-    } else {
-      await load();
-    }
-    setAnalyzing(false);
+
+    // Fire the analysis request — awaits full Grok call server-side (30-120s)
+    fetch("/api/voice/analyze", { method: "POST" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setAnalyzeError(data.error || "Analysis failed.");
+          setAnalyzing(false);
+        }
+      })
+      .catch(() => {
+        setAnalyzeError("Analysis failed.");
+        setAnalyzing(false);
+      });
+
+    // Poll for completion every 3s
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch("/api/voice/analyze/status");
+        const data = await res.json();
+        if (data.status === "done") {
+          clearInterval(poll);
+          await load();
+          setAnalyzing(false);
+        } else if (data.status === "error") {
+          clearInterval(poll);
+          setAnalyzeError("Voice analysis failed. Please try again.");
+          setAnalyzing(false);
+        }
+      } catch { /* network error — keep polling */ }
+    }, 3000);
   }
 
   // Per-type stats derived from samples
