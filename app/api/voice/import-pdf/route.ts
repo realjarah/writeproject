@@ -8,7 +8,6 @@ function getAnthropic() {
   if (!_anthropic) _anthropic = new Anthropic();
   return _anthropic;
 }
-const FILES_API_BETA = "files-api-2025-04-14";
 
 /** Max PDF size: 30MB base64 ≈ ~22MB binary */
 const MAX_PDF_BASE64_LENGTH = 30 * 1024 * 1024;
@@ -22,42 +21,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "PDF too large (max ~22MB)" }, { status: 400 });
   }
 
-  let fileId: string | null = null;
-
   try {
-    // Upload PDF to Files API once, reference by file_id
-    const buf = Buffer.from(data, "base64");
-    const name = fileName || "document.pdf";
-    const blob = new Blob([buf], { type: "application/pdf" });
-    const file = new File([blob], name, { type: "application/pdf" });
+    // Send PDF inline as base64 — no Files API needed, works on all SDK versions
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const uploaded = await (getAnthropic().beta as any).files.upload({ file });
-    fileId = uploaded.id;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const message = await (getAnthropic().messages.create as any)(
-      {
-        model: "claude-opus-4-6",
-        max_tokens: 16000,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "document",
-                source: { type: "file", file_id: fileId },
-                ...(fileName ? { title: fileName } : {}),
+    const message = await (getAnthropic().messages.create as any)({
+      model: "claude-opus-4-6",
+      max_tokens: 16000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data,
               },
-              {
-                type: "text",
-                text: "Extract and return ONLY the clean prose text from this document. Preserve paragraph breaks with double newlines. Remove page numbers, headers, footers, figure captions, and any non-content elements. Return nothing but the clean text — no preamble, no commentary.",
-              },
-            ],
-          },
-        ],
-      },
-      { headers: { "anthropic-beta": FILES_API_BETA } }
-    );
+              ...(fileName ? { title: fileName } : {}),
+            },
+            {
+              type: "text",
+              text: "Extract and return ONLY the clean prose text from this document. Preserve paragraph breaks with double newlines. Remove page numbers, headers, footers, figure captions, and any non-content elements. Return nothing but the clean text — no preamble, no commentary.",
+            },
+          ],
+        },
+      ],
+    });
 
     const text = (message.content as Anthropic.TextBlock[])
       .filter((b) => b.type === "text")
@@ -70,15 +60,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ text });
-  } finally {
-    // Clean up uploaded file
-    if (fileId) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (getAnthropic().beta as any).files.delete(fileId);
-      } catch {
-        // Best-effort cleanup
-      }
-    }
+  } catch (err) {
+    console.error("import-pdf error:", err);
+    return NextResponse.json(
+      { error: "Failed to process PDF. It may be too large or corrupted." },
+      { status: 500 },
+    );
   }
 }
