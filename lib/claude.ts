@@ -1359,10 +1359,12 @@ export async function humanizeEmDashes(
 ): Promise<string> {
   if (EM_DASH_SAFE_TYPES.has(contentType)) return content;
 
+  const estimatedTokens = Math.ceil(content.length / 3.5);
+  const maxTokens = Math.max(16384, estimatedTokens + 2048);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_tokens: 16384,
+    max_tokens: maxTokens,
     temperature: 0,
     messages: [
       {
@@ -1394,11 +1396,16 @@ Output ONLY the edited text. No commentary, no explanation.`,
 export async function humanizeThesisRepetition(
   content: string,
 ): Promise<string> {
+  // Scale max_tokens to fit the full document. Each char ≈ 0.3 tokens.
+  // Add thinking budget + buffer so output isn't truncated on long pieces.
+  const THINKING_BUDGET = 10000;
+  const estimatedTokens = Math.ceil(content.length / 3.5);
+  const maxTokens = Math.max(16384, estimatedTokens + THINKING_BUDGET + 2048);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
     model: "claude-opus-4-6",
-    max_tokens: 16384,
-    thinking: { type: "enabled", budget_tokens: 10000 },
+    max_tokens: maxTokens,
+    thinking: { type: "enabled", budget_tokens: THINKING_BUDGET },
     messages: [
       {
         role: "user",
@@ -1447,14 +1454,16 @@ export async function humanizeTitles(
   const HEADING_TYPES = new Set([
     "blog", "newsletter", "essay", "report", "whitepaper", "research",
     "technical", "guide", "case_study", "proposal", "course",
-    "twitter_thread", "handbook", "business_plan",
+    "twitter_thread", "handbook", "business_plan", "textbook_chapter",
   ]);
   if (!HEADING_TYPES.has(contentType)) return content;
 
+  const estimatedTokens = Math.ceil(content.length / 3.5);
+  const maxTokens = Math.max(16384, estimatedTokens + 2048);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => getXai().chat.completions.create({
     model: XAI_WRITING_MODEL,
-    max_tokens: 16384,
+    max_tokens: maxTokens,
     temperature: 0,
     messages: [
       {
@@ -1500,11 +1509,14 @@ Output ONLY the edited text. No commentary, no explanation.`,
 export async function humanizeRhetoric(
   content: string,
 ): Promise<string> {
+  const THINKING_BUDGET = 10000;
+  const estimatedTokens = Math.ceil(content.length / 3.5);
+  const maxTokens = Math.max(16384, estimatedTokens + THINKING_BUDGET + 2048);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
     model: "claude-opus-4-6",
-    max_tokens: 16384,
-    thinking: { type: "enabled", budget_tokens: 10000 },
+    max_tokens: maxTokens,
+    thinking: { type: "enabled", budget_tokens: THINKING_BUDGET },
     messages: [
       {
         role: "user",
