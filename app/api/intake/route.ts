@@ -37,7 +37,7 @@ contentType must be exactly one of:
   email, proposal, cover_letter, resume, press_release, scope_of_work, rfp,
   business_plan, report, case_study, handbook,
   blog, newsletter, ad_copy, product_description,
-  lesson_plan, course, guide,
+  lesson_plan, course, guide, textbook_chapter,
   research, technical, whitepaper,
   essay, speech, script
 
@@ -62,6 +62,7 @@ Detection rules (use the FIRST match):
 - rfp              → "RFP", "request for proposal", "bid response", "vendor proposal"
 - lesson_plan      → "lesson plan", "teaching plan", "class plan", "curriculum plan"
 - course           → "course content", "course module", "online course", "course outline", "course curriculum"
+- textbook_chapter → "textbook chapter", "textbook section", "chapter for a textbook", "textbook content", "write a chapter"
 - guide            → "how-to guide", "tutorial", "step-by-step guide", "user guide", "setup guide"
 - research         → research paper, academic paper, journal article, thesis, dissertation
 - technical        → documentation, docs, README, API guide, developer guide
@@ -89,7 +90,7 @@ Field extraction rules:
 questions rules:
 - Ask ONLY for missing required fields
 - Required for blog/essay/whitepaper/newsletter/press_release/report/case_study/proposal/speech/script/handbook/business_plan: angle AND keyPoints
-- Required for scope_of_work/rfp/guide/course/lesson_plan: topic AND keyPoints
+- Required for scope_of_work/rfp/guide/course/lesson_plan/textbook_chapter: topic AND keyPoints
 - Required for social/caption/text_message/twitter_thread: angle only (keyPoints optional)
 - Required for email/letter: angle (what's the ask or purpose) only
 - Required for ad_copy/product_description: topic only (what product/service)
@@ -131,7 +132,7 @@ questions rules:
       "email", "proposal", "cover_letter", "resume", "press_release", "scope_of_work", "rfp",
       "business_plan", "report", "case_study", "handbook",
       "blog", "newsletter", "ad_copy", "product_description",
-      "lesson_plan", "course", "guide",
+      "lesson_plan", "course", "guide", "textbook_chapter",
       "research", "technical", "whitepaper",
       "essay", "speech", "script",
     ]);

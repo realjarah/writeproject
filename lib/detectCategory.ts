@@ -11,7 +11,7 @@ export type SampleCategory =
   // Marketing & Content
   | "blog" | "newsletter" | "ad_copy" | "product_description"
   // Education
-  | "lesson_plan" | "course" | "guide"
+  | "lesson_plan" | "course" | "guide" | "textbook_chapter"
   // Academic & Technical
   | "research" | "technical" | "whitepaper"
   // Creative & Spoken
@@ -147,6 +147,12 @@ export function detectCategory(content: string): SampleCategory {
     /\b(ladies and gentlemen|fellow|thank you for being here|let me tell you|I stand before you|good evening|good morning everyone|commencement|keynote|toast)\b/i.test(trimmed) &&
     words >= 200
   ) return "speech";
+
+  // Textbook chapter: long-form educational structure
+  if (
+    /\b(chapter \d|textbook|learning objectives?|key terms?|review questions?|end.of.chapter|worked examples?|chapter summary)\b/i.test(trimmed) &&
+    words >= 1500
+  ) return "textbook_chapter";
 
   // Lesson plan: educational structure keywords
   if (

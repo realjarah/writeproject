@@ -40,6 +40,7 @@ export const CONTENT_TYPE_LABELS: Record<string, string> = {
   lesson_plan:         "lesson plan",
   course:              "course content",
   guide:               "guide / how-to",
+  textbook_chapter:    "textbook chapter",
   // Academic & Technical
   research:            "research paper",
   technical:           "technical documentation",
@@ -57,7 +58,7 @@ export const CONTENT_TYPE_GROUPS: { label: string; types: string[] }[] = [
   { label: "Professional",         types: ["email", "proposal", "cover_letter", "resume", "press_release", "scope_of_work", "rfp"] },
   { label: "Business",             types: ["business_plan", "report", "case_study", "handbook"] },
   { label: "Marketing & Content",  types: ["blog", "newsletter", "ad_copy", "product_description"] },
-  { label: "Education",            types: ["lesson_plan", "course", "guide"] },
+  { label: "Education",            types: ["lesson_plan", "course", "guide", "textbook_chapter"] },
   { label: "Academic & Technical", types: ["research", "technical", "whitepaper"] },
   { label: "Creative & Spoken",    types: ["essay", "speech", "script"] },
 ];

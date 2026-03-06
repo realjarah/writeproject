@@ -38,7 +38,7 @@ const WORD_RANGES: Record<string, [number, number]> = {
   // Marketing & Content
   blog: [600, 1400], newsletter: [200, 1000], ad_copy: [25, 200], product_description: [50, 300],
   // Education
-  lesson_plan: [300, 1000], course: [500, 10000], guide: [500, 2000],
+  lesson_plan: [300, 1000], course: [500, 10000], guide: [500, 2000], textbook_chapter: [1500, 20000],
   // Academic & Technical
   research: [1500, 20000], technical: [500, 10000], whitepaper: [1500, 10000],
   // Creative & Spoken
@@ -52,7 +52,7 @@ function wordCount(text: string) {
 // ── Adaptive pipeline tiers ─────────────────────────────────────────────────
 
 const DEEP_TYPES = new Set([
-  "essay", "report", "whitepaper", "research", "technical", "proposal", "case_study",
+  "essay", "report", "whitepaper", "research", "technical", "proposal", "case_study", "textbook_chapter",
 ]);
 
 type PipelineTier = "light" | "standard" | "deep";

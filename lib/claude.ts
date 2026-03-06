@@ -338,6 +338,7 @@ const WORD_GUIDANCE: Record<string, string> = {
   lesson_plan:         "Structured format: objectives → materials → procedure → assessment → differentiation. Clear, actionable steps for the instructor. 300–1000 words.",
   course:              "Write as long as the scope demands. Module/lesson structure with clear learning objectives, content sections, activities, and assessment prompts. Educational but engaging tone.",
   guide:               "Step-by-step structure with clear headers. Actionable, practical instructions. 500–2000 words. Include prerequisites, warnings, and tips where helpful.",
+  textbook_chapter:    "Write as long as the scope demands — comprehensive coverage is critical. Structured with learning objectives, clear section headers, explanations, worked examples, key-term definitions, and end-of-chapter review questions or exercises. Authoritative but accessible. Integrate figures/diagrams references where appropriate.",
   // Academic & Technical
   research:            "Write as long as the scope demands — do not truncate to hit a word count. Academic structure: abstract, introduction, literature review, methodology, results, discussion, conclusion, references. Cover every facet of the topic. Cite every [REFERENCE] context item in-text and in the references section.",
   technical:           "Write as long as the scope demands — complete coverage beats brevity. Precision over style. Code blocks and numbered steps where relevant. Headers for navigation. Match the specified audience level. Cite [REFERENCE] context items with inline links or footnotes.",
@@ -662,6 +663,7 @@ const STAGE_BUDGETS: Record<string, StageBudgets> = {
   blog:          { plan: { maxTokens: 16000, thinkingBudget: 10000 }, draft: { maxTokens: 32000,  thinkingBudget: 16000 }, draftFollowup: { maxTokens: 32000,  thinkingBudget: 10000 }, review: { maxTokens: 32000,  thinkingBudget: 24000 } },
   newsletter:    { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 24000,  thinkingBudget: 12000 }, draftFollowup: { maxTokens: 24000,  thinkingBudget: 8000  }, review: { maxTokens: 24000,  thinkingBudget: 16000 } },
   press_release: { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, review: { maxTokens: 16000,  thinkingBudget: 12000 } },
+  textbook_chapter: { plan: { maxTokens: 16000, thinkingBudget: 12000 }, draft: { maxTokens: 64000, thinkingBudget: 32000 }, draftFollowup: { maxTokens: 64000, thinkingBudget: 16000 }, review: { maxTokens: 64000, thinkingBudget: 32000 } },
   lesson_plan:   { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, review: { maxTokens: 16000,  thinkingBudget: 12000 } },
   resume:        { plan: { maxTokens: 12000, thinkingBudget: 8000  }, draft: { maxTokens: 16000,  thinkingBudget: 10000 }, draftFollowup: { maxTokens: 16000,  thinkingBudget: 6000  }, review: { maxTokens: 16000,  thinkingBudget: 10000 } },
   cover_letter:  { plan: { maxTokens: 10000, thinkingBudget: 6000  }, draft: { maxTokens: 12000,  thinkingBudget: 8000  }, draftFollowup: { maxTokens: 12000,  thinkingBudget: 5000  }, review: { maxTokens: 12000,  thinkingBudget: 10000 } },
@@ -1341,7 +1343,7 @@ ${draft}`;
 
 // Content types where em dashes are natural and expected (structured/list-heavy).
 const EM_DASH_SAFE_TYPES = new Set([
-  "lesson_plan", "course", "guide", "list", "notes",
+  "lesson_plan", "course", "guide", "textbook_chapter", "list", "notes",
   "scope_of_work", "rfp", "handbook", "resume",
 ]);
 
