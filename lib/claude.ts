@@ -1388,16 +1388,13 @@ Output ONLY the edited text. No commentary, no explanation.`,
 }
 
 /**
- * Pass 2: Thesis repetition reduction (Opus — needs reasoning to identify
- * which instances of the same idea are redundant vs. essential).
- * Finds where the AI has hammered the same core idea 4-7 times in slightly
- * different words and reduces it to the 1-2 strongest instances.
+ * Combined pass: Thesis repetition + AI rhetoric cleanup (single Opus call).
+ * Merging these into one pass eliminates an entire Opus+thinking round-trip
+ * (~2-4 min) which was causing pipeline timeouts on long content.
  */
-export async function humanizeThesisRepetition(
+export async function humanizePatterns(
   content: string,
 ): Promise<string> {
-  // Scale max_tokens to fit the full document. Each char ≈ 0.3 tokens.
-  // Add thinking budget + buffer so output isn't truncated on long pieces.
   const THINKING_BUDGET = 10000;
   const estimatedTokens = Math.ceil(content.length / 3.5);
   const maxTokens = Math.max(16384, estimatedTokens + THINKING_BUDGET + 2048);
@@ -1409,25 +1406,47 @@ export async function humanizeThesisRepetition(
     messages: [
       {
         role: "user",
-        content: `You are a copy editor. You have ONE job: find and reduce thesis repetition.
+        content: `You are a copy editor. You have TWO jobs in this single pass: (A) reduce thesis repetition and (B) flatten AI rhetoric. Do both at once.
 
-AI-written text has a specific tell: it takes the main argument or insight and rephrases it 4-7 times throughout the piece using slightly different words, metaphors, or framings. Each restatement sounds profound in isolation but collectively they make the piece feel circular and padded.
+═══ JOB A: THESIS REPETITION ═══
 
-Your task:
-1. Identify the core thesis/argument of this piece.
-2. Find every instance where that thesis is restated, rephrased, or echoed. List them in your thinking.
-3. Keep the 1-2 STRONGEST expressions of the thesis (usually the first clear statement and the closing). These are the load-bearing instances.
-4. For each redundant instance (the extra 3-5 restatements), do ONE of these:
-   - DELETE the sentence entirely if removing it doesn't break the paragraph flow.
-   - CONVERT it into a transitional sentence that moves the argument forward instead of circling back to the same point.
-5. When deleting, clean up the surrounding paragraph so it reads naturally without the removed sentence. If a paragraph becomes too thin after deletion, merge it with an adjacent one.
+AI-written text takes the main argument and rephrases it 4-7 times using slightly different words. Each restatement sounds profound alone but collectively they make the piece circular and padded.
 
-CRITICAL CONSTRAINTS:
-- Do NOT rewrite sentences that aren't thesis restatements. Leave everything else untouched.
-- Do NOT change the opening or closing of the piece unless they are redundant echoes of each other.
+1. Identify the core thesis/argument.
+2. Find every instance where it's restated, rephrased, or echoed. List them in your thinking.
+3. Keep the 1-2 STRONGEST expressions (usually first clear statement and the closing).
+4. For each redundant instance:
+   - DELETE the sentence if removing it doesn't break flow.
+   - Or CONVERT it into a transitional sentence that moves forward instead of circling back.
+5. Clean up surrounding paragraphs after deletions.
+
+═══ JOB B: AI RHETORIC PATTERNS ═══
+
+Find and fix these formulaic moves:
+
+1. DRAMATIC REFRAMING: "This is NOT an X story. It's a Y story." / "This isn't about X. It's about Y." / "not just X, it's Y"
+   → FIX: State the point directly.
+
+2. FAUX-DEPTH HIERARCHY: "First-order/second-order" / "Most people stop here" / "The real story is..." / "What nobody is talking about..."
+   → FIX: Delete the self-congratulatory frame. Just present the analysis.
+
+3. FAUX-REVELATORY BUILDUP: "Here's what that actually means..." / "Let that sink in." / "And this is where it gets interesting..."
+   → FIX: Delete the theatrical prompt. Let the next sentence speak for itself.
+
+4. CONTRARIAN POSTURE: "The consensus is wrong" / "Everyone is focused on X. They should be watching Y." / "Wake up" language.
+   → FIX: State position directly without "I alone see the truth" framing.
+
+5. DRAMATIC EMPHASIS AS ARGUMENT: Heavy caps/bold/italics on ordinary claims. "This. Changes. Everything." / "Full stop."
+   → FIX: Remove emphasis. If the sentence is weak without it, rewrite it.
+
+═══ CONSTRAINTS (APPLY TO BOTH JOBS) ═══
+
+- Do NOT rewrite sentences that aren't thesis restatements or rhetoric patterns. Leave everything else untouched.
 - Do NOT add new content. You are cutting and adjusting, not writing.
-- Do NOT change vocabulary, tone, or style in the sentences you keep. Preserve the author's voice exactly.
-- If the piece does NOT have thesis repetition (the idea appears only 1-2 times), return it unchanged.
+- Do NOT change vocabulary, tone, or style. Preserve the author's voice exactly.
+- Do NOT change the opening or closing unless they are redundant echoes of each other.
+- Preserve paragraph structure unless deleting a theatrical one-liner.
+- If the piece has NONE of these issues, return it unchanged.
 
 Output ONLY the edited text. No commentary, no explanation, no "Here's the edited version."
 
@@ -1436,13 +1455,13 @@ THE PIECE:
 ${content}`,
       },
     ],
-  }), "humanizeThesisRepetition");
+  }), "humanizePatterns");
 
   return extractText(res.content) || content;
 }
 
 /**
- * Pass 3: Title/heading cleanup (Grok — fast, strict, no creative latitude).
+ * Title/heading cleanup (Grok — fast, strict, no creative latitude).
  * Fixes AI-generated headings that are gimmicky, overly clever, or use
  * cliché patterns (alliteration, puns, question-as-heading, "The X of Y").
  */
@@ -1500,97 +1519,6 @@ Output ONLY the edited text. No commentary, no explanation.`,
 }
 
 /**
- * Pass 4: AI rhetoric / "insight theater" cleanup (Opus — needs reasoning
- * to distinguish genuine analysis from performative depth signaling).
- * Catches the formulaic rhetorical moves that LLMs use to sound profound:
- * dramatic reframing snowclones, faux-contrarian posturing, first-order vs.
- * second-order rhetoric, and urgent/revelatory tone markers.
- */
-export async function humanizeRhetoric(
-  content: string,
-): Promise<string> {
-  const THINKING_BUDGET = 10000;
-  const estimatedTokens = Math.ceil(content.length / 3.5);
-  const maxTokens = Math.max(16384, estimatedTokens + THINKING_BUDGET + 2048);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res: any = await withRetry(() => (getAnthropic().messages.create as any)({
-    model: "claude-opus-4-6",
-    max_tokens: maxTokens,
-    thinking: { type: "enabled", budget_tokens: THINKING_BUDGET },
-    messages: [
-      {
-        role: "user",
-        content: `You are a copy editor. You have ONE job: find and flatten AI rhetoric patterns.
-
-LLMs produce a recognizable set of rhetorical moves that sound insightful in isolation but are actually formulaic engagement bait. These patterns make writing sound like a finance Twitter thread or a newsletter teaser, not like a real person thinking on the page. Find every instance and rewrite it as a plain, direct statement.
-
-THE PATTERNS TO FIND AND FIX:
-
-1. THE DRAMATIC REFRAMING SNOWCLONE
-   "This is NOT an X story. It's a Y story."
-   "This isn't about X. It's about Y."
-   "not just an economic one" / "not just X, it's Y"
-   Any version of "you think this is about [obvious thing], but it's REALLY about [sexier thing]."
-   → FIX: Just state the actual point directly. "Energy shocks destabilize politics" not "This isn't an economics story. It's a geopolitics story."
-
-2. THE FAUX-DEPTH HIERARCHY
-   "First-order analysis" / "second-order effects" / "downstream implications"
-   "Most people stop here" / "Most analysts miss this"
-   "The real story is..." / "The real question is..."
-   "What nobody is talking about..."
-   "Almost nobody is pricing this in"
-   Any version of "surface-level thinkers see X, but I see deeper Y."
-   → FIX: Delete the self-congratulatory framing. Just present the analysis. If the insight is good, it doesn't need a "most people are too dumb to see this" wrapper.
-
-3. THE FAUX-REVELATORY BUILDUP
-   "Here's what that actually means..." / "Here's the thing..."
-   "Let that sink in." / "Read that again."
-   "Think about that for a second."
-   "And this is where it gets interesting..."
-   "But here's the part nobody talks about..."
-   Dramatic one-sentence paragraphs used as mic-drops.
-   → FIX: Delete the theatrical prompt entirely and let the next sentence speak for itself. If the point is strong, it doesn't need a drumroll.
-
-4. THE CONTRARIAN POSTURE
-   "The consensus is wrong" / "conventional wisdom says X, but..."
-   "Everyone is focused on X. They should be watching Y."
-   "The market is sleeping on this"
-   "Wake up" language, explicit or implied.
-   → FIX: State your actual position without the "I alone see the truth" frame. Replace with a direct claim.
-
-5. DRAMATIC EMPHASIS AS SUBSTITUTE FOR ARGUMENT
-   Heavy caps/bold/italics used to make ordinary claims feel urgent.
-   "This. Changes. Everything." or similar staccato drama.
-   "Full stop." / "Period." as sentence enders for emphasis.
-   → FIX: Remove the emphasis formatting. If the sentence is strong without caps/bold/italics, it doesn't need them. If it's weak without them, the emphasis was doing the work and the sentence needs rewriting.
-
-HOW TO FIX:
-- For each instance, rewrite as a plain, direct statement that conveys the SAME information without the theatrical framing.
-- The goal is to keep the analytical content but strip the performative packaging.
-- A good test: would a senior analyst writing an internal memo use this phrasing? If not, flatten it.
-- Some instances should just be DELETED rather than rewritten — especially theatrical one-liners and "let that sink in" prompts. If removing the sentence loses zero information, delete it.
-
-CRITICAL CONSTRAINTS:
-- Do NOT change sentences that don't match these patterns. Leave normal analytical prose untouched.
-- Do NOT weaken the actual arguments or remove genuine insights. You're stripping the packaging, not the content.
-- Do NOT add new content or arguments.
-- Do NOT change the author's vocabulary, domain terms, or technical language.
-- Preserve paragraph structure unless you're deleting a theatrical one-liner that was its own paragraph.
-- If the piece has NONE of these patterns, return it unchanged.
-
-Output ONLY the edited text. No commentary, no explanation, no "Here's the edited version."
-
-THE PIECE:
-
-${content}`,
-      },
-    ],
-  }), "humanizeRhetoric");
-
-  return extractText(res.content) || content;
-}
-
-/**
  * Run all humanizer passes in sequence. Each pass receives only the text
  * from the previous pass — no context, voice profile, or brief.
  */
@@ -1600,8 +1528,7 @@ export async function humanize(
 ): Promise<string> {
   let result = content;
   result = await humanizeEmDashes(result, contentType);
-  result = await humanizeThesisRepetition(result);
-  result = await humanizeRhetoric(result);
+  result = await humanizePatterns(result);
   result = await humanizeTitles(result, contentType);
   return result;
 }
