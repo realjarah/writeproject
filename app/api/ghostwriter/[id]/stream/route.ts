@@ -336,20 +336,38 @@ export async function GET(
 
       const isAborted = () => abortController.signal.aborted;
 
-      // Safety net: if the pipeline hasn't finished 30s before the hard
-      // timeout, mark the job as errored so it doesn't get stuck forever.
-      const SAFETY_MARGIN_MS = 30_000;
+      // Track best available content so a timeout delivers work, not an error.
+      let bestContent: string | null = null;
+      let bestStage = "";
+
+      // Safety net: if the pipeline hasn't finished before the hard timeout,
+      // deliver whatever content we have instead of showing an error.
+      const SAFETY_MARGIN_MS = 15_000;
       const timeoutMs = (maxDuration * 1000) - SAFETY_MARGIN_MS;
       const timeoutTimer = setTimeout(async () => {
         if (!abortController.signal.aborted) {
           abortController.abort();
           try {
-            await prisma.ghostwriterJob.update({
-              where: { id: jobId },
-              data: { status: "error", errorMsg: "Pipeline timed out. Try a shorter piece or simpler content type." },
-            });
+            if (bestContent) {
+              // We have usable content — deliver it as a success
+              const dbContent = signatureContent
+                ? `${bestContent}\n\n${signatureContent}`
+                : bestContent;
+              await prisma.ghostwriterJob.update({
+                where: { id: jobId },
+                data: { status: "done", stepLabel: "Done", finalDraft: dbContent },
+              });
+              send({ type: "chunk", text: dbContent });
+              send({ type: "done", finalDraft: dbContent });
+            } else {
+              // No content yet (still planning/researching) — genuine timeout
+              await prisma.ghostwriterJob.update({
+                where: { id: jobId },
+                data: { status: "error", errorMsg: "Pipeline timed out before drafting could complete. Try a shorter piece or simpler content type." },
+              });
+              send({ type: "error", message: "Pipeline timed out before drafting could complete. Try a shorter piece or simpler content type." });
+            }
           } catch { /* best-effort */ }
-          send({ type: "error", message: "Pipeline timed out. Try a shorter piece or simpler content type." });
           controller.close();
         }
       }, timeoutMs);
@@ -434,7 +452,9 @@ export async function GET(
           );
           if (isAborted()) { controller.close(); return; }
 
-          // Persist raw draft
+          // Persist raw draft — also save as bestContent so timeout can deliver it
+          bestContent = selected;
+          bestStage = "drafted";
           await prisma.ghostwriterJob.update({
             where: { id: jobId },
             data: { drafts: JSON.stringify([selected]) },
@@ -478,6 +498,8 @@ export async function GET(
           selected = await draftContent(
             voiceProfile, interview, plan, enrichedContext, favoriteWords, authorContext
           );
+          bestContent = selected;
+          bestStage = "drafted";
           if (isAborted()) { controller.close(); return; }
         }
 
@@ -497,6 +519,8 @@ export async function GET(
             finalContent = reviewed;
           }
         } catch { /* self-review failed — keep draft as-is */ }
+        bestContent = finalContent;
+        bestStage = "reviewed";
         if (isAborted()) { controller.close(); return; }
 
         // ── Humanizer (clerical post-processing — em dashes, thesis repeat, titles) ──
@@ -510,6 +534,8 @@ export async function GET(
             finalContent = humanized;
           }
         } catch { /* humanizer failed — keep reviewed draft as-is */ }
+        bestContent = finalContent;
+        bestStage = "humanized";
         if (isAborted()) { controller.close(); return; }
 
         // Send the final content to the client
