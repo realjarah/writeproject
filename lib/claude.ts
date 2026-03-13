@@ -371,10 +371,10 @@ async function extractPdfTextFromBuffer(buf: Buffer, fileName?: string): Promise
 }
 
 /**
- * Upload all binary context items (PDFs, images) to the Files API once.
- * For PDFs, also extracts text so text-only models (Grok) can see content.
- * Clears base64 data after upload to free memory.
- * Items that fail to upload keep their base64 data as fallback.
+ * Process all binary context items before generation.
+ * - PDFs: parsed to text via pdf-parse (no Files API upload needed).
+ * - Images: uploaded to Files API for Claude to see visually.
+ * Clears base64 data after processing to free memory.
  */
 export async function uploadContextFiles(
   context: GenerationContext
@@ -382,29 +382,40 @@ export async function uploadContextFiles(
   const items = await Promise.all(
     context.items.map(async (item): Promise<ContextItem> => {
       if (!item.data || !item.mediaType) return item;
-      // Already uploaded
-      if (item.fileId) return item;
 
+      // PDFs: parse to text locally — no need to send binary to Claude
+      if (item.mediaType === "application/pdf") {
+        try {
+          const buf = Buffer.from(item.data, "base64");
+          const text = await extractPdfTextFromBuffer(buf, item.fileName);
+          if (!text) {
+            console.warn(`[uploadContextFiles] PDF produced no text: ${item.fileName ?? "unknown"}`);
+            return item;
+          }
+          // Convert from binary item to text item — buildBinaryBlocks will skip it,
+          // buildContextBlock will include the text inline.
+          return {
+            ...item,
+            text,
+            data: undefined,
+            mediaType: undefined,
+            extractedText: undefined,
+          };
+        } catch (err) {
+          console.warn(`[uploadContextFiles] PDF parse failed for ${item.fileName ?? "unknown"}:`, err);
+          return item;
+        }
+      }
+
+      // Images: upload to Files API so Claude can see them
+      if (item.fileId) return item; // Already uploaded
       try {
         const buf = Buffer.from(item.data, "base64");
         const name = item.fileName || `file.${item.mediaType.split("/")[1] || "bin"}`;
         const fileId = await uploadFile(buf, name, item.mediaType);
-
-        // For PDFs, extract text so Grok can see content during planning/drafting
-        let extractedText: string | undefined;
-        if (item.mediaType === "application/pdf") {
-          try {
-            extractedText = await extractPdfTextFromBuffer(buf, name);
-          } catch (err) {
-            console.warn(`[uploadContextFiles] PDF text extraction failed for ${name}:`, err);
-          }
-        }
-
-        // Clear base64 data to free memory; keep fileId for all subsequent calls
-        return { ...item, fileId, data: undefined, ...(extractedText ? { extractedText } : {}) };
+        return { ...item, fileId, data: undefined };
       } catch (err) {
         console.error(`[uploadContextFiles] Failed to upload ${item.fileName ?? "file"}:`, err);
-        // Upload failed — keep base64 data as fallback
         return item;
       }
     })
@@ -462,8 +473,8 @@ function truncateIfNeeded(text: string, maxChars: number, label: string): string
 // ── Context helpers ──────────────────────────────────────────────────────────
 
 // Builds the text portion of the context block.
-// Binary items (images/PDFs) are referenced by name only;
-// their actual content goes in separate message content blocks.
+// PDFs are parsed to text upstream; images are referenced by name only
+// with their actual content in separate message content blocks.
 function buildContextBlock(context: GenerationContext): string {
   if (!context?.items?.length) return "";
 
@@ -527,64 +538,32 @@ function buildContextBlock(context: GenerationContext): string {
 // Determines which beta headers are needed for a set of binary blocks.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getBetaHeaders(binaryBlocks: any[]): Record<string, string> {
-  const betas: string[] = [];
   const hasFileRefs = binaryBlocks.some((b) => b.source?.type === "file");
-  const hasBase64PDFs = binaryBlocks.some(
-    (b) => b.type === "document" && b.source?.type === "base64"
-  );
-  if (hasFileRefs) betas.push(FILES_API_BETA);
-  if (hasBase64PDFs) betas.push("pdfs-2024-09-25");
-  if (betas.length === 0) return {};
-  return { "anthropic-beta": betas.join(",") };
+  if (!hasFileRefs) return {};
+  return { "anthropic-beta": FILES_API_BETA };
 }
 
-// Returns Anthropic content blocks for binary context items (images + PDFs).
+// Returns Anthropic content blocks for binary context items (images only).
+// PDFs are parsed to text upstream in uploadContextFiles, so they don't appear here.
 // Prefers file_id references (Files API) over base64 inline data.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function isSupportedBinaryType(mediaType: string): boolean {
-  return mediaType.startsWith("image/") || mediaType === "application/pdf";
-}
-
 function buildBinaryBlocks(context: GenerationContext): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [];
   for (const item of context.items) {
     // Prefer file_id (Files API) over base64
-    if (item.fileId && item.mediaType) {
-      if (item.mediaType.startsWith("image/")) {
-        blocks.push({
-          type: "image",
-          source: { type: "file", file_id: item.fileId },
-        });
-      } else if (item.mediaType === "application/pdf") {
-        blocks.push({
-          type: "document",
-          source: { type: "file", file_id: item.fileId },
-          ...(item.fileName ? { title: item.fileName } : {}),
-        });
-      } else {
-        console.warn(`[buildBinaryBlocks] Unsupported media type "${item.mediaType}" for file "${item.fileName ?? "unknown"}" — skipping binary block`);
-      }
+    if (item.fileId && item.mediaType?.startsWith("image/")) {
+      blocks.push({
+        type: "image",
+        source: { type: "file", file_id: item.fileId },
+      });
       continue;
     }
     // Fallback: base64 inline
-    if (!item.data || !item.mediaType) continue;
-    if (!isSupportedBinaryType(item.mediaType)) {
-      console.warn(`[buildBinaryBlocks] Unsupported media type "${item.mediaType}" for file "${item.fileName ?? "unknown"}" — skipping binary block`);
-      continue;
-    }
-    if (item.mediaType.startsWith("image/")) {
-      blocks.push({
-        type: "image",
-        source: { type: "base64", media_type: item.mediaType, data: item.data },
-      });
-    } else if (item.mediaType === "application/pdf") {
-      blocks.push({
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: item.data },
-        ...(item.fileName ? { title: item.fileName } : {}),
-      });
-    }
+    if (!item.data || !item.mediaType?.startsWith("image/")) continue;
+    blocks.push({
+      type: "image",
+      source: { type: "base64", media_type: item.mediaType, data: item.data },
+    });
   }
   return blocks;
 }
