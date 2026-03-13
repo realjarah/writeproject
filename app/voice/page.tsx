@@ -124,8 +124,8 @@ export default function VoicePage() {
     load();
   }
 
-  // Client-side size limits (match server: 30MB b64 ≈ 22MB binary PDF, 20MB b64 ≈ 15MB binary DOCX)
-  const MAX_PDF_SIZE = 22 * 1024 * 1024;
+  // Client-side size limits (match server: 60MB b64 ≈ 45MB binary PDF, 20MB b64 ≈ 15MB binary DOCX)
+  const MAX_PDF_SIZE = 45 * 1024 * 1024;
   const MAX_DOCX_SIZE = 15 * 1024 * 1024;
   const MAX_TEXT_SIZE = 500 * 1024; // 500KB for plain text
 
@@ -139,7 +139,7 @@ export default function VoicePage() {
 
     // Validate file size before reading into memory
     if (isPdf && file.size > MAX_PDF_SIZE) {
-      setFileError("PDF too large (max 22MB).");
+      setFileError("PDF too large (max 45MB).");
       return;
     }
     if (isDocx && file.size > MAX_DOCX_SIZE) {

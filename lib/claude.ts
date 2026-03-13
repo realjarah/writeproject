@@ -362,40 +362,12 @@ export async function uploadFile(
 }
 
 /**
- * Extract clean text from a PDF via the Files API + Sonnet.
+ * Extract clean text from a PDF buffer using pdf-parse.
  * Used so text-only models (Grok) can see PDF context during planning/drafting.
  */
-async function extractPdfText(fileId: string, fileName?: string): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = await (getAnthropic().messages.create as any)(
-    {
-      model: "claude-sonnet-4-6",
-      max_tokens: 16000,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "document",
-              source: { type: "file", file_id: fileId },
-              ...(fileName ? { title: fileName } : {}),
-            },
-            {
-              type: "text",
-              text: "Extract and return ONLY the clean text from this document. Preserve paragraph breaks with double newlines. Remove page numbers, headers, footers, and non-content elements. Return nothing but the text.",
-            },
-          ],
-        },
-      ],
-    },
-    { headers: { "anthropic-beta": FILES_API_BETA } }
-  );
-
-  return (message.content as Anthropic.TextBlock[])
-    .filter((b: Anthropic.TextBlock) => b.type === "text")
-    .map((b: Anthropic.TextBlock) => b.text)
-    .join("")
-    .trim();
+async function extractPdfTextFromBuffer(buf: Buffer, fileName?: string): Promise<string> {
+  const { extractPdfText } = await import("@/lib/parse-pdf");
+  return extractPdfText(buf);
 }
 
 /**
@@ -422,7 +394,7 @@ export async function uploadContextFiles(
         let extractedText: string | undefined;
         if (item.mediaType === "application/pdf") {
           try {
-            extractedText = await extractPdfText(fileId, name);
+            extractedText = await extractPdfTextFromBuffer(buf, name);
           } catch (err) {
             console.warn(`[uploadContextFiles] PDF text extraction failed for ${name}:`, err);
           }

@@ -21,7 +21,7 @@ function tagMeta(tag: ContextItemTag) {
 
 const SIZE_LIMITS: Record<string, number> = {
   image: 5 * 1024 * 1024,
-  pdf: 10 * 1024 * 1024,
+  pdf: 45 * 1024 * 1024,
   docx: 15 * 1024 * 1024,
   text: 50 * 1024,
 };
@@ -105,7 +105,7 @@ export default function ContextStep({
     const kind = fileKind(file.name);
     const limit = SIZE_LIMITS[kind];
     if (file.size > limit) {
-      const limitLabel = kind === "image" ? "5MB" : kind === "pdf" ? "10MB" : kind === "docx" ? "15MB" : "50KB";
+      const limitLabel = kind === "image" ? "5MB" : kind === "pdf" ? "45MB" : kind === "docx" ? "15MB" : "50KB";
       alert(`${file.name} is too large. Limit: ${limitLabel}.`);
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
@@ -171,7 +171,7 @@ export default function ContextStep({
     }
     const limit = kind === "pdf" ? SIZE_LIMITS.pdf : kind === "docx" ? SIZE_LIMITS.docx : SIZE_LIMITS.text;
     if (file.size > limit) {
-      const limitLabel = kind === "pdf" ? "10MB" : kind === "docx" ? "15MB" : "50KB";
+      const limitLabel = kind === "pdf" ? "45MB" : kind === "docx" ? "15MB" : "50KB";
       alert(`File too large. Max ${limitLabel}.`);
       if (draftFileRef.current) draftFileRef.current.value = "";
       return;

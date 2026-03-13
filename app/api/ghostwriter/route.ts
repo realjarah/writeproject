@@ -66,8 +66,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(jobs);
 }
 
-// Maximum brief size (50 MB — generous, accommodates large PDFs/images as base64)
-const MAX_BRIEF_BYTES = 50 * 1024 * 1024;
+// Maximum brief size (100 MB — generous, accommodates large PDFs/images as base64)
+const MAX_BRIEF_BYTES = 100 * 1024 * 1024;
 
 // POST — create a new job or saved draft
 export async function POST(req: NextRequest) {
